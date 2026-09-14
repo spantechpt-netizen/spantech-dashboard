@@ -1,0 +1,2487 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة تحكم الموقع — سبان تك</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --ink:#14181D; --steel:#3D4753; --slate:#6B7681;
+  --concrete:#F2F1EE; --paper:#fff; --line:#DCDBD6;
+  --tendon:#B5761C; --tendon-ink:#1E1301; --ok:#0A7A55; --danger:#B3261E;
+  --font:"IBM Plex Sans Arabic",system-ui,sans-serif;
+  --display:"Readex Pro","IBM Plex Sans Arabic",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--concrete);color:var(--ink);font-size:16px;line-height:1.8}
+h1,h2,h3,h4{font-family:var(--display);font-weight:500;line-height:1.4}
+button{font-family:var(--font);cursor:pointer}
+:focus-visible{outline:2px solid var(--tendon);outline-offset:2px}
+
+.top{background:var(--ink);color:#fff;position:sticky;top:0;z-index:900}
+.top-in{max-width:1400px;margin:0 auto;padding:0 20px;height:62px;display:flex;align-items:center;gap:18px}
+.logo{font-family:var(--display);font-weight:600;font-size:18px}
+.logo span{color:var(--tendon)}
+.tabs{display:flex;gap:4px}
+.tabs button{background:none;border:0;color:#AEB6BF;font-size:15px;padding:8px 16px;border-radius:5px}
+.tabs button.on{background:#242C35;color:#fff}
+.top-actions{margin-inline-start:auto;display:flex;gap:8px;align-items:center}
+.saved{font-size:13px;color:#8B95A0}
+
+.btn{border:1px solid transparent;border-radius:5px;padding:10px 18px;font-size:15px}
+.btn-primary{background:var(--tendon);color:var(--tendon-ink);font-weight:500}
+.btn-ghost{background:none;border-color:#4B5661;color:#fff}
+.btn-line{background:var(--paper);border-color:var(--line);color:var(--ink)}
+.btn-danger{background:none;border-color:#E3B7B3;color:var(--danger)}
+.btn-sm{padding:6px 12px;font-size:14px;border-radius:4px}
+
+.warn{background:#FDF4E3;border-bottom:1px solid #E8D5AE;padding:11px 20px;font-size:14.5px;text-align:center}
+.warn b{color:#7A4E0C}
+
+.view{display:none}
+.view.on{display:block}
+.shell{max-width:1400px;margin:0 auto;padding:22px 20px 60px;display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px}
+.panel-head{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.panel-head h2{font-size:17px}
+.pill{background:var(--concrete);border-radius:999px;padding:2px 10px;font-size:13px;color:var(--slate)}
+.search{padding:12px 18px;border-bottom:1px solid var(--line)}
+.search input{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:5px;font-family:var(--font);font-size:15px}
+.list{max-height:68vh;overflow:auto}
+.item{display:flex;gap:11px;padding:11px 18px;border-bottom:1px solid var(--line);cursor:pointer;align-items:center}
+.item:hover{background:var(--concrete)}
+.item.on{background:#FBF3E6;border-inline-start:3px solid var(--tendon)}
+.item-thumb{width:54px;height:40px;border-radius:4px;background:var(--steel) center/cover;flex-shrink:0}
+.item-b{min-width:0;flex:1}
+.item-b b{display:block;font-weight:500;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item-b span{font-size:13px;color:var(--slate)}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.full{background:var(--ok)}
+.dot.part{background:var(--tendon)}
+
+.form-head{padding:17px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.form-head h2{font-size:19px}
+.form-actions{margin-inline-start:auto;display:flex;gap:8px}
+.step{padding:20px 22px;border-bottom:1px solid var(--line)}
+.step-t{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.step-n{width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;font-size:14px;display:grid;place-items:center;font-family:var(--display)}
+.step-t h3{font-size:17px}
+.step-note{color:var(--slate);font-size:14.5px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 16px}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.f label{display:block;font-size:14.5px;font-weight:500;margin-bottom:5px}
+.f .req{color:var(--danger)}
+.f input,.f select,.f textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:5px;font-family:var(--font);font-size:15px;background:var(--paper);color:var(--ink)}
+.f .hint{font-size:13px;color:var(--slate);margin-top:4px;line-height:1.6}
+.f.bad input{border-color:var(--danger);background:#FDF6F5}
+.ltr{direction:ltr;text-align:left}
+
+#pick{height:270px;border:1px solid var(--line);border-radius:6px;margin-top:6px}
+.coord-row{display:flex;gap:12px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}
+.coord-row .f{flex:1;min-width:150px}
+
+/* الألبوم */
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:8px}
+.shot{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper)}
+.shot .thumb{height:100px;background:var(--steel) center/cover;position:relative}
+.cover-badge{position:absolute;inset-block-start:6px;inset-inline-start:6px;background:var(--tendon);color:var(--tendon-ink);font-size:11.5px;padding:2px 8px;border-radius:3px}
+.shot-bar{display:flex;gap:4px;padding:6px;border-top:1px solid var(--line)}
+.shot-bar button{flex:1;background:none;border:1px solid var(--line);border-radius:4px;font-size:12.5px;padding:4px 2px;color:var(--steel)}
+.shot-bar button:hover{background:var(--concrete)}
+.shot-bar .rm{color:var(--danger);border-color:#E3B7B3}
+.add-shot{border:1.5px dashed var(--line);border-radius:6px;min-height:140px;display:grid;place-items:center;color:var(--slate);font-size:14.5px;text-align:center;padding:12px;background:none}
+.add-shot:hover{border-color:var(--tendon);color:var(--tendon)}
+
+.preview{padding:20px 22px;background:var(--concrete)}
+.preview h3{font-size:15px;color:var(--slate);font-weight:400;margin-bottom:12px}
+.card{max-width:340px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper)}
+.card-img{height:170px;background:var(--steel) center/cover;display:flex;align-items:flex-end;padding:14px;position:relative}
+.card-img::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(20,24,29,.55),rgba(20,24,29,0) 55%)}
+.tag{background:var(--tendon);color:var(--tendon-ink);font-size:13px;padding:3px 10px;border-radius:3px;position:relative;z-index:1}
+.shots-badge{position:absolute;inset-block-end:14px;inset-inline-end:14px;background:rgba(20,24,29,.72);color:#fff;font-size:12.5px;padding:2px 9px;border-radius:3px;z-index:1}
+.card-b{padding:16px 18px}
+.card-b h4{font-size:18px;margin-bottom:2px}
+.card-loc{font-size:14.5px;color:var(--slate);margin-bottom:14px}
+.card-specs{display:flex;gap:24px;border-top:1px solid var(--line);padding-top:12px;flex-wrap:wrap}
+.card-specs span{display:block;font-size:12.5px;color:var(--slate)}
+.card-specs b{font-weight:500;font-size:15px;direction:ltr;display:block}
+
+/* محرر النصوص */
+.cshell{max-width:1080px;margin:0 auto;padding:22px 20px 60px}
+.cbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.chip{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:7px 16px;font-size:14.5px}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.cbar input{flex:1;min-width:220px;padding:9px 13px;border:1px solid var(--line);border-radius:5px;font-family:var(--font);font-size:15px}
+.txt{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-bottom:12px}
+.txt-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.txt-h .where{font-size:13.5px;color:var(--slate)}
+.txt-h .key{font-size:12px;color:#9AA0A6;font-family:ui-monospace,monospace;direction:ltr}
+.txt-h .edited{background:#FBF3E6;color:#7A4E0C;font-size:12.5px;padding:1px 9px;border-radius:999px}
+.tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tgrid label{display:block;font-size:13.5px;color:var(--slate);margin-bottom:4px}
+.tgrid textarea{width:100%;min-height:78px;padding:9px 11px;border:1px solid var(--line);border-radius:5px;font-family:var(--font);font-size:14.5px;line-height:1.7;resize:vertical}
+.tgrid .en textarea,.tgrid .fr textarea{direction:ltr;text-align:left}
+
+.empty{padding:70px 24px;text-align:center;color:var(--slate)}
+.toast{position:fixed;inset-inline-start:50%;transform:translateX(50%);bottom:26px;background:var(--ink);color:#fff;padding:13px 24px;border-radius:6px;font-size:15px;z-index:1200;display:none}
+
+@media(max-width:1000px){
+  .shell{grid-template-columns:1fr;padding:16px 14px 50px}
+  .grid,.grid-2,.tgrid{grid-template-columns:1fr}
+  .list{max-height:none}
+  .top-in{gap:10px;overflow-x:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-in">
+    <span class="logo">SPAN<span>·</span>TECH</span>
+    <div class="tabs">
+      <button data-view="projects" class="on">المشاريع</button>
+      <button data-view="content">نصوص الموقع</button>
+    </div>
+    <div class="top-actions">
+      <span class="saved" id="saved"></span>
+      <button class="btn btn-ghost btn-sm" id="importBtn">استيراد</button>
+      <button class="btn btn-primary btn-sm" id="exportBtn">تصدير للموقع</button>
+    </div>
+  </div>
+</div>
+<div class="warn" id="warnBar" hidden>
+  <b>تنبيه:</b> البيانات محفوظة في هذا المتصفح فقط. اضغط «تصدير للموقع» قبل الإغلاق حتى لا تفقد عملك.
+</div>
+
+<!-- ============ المشاريع ============ -->
+<div class="view on" id="v-projects">
+<div class="shell">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>المشاريع</h2><span class="pill" id="cnt">0</span>
+      <button class="btn btn-line btn-sm" id="addBtn" style="margin-inline-start:auto">+ مشروع جديد</button>
+    </div>
+    <div class="search"><input type="search" id="q" placeholder="ابحث بالاسم أو المدينة…"></div>
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="panel">
+    <div class="empty" id="empty"><p>اختر مشروعاً من القائمة لتعديله، أو اضغط «+ مشروع جديد».</p></div>
+    <div id="form" hidden>
+      <div class="form-head">
+        <h2 id="formTitle">تعديل مشروع</h2>
+        <div class="form-actions">
+          <button class="btn btn-danger btn-sm" id="delBtn">حذف</button>
+          <button class="btn btn-primary btn-sm" id="saveBtn">حفظ المشروع</button>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-t"><span class="step-n">1</span><h3>اسم المشروع</h3></div>
+        <p class="step-note">اكتب الاسم بالثلاث لغات. لو مش متأكد من الفرنسي، اكتب الإنجليزي كما هو — أغلب أسماء المشاريع لا تُترجم.</p>
+        <div class="grid">
+          <div class="f"><label>بالعربية <span class="req">*</span></label><input id="n_ar" placeholder="بوليفارد مول"></div>
+          <div class="f"><label>بالإنجليزية <span class="req">*</span></label><input id="n_en" class="ltr" placeholder="Boulevard Mall"></div>
+          <div class="f"><label>بالفرنسية</label><input id="n_fr" class="ltr" placeholder="Boulevard Mall"></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-t"><span class="step-n">2</span><h3>الموقع والتصنيف</h3></div>
+        <p class="step-note">المدينة والدولة تظهر تحت اسم المشروع، والتصنيف يحدد في أي فلتر يظهر.</p>
+        <div class="grid">
+          <div class="f"><label>المدينة والدولة (عربي) <span class="req">*</span></label><input id="l_ar" placeholder="الرياض، السعودية"></div>
+          <div class="f"><label>بالإنجليزية <span class="req">*</span></label><input id="l_en" class="ltr" placeholder="Riyadh, Saudi Arabia"></div>
+          <div class="f"><label>بالفرنسية</label><input id="l_fr" class="ltr" placeholder="Riyad, Arabie saoudite"></div>
+          <div class="f"><label>التصنيف <span class="req">*</span></label>
+            <select id="cat"><option value="retail">مركز تجاري</option><option value="education">تعليمي</option><option value="residential">سكني</option><option value="mixed">متعدد الاستخدام</option><option value="office">إداري / مكاتب</option><option value="public">مبنى عام</option></select></div>
+          <div class="f"><label>نطاق أعمالنا <span class="req">*</span></label>
+            <select id="scope"><option value="design_exec">تصميم + تنفيذ</option><option value="exec">تنفيذ فقط</option><option value="structure">هيكل خرساني كامل</option></select></div>
+          <div class="f"><label>سنة التنفيذ <span class="req">*</span></label><input id="year" class="ltr" placeholder="2024  أو  2022–2023"><div class="hint">لمشروع جارٍ اكتب: 2025 —</div></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-t"><span class="step-n">3</span><h3>البيانات الفنية</h3></div>
+        <p class="step-note">المساحة إجبارية لأنها تظهر على البطاقة. الحقل الفارغ لا يظهر في الموقع إطلاقاً.</p>
+        <div class="grid">
+          <div class="f"><label>المساحة (م²) <span class="req">*</span></label><input id="area" class="ltr" placeholder="107000"><div class="hint">الرقم فقط، الفواصل تُضاف تلقائياً</div></div>
+          <div class="f"><label>سماكة البلاطة (سم)</label><input id="depth" class="ltr" placeholder="22"></div>
+          <div class="f"><label>أكبر بحر (م)</label><input id="span" class="ltr" placeholder="11.5"></div>
+          <div class="f"><label>نوع الكابلات</label><select id="tendon"><option value="">— غير محدد —</option><option>غير مرتبطة</option><option>مرتبطة</option><option>مرتبطة وغير مرتبطة</option></select></div>
+          <div class="f"><label>المالك</label><input id="client" placeholder="اسم الجهة المالكة"></div>
+          <div class="f"><label>الاستشاري</label><input id="consultant" placeholder="اسم المكتب الاستشاري"></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-t"><span class="step-n">4</span><h3>الموقع على الخريطة</h3></div>
+        <p class="step-note">اضغط على مكان المشروع في الخريطة وستُملأ الإحداثيات تلقائياً.</p>
+        <div id="pick"></div>
+        <div class="coord-row">
+          <div class="f"><label>خط العرض</label><input id="lat" class="ltr" placeholder="24.7136"></div>
+          <div class="f"><label>خط الطول</label><input id="lng" class="ltr" placeholder="46.6753"></div>
+          <button class="btn btn-line btn-sm" id="clearPin" type="button">مسح الموقع</button>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-t"><span class="step-n">5</span><h3>ألبوم صور المشروع</h3></div>
+        <p class="step-note">أول صورة هي الواجهة التي تظهر على البطاقة وفي الخريطة. الزائر يضغط على المشروع فيتصفح باقي الصور. رتّب الصور بأزرار الأسهم واجعل أوضحها الواجهة.</p>
+        <div class="gal" id="gal"></div>
+        <input type="file" id="shotFile" accept="image/*" multiple hidden>
+        <div class="f" style="margin-top:14px;max-width:420px">
+          <label>أو أضف مساراً لصورة موجودة</label>
+          <div style="display:flex;gap:8px">
+            <input id="shotPath" class="ltr" placeholder="assets/img/boulevard.jpg">
+            <button class="btn btn-line btn-sm" id="addPath" type="button">إضافة</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview">
+        <h3>هكذا سيظهر المشروع في الموقع</h3>
+        <div class="card">
+          <div class="card-img" id="pvImg"><span class="tag" id="pvTag">مركز تجاري</span><span class="shots-badge" id="pvShots" hidden></span></div>
+          <div class="card-b">
+            <h4 id="pvName">اسم المشروع</h4>
+            <p class="card-loc" id="pvLoc">المدينة، الدولة</p>
+            <div class="card-specs">
+              <div><span>المساحة</span><b id="pvArea">—</b></div>
+              <div><span>السنة</span><b id="pvYear">—</b></div>
+              <div><span>النطاق</span><b id="pvScope">—</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ نصوص الموقع ============ -->
+<div class="view" id="v-content">
+  <div class="cshell">
+    <div class="cbar">
+      <button class="chip on" data-page="index">الرئيسية</button>
+      <button class="chip" data-page="about">من نحن</button>
+      <button class="chip" data-page="services">الخدمات</button>
+      <button class="chip" data-page="projects">المشاريع</button>
+      <button class="chip" data-page="news">الأخبار</button>
+      <button class="chip" data-page="contact">تواصل معنا</button>
+      <input type="search" id="cq" placeholder="ابحث في النصوص…">
+      <span class="pill" id="ccnt"></span>
+    </div>
+    <div id="clist"></div>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept=".json,.js" hidden>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* Span Tech — محتوى الموقع (يُحرَّر من لوحة التحكم) */
+var ST_CONTENT = {
+ "index.001": {
+  "ar": "سبان تك | تصميم وتنفيذ البلاطات لاحقة الشد — مصر والسعودية",
+  "en": "Span Tech | Post-tensioned concrete design and installation",
+  "fr": "Span Tech | Conception et pose de béton post-contraint"
+ },
+ "index.002": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "index.003": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "index.004": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "index.005": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "index.006": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "index.007": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "index.008": {
+  "ar": "أنظمة الخرسانة لاحقة الشد (بوست تنشن)",
+  "en": "Post-tensioned concrete systems",
+  "fr": "Systèmes de béton précontraint par post-tension"
+ },
+ "index.009": {
+  "ar": "بلاطات بسماكة أقل، بحور أطول، تكلفة أوفر",
+  "en": "Thinner slabs. Longer spans. Lower cost.",
+  "fr": "Dalles plus minces. Portées plus longues. Coût réduit."
+ },
+ "index.010": {
+  "ar": "منذ عام 2016 ونحن نُصمّم ونورّد ونُنفّذ أنظمة الشد اللاحق. 987 ألف متر مربع من البلاطات أُنجزت في مصر والسعودية وقطر وأوغندا.",
+  "en": "Since 2016 we have designed, supplied and installed post-tensioning systems. 987,000 m² of slabs delivered across Egypt, Saudi Arabia, Qatar and Uganda.",
+  "fr": "Depuis 2016, nous concevons, fournissons et posons des systèmes de post-tension. 987 000 m² de dalles réalisées en Égypte, en Arabie saoudite, au Qatar et en Ouganda."
+ },
+ "index.011": {
+  "ar": "اطلب دراسة مبدئية",
+  "en": "Request a preliminary study",
+  "fr": "Demander une étude préliminaire"
+ },
+ "index.012": {
+  "ar": "استعرض المشاريع",
+  "en": "View projects",
+  "fr": "Voir les projets"
+ },
+ "index.013": {
+  "ar": "بلاطة مسلحة تقليدية",
+  "en": "Conventional RC slab",
+  "fr": "Dalle en béton armé classique"
+ },
+ "index.014": {
+  "ar": "بلاطة لاحقة الشد",
+  "en": "Post-tensioned slab",
+  "fr": "Dalle post-contrainte"
+ },
+ "index.015": {
+  "ar": "يتبع مسار الكابل منحنى العزوم: مرتفع عند الأعمدة ومنخفض عند منتصف البحر، وهو ما يتيح تقليل السماكة عند البحر نفسه.",
+  "en": "The tendon follows the moment diagram: high over the columns, low at midspan. That is what allows the reduced depth at the same span.",
+  "fr": "Le câble suit la courbe des moments : haut sur appuis, bas à mi-portée. C'est ce qui permet de réduire l'épaisseur à portée égale."
+ },
+ "index.016": {
+  "ar": "بلاطات لاحقة الشد منفذة",
+  "en": "PT slabs installed",
+  "fr": "Dalles post-contraintes posées"
+ },
+ "index.017": {
+  "ar": "طن حديد تسليح موفَّر",
+  "en": "Tonnes of rebar saved",
+  "fr": "Tonnes d'acier économisées"
+ },
+ "index.018": {
+  "ar": "مهندس وفني",
+  "en": "Engineers and technicians",
+  "fr": "Ingénieurs et techniciens"
+ },
+ "index.019": {
+  "ar": "مكاتب في المنطقة",
+  "en": "Regional offices",
+  "fr": "Bureaux régionaux"
+ },
+ "index.020": {
+  "ar": "نطاق أعمالنا",
+  "en": "What we actually do",
+  "fr": "Ce que nous faisons"
+ },
+ "index.021": {
+  "ar": "دورة الشد اللاحق كاملة تحت مظلة واحدة، مع إمكانية التعاقد على أي مرحلة على حدة.",
+  "en": "The full post-tensioning cycle under one roof — and any single stage can be contracted on its own.",
+  "fr": "Le cycle complet de la post-tension sous un même toit — chaque étape peut être contractée séparément."
+ },
+ "index.022": {
+  "ar": "التصميم الإنشائي",
+  "en": "Structural design",
+  "fr": "Conception structurelle"
+ },
+ "index.023": {
+  "ar": "تحليل وتصميم البلاطات والكمرات لاحقة الشد، ورسومات تنفيذية لمسارات الكابلات وجداول الشد.",
+  "en": "Analysis and design of post-tensioned slabs and beams, with shop drawings for tendon profiles and stressing schedules.",
+  "fr": "Analyse et conception de dalles et poutres post-contraintes, avec plans d'exécution des tracés de câbles et calendriers de mise en tension."
+ },
+ "index.024": {
+  "ar": "التصنيع والتوريد",
+  "en": "Manufacturing and supply",
+  "fr": "Fabrication et fourniture"
+ },
+ "index.025": {
+  "ar": "جدائل عالية المقاومة، ورؤوس تثبيت وأسافين، وأغلفة ومواد جراوت — مطابقة لـ PTI و BS 4447 و ETAG.",
+  "en": "High-tensile strand, anchor heads and wedges, ducts and grout — conforming to PTI, BS 4447 and ETAG.",
+  "fr": "Torons à haute résistance, ancrages et clavettes, gaines et coulis — conformes aux référentiels PTI, BS 4447 et ETAG."
+ },
+ "index.026": {
+  "ar": "التنفيذ في الموقع",
+  "en": "Site installation",
+  "fr": "Pose sur chantier"
+ },
+ "index.027": {
+  "ar": "فرد الكابلات ومراجعة المناسيب قبل الصب، والشد بمعدات معايرة، والحقن، وتقارير الاستطالة.",
+  "en": "Tendon laying and pre-pour profile checks, stressing with calibrated jacks, grouting, and elongation reporting.",
+  "fr": "Mise en place des câbles et contrôle des tracés avant coulage, mise en tension avec vérins étalonnés, injection et rapports d'allongement."
+ },
+ "index.028": {
+  "ar": "المقاولات العامة",
+  "en": "General contracting",
+  "fr": "Entreprise générale"
+ },
+ "index.029": {
+  "ar": "في مشاريع مثل مدارس الأندلس ومدينة العلوم نفّذنا الهيكل الخرساني بالكامل، لا أعمال الشد وحدها.",
+  "en": "On projects such as Al Andalos and Science City we delivered the complete concrete structure, not only the PT works.",
+  "fr": "Sur des projets comme Al Andalos et Science City, nous avons réalisé l'ensemble de la structure béton, et pas seulement la post-tension."
+ },
+ "index.030": {
+  "ar": "ليه سبان تك",
+  "en": "Why Span Tech",
+  "fr": "Pourquoi Span Tech"
+ },
+ "index.031": {
+  "ar": "ليست شعارات، بل فروق تظهر في جدول الكميات وفي البرنامج الزمني للمشروع.",
+  "en": "Not slogans — these are the differences that show up in the bill of quantities and in the programme.",
+  "fr": "Pas des slogans — ce sont les écarts qui apparaissent dans le métré et dans le planning."
+ },
+ "index.032": {
+  "ar": "التصميم والتنفيذ من مصدر واحد",
+  "en": "Design and installation from one source",
+  "fr": "Conception et pose par un seul intervenant"
+ },
+ "index.033": {
+  "ar": "المهندس الذي يُصمّم مسار الكابل هو نفسه من يُشرف على تنفيذه، وهو ما يُغلق الفجوة المعتادة بين مكتب التصميم وطاقم الموقع.",
+  "en": "The engineer who designs the tendon profile is the one who installs it, which closes the gap that normally opens between the design office and the site crew.",
+  "fr": "L'ingénieur qui conçoit le tracé est celui qui le pose : l'écart habituel entre bureau d'études et équipe de chantier disparaît."
+ },
+ "index.034": {
+  "ar": "مواد باعتماد دولي",
+  "en": "Internationally approved materials",
+  "fr": "Matériaux agréés à l'international"
+ },
+ "index.035": {
+  "ar": "أنظمتنا معتمدة من PTI ومطابقة لـ BS 4447 و ETAG الأوروبي، ما يجعل ملف اعتماد المواد يجتاز مراجعة الاستشاري دون أخذ ورد.",
+  "en": "Our systems are PTI-approved and comply with BS 4447 and the European ETAG, so the material submittal clears consultant review without back-and-forth.",
+  "fr": "Nos systèmes sont agréés PTI et conformes à la BS 4447 et à l'ETAG européen : le dossier matériaux passe la revue du bureau de contrôle sans allers-retours."
+ },
+ "index.036": {
+  "ar": "حضور إقليمي حقيقي",
+  "en": "Real regional presence",
+  "fr": "Une présence régionale réelle"
+ },
+ "index.037": {
+  "ar": "خمسة مكاتب في مصر والسعودية وقطر والمغرب وأوغندا، بمعدات وطواقم متمركزة في المنطقة لا تُستقدم من الخارج مع كل مشروع.",
+  "en": "Five offices across Egypt, Saudi Arabia, Qatar, Morocco and Uganda — equipment and crews already in the region, not mobilised from abroad for each job.",
+  "fr": "Cinq bureaux en Égypte, Arabie saoudite, Qatar, Maroc et Ouganda — équipements et équipes déjà sur place, non mobilisés depuis l'étranger à chaque chantier."
+ },
+ "index.038": {
+  "ar": "توثيق يقفل الاستلام",
+  "en": "Documentation that closes handover",
+  "fr": "Une documentation qui clôt la réception"
+ },
+ "index.039": {
+  "ar": "تقارير استطالة لكل كابل، وشهادات معايرة مكابس الشد، وسجل الحقن. يُسلَّم الملف كاملاً مع البلاطة.",
+  "en": "Elongation reports for every tendon, jack calibration certificates and a grouting log. The file is handed over with the slab.",
+  "fr": "Rapports d'allongement pour chaque câble, certificats d'étalonnage des vérins et registre d'injection. Le dossier est remis avec la dalle."
+ },
+ "index.040": {
+  "ar": "خبرة في القطاع التعليمي",
+  "en": "Depth in the education sector",
+  "fr": "Expertise du secteur éducatif"
+ },
+ "index.041": {
+  "ar": "تسع مدارس ومجمعات تعليمية في مصر والسعودية، وهو قطاع تختلف فيه اشتراطات البحور والأحمال والبرنامج الزمني عن القطاع التجاري.",
+  "en": "Nine schools and education campuses across Egypt and Saudi Arabia — a sector with span, load and programme constraints unlike retail.",
+  "fr": "Neuf écoles et campus en Égypte et en Arabie saoudite — un secteur dont les contraintes de portée, de charge et de planning diffèrent du commerce."
+ },
+ "index.042": {
+  "ar": "أرقام بدل وعود",
+  "en": "Numbers instead of promises",
+  "fr": "Des chiffres plutôt que des promesses"
+ },
+ "index.043": {
+  "ar": "نُرسل مقارنة كميات بين النظامين قبل التعاقد، ليكون القرار مبنياً على رقم موثَّق لا على وعد.",
+  "en": "We issue a quantity comparison between both systems before any contract, so the decision rests on a number you can see rather than a claim.",
+  "fr": "Nous remettons un comparatif de quantités entre les deux systèmes avant tout contrat : la décision repose sur un chiffre vérifiable, non sur une promesse."
+ },
+ "index.044": {
+  "ar": "آلية العمل",
+  "en": "How we work",
+  "fr": "Notre méthode"
+ },
+ "index.045": {
+  "ar": "خمس مراحل، لكل منها مخرَج موثَّق يُسلَّم للاستشاري قبل الانتقال إلى المرحلة التالية.",
+  "en": "Five stages, each with a documented deliverable handed to the consultant before the next begins.",
+  "fr": "Cinq étapes, chacune avec un livrable documenté remis au bureau de contrôle avant de passer à la suivante."
+ },
+ "index.046": {
+  "ar": "الدراسة المبدئية",
+  "en": "Preliminary study",
+  "fr": "Étude préliminaire"
+ },
+ "index.047": {
+  "ar": "مراجعة الرسومات واقتراح السماكة والنظام.",
+  "en": "Drawing review, proposed depth and system.",
+  "fr": "Revue des plans, épaisseur et système proposés."
+ },
+ "index.048": {
+  "ar": "التصميم التفصيلي",
+  "en": "Detailed design",
+  "fr": "Conception détaillée"
+ },
+ "index.049": {
+  "ar": "نمذجة وتحليل ورسومات مسارات الكابلات.",
+  "en": "Modelling, analysis and tendon layout drawings.",
+  "fr": "Modélisation, analyse et plans de tracés."
+ },
+ "index.050": {
+  "ar": "التوريد",
+  "en": "Supply",
+  "fr": "Fourniture"
+ },
+ "index.051": {
+  "ar": "تجهيز الكابلات ورؤوس التثبيت وفق جدول الصب.",
+  "en": "Strand and anchorages staged to the pour schedule.",
+  "fr": "Torons et ancrages livrés selon le calendrier de coulage."
+ },
+ "index.052": {
+  "ar": "التركيب",
+  "en": "Installation",
+  "fr": "Pose"
+ },
+ "index.053": {
+  "ar": "فرد الكابلات وضبط المناسيب ومراجعة ما قبل الصب.",
+  "en": "Tendon laying, profile levels and pre-pour inspection.",
+  "fr": "Mise en place, réglage des tracés et contrôle avant coulage."
+ },
+ "index.054": {
+  "ar": "الشد والحقن",
+  "en": "Stressing and grouting",
+  "fr": "Mise en tension et injection"
+ },
+ "index.055": {
+  "ar": "الشد على الجدول وتسليم تقارير الاستطالة.",
+  "en": "Stressing to schedule, with elongation reports issued.",
+  "fr": "Mise en tension selon planning et remise des rapports."
+ },
+ "index.056": {
+  "ar": "مشاريع مختارة",
+  "en": "Selected projects",
+  "fr": "Projets sélectionnés"
+ },
+ "index.057": {
+  "ar": "سكني",
+  "en": "Residential",
+  "fr": "Résidentiel"
+ },
+ "index.058": {
+  "ar": "ليك فيو ريزيدنس",
+  "en": "Lake View Residence",
+  "fr": "Lake View Residence"
+ },
+ "index.059": {
+  "ar": "القاهرة الجديدة، مصر — 119 عمارة",
+  "en": "New Cairo, Egypt — 119 buildings",
+  "fr": "Le Caire Nouveau, Égypte — 119 bâtiments"
+ },
+ "index.060": {
+  "ar": "المساحة",
+  "en": "Area",
+  "fr": "Surface"
+ },
+ "index.061": {
+  "ar": "السنة",
+  "en": "Year",
+  "fr": "Année"
+ },
+ "index.062": {
+  "ar": "مركز تجاري",
+  "en": "Retail",
+  "fr": "Commerce"
+ },
+ "index.063": {
+  "ar": "بوليفارد مول",
+  "en": "Boulevard Mall",
+  "fr": "Boulevard Mall"
+ },
+ "index.064": {
+  "ar": "القاهرة الجديدة، مصر",
+  "en": "New Cairo, Egypt",
+  "fr": "Le Caire Nouveau, Égypte"
+ },
+ "index.065": {
+  "ar": "المساحة",
+  "en": "Area",
+  "fr": "Surface"
+ },
+ "index.066": {
+  "ar": "السنة",
+  "en": "Year",
+  "fr": "Année"
+ },
+ "index.067": {
+  "ar": "تعليمي",
+  "en": "Education",
+  "fr": "Éducation"
+ },
+ "index.068": {
+  "ar": "مدارس الأندلس",
+  "en": "Al Andalos Schools",
+  "fr": "Écoles Al Andalos"
+ },
+ "index.069": {
+  "ar": "جدة، السعودية — هيكل كامل",
+  "en": "Jeddah, Saudi Arabia — full structure",
+  "fr": "Djeddah, Arabie saoudite — structure complète"
+ },
+ "index.070": {
+  "ar": "المساحة",
+  "en": "Area",
+  "fr": "Surface"
+ },
+ "index.071": {
+  "ar": "السنة",
+  "en": "Year",
+  "fr": "Année"
+ },
+ "index.072": {
+  "ar": "كل المشاريع على الخريطة",
+  "en": "All projects on the map",
+  "fr": "Tous les projets sur la carte"
+ },
+ "index.073": {
+  "ar": "اعتمادات الأنظمة",
+  "en": "System approvals",
+  "fr": "Agréments des systèmes"
+ },
+ "index.074": {
+  "ar": "أنظمة سبان تك (مجموعة MK4) معتمدة للاستخدام من الجهات التالية، وهو ما يُسرّع اجتياز ملف المواد للمراجعة الفنية.",
+  "en": "Span Tech systems (MK4 group) are approved for use by the bodies below — which is what moves the material submittal quickly through technical review.",
+  "fr": "Les systèmes Span Tech (groupe MK4) sont agréés par les organismes ci-dessous, ce qui accélère la validation technique du dossier matériaux."
+ },
+ "index.075": {
+  "ar": "PTI — معهد ما بعد الشد الأمريكي",
+  "en": "PTI — Post-Tensioning Institute",
+  "fr": "PTI — Post-Tensioning Institute"
+ },
+ "index.076": {
+  "ar": "BS 4447 — المواصفة البريطانية",
+  "en": "BS 4447 — British Standard",
+  "fr": "BS 4447 — norme britannique"
+ },
+ "index.077": {
+  "ar": "ETAG — الاعتماد الفني الأوروبي",
+  "en": "ETAG — European Technical Approval",
+  "fr": "ETAG — agrément technique européen"
+ },
+ "index.078": {
+  "ar": "مكاتب استشارية وشركات مقاولات متعددة الجنسيات",
+  "en": "Engineering consultancies and multinational contractors",
+  "fr": "Bureaux d'études et entreprises multinationales"
+ },
+ "index.079": {
+  "ar": "الشد اللاحق ليس ترفاً هندسياً، بل قرار يُتخذ على الورق: كم متراً مكعباً من الخرسانة، وكم طناً من الحديد، وكم يوماً في البرنامج الزمني. دورنا أن نضع هذه الأرقام أمامك قبل أن تقرر.",
+  "en": "Post-tensioning is not an engineering luxury. It is a decision made on paper: cubic metres of concrete, tonnes of steel, days on the programme. Our job is to put those numbers in front of you before you decide.",
+  "fr": "La post-tension n'est pas un luxe d'ingénieur. C'est une décision qui se prend sur le papier : mètres cubes de béton, tonnes d'acier, jours de planning. Notre rôle est de vous fournir ces chiffres avant votre décision."
+ },
+ "index.080": {
+  "ar": "حسام سالم — الرئيس التنفيذي، سبان تك",
+  "en": "Hossam Salem — CEO, Span Tech",
+  "fr": "Hossam Salem — PDG, Span Tech"
+ },
+ "index.081": {
+  "ar": "أسئلة متكررة",
+  "en": "Questions we get",
+  "fr": "Questions fréquentes"
+ },
+ "index.082": {
+  "ar": "ما الفرق بين الخرسانة لاحقة الشد والخرسانة المسلحة التقليدية؟",
+  "en": "How does post-tensioned concrete differ from conventional RC?",
+  "fr": "Quelle différence avec le béton armé classique ?"
+ },
+ "index.083": {
+  "ar": "في النظام التقليدي يقاوم حديد التسليح إجهاد الشد بعد نشوئه. أما في النظام لاحق الشد فتُمدّ كابلات عالية المقاومة داخل البلاطة قبل الصب، وتُشدّ بعد بلوغ الخرسانة مقاومتها المطلوبة، فتتولّد إجهادات ضغط تقاوم أحمال التشغيل وتحدّ من الترخيم والتشققات.",
+  "en": "In a conventional slab, reinforcement resists tensile stress after it develops. In a post-tensioned slab, high-tensile strands are laid before the pour and stressed once the concrete reaches its specified strength, introducing precompression that counteracts service loads and limits deflection and cracking.",
+  "fr": "Dans une dalle classique, les armatures reprennent la traction une fois celle-ci apparue. En post-tension, les torons sont mis en place avant coulage puis tendus dès que le béton atteint sa résistance : la précompression obtenue s'oppose aux charges de service et limite flèche et fissuration."
+ },
+ "index.084": {
+  "ar": "متى يكون هذا النظام مجدياً اقتصادياً؟",
+  "en": "When does post-tensioning pay off?",
+  "fr": "Quand la post-tension est-elle rentable ?"
+ },
+ "index.085": {
+  "ar": "كلما اتسعت البحور وتكررت الأدوار، ازدادت الجدوى. والمواقف والمراكز التجارية والأبراج السكنية والمدارس هي الأكثر استفادة، إذ ينتقل أثر تقليل السماكة إلى كميات الخرسانة والحديد وإلى الأحمال المنقولة للأساسات. أما تحديد الوفر بدقة فيتطلب حصر كميات للمشروع نفسه.",
+  "en": "The longer the spans and the more repeated the floors, the stronger the case. Car parks, malls, residential towers and schools benefit most, since reduced depth carries through to concrete and steel quantities and to the loads reaching the foundations. Quantifying the saving accurately requires a take-off for the specific project.",
+  "fr": "Plus les portées sont longues et les étages répétitifs, plus l'intérêt est net. Parkings, centres commerciaux, tours résidentielles et écoles en profitent le plus : la réduction d'épaisseur se répercute sur les quantités de béton et d'acier et sur les charges en fondation. Chiffrer l'économie exige un métré propre au projet."
+ },
+ "index.086": {
+  "ar": "كابلات مرتبطة أم غير مرتبطة؟",
+  "en": "Bonded or unbonded tendons?",
+  "fr": "Câbles adhérents ou non adhérents ?"
+ },
+ "index.087": {
+  "ar": "الكابل غير المرتبط مغلَّف بمادة شحمية وغلاف بلاستيكي ويبقى حراً داخل الخرسانة، وهو الشائع في البلاطات. أما الكابل المرتبط فيمر داخل غلاف (Duct) يُحقن بالجراوت بعد الشد ليعمل مع الخرسانة كوحدة واحدة، وهو الأنسب للجسور والعناصر عالية الأحمال.",
+  "en": "An unbonded tendon is greased and plastic-sheathed and stays free within the concrete — the usual choice for slabs. A bonded tendon runs in a duct that is grouted after stressing so it acts compositely with the concrete, which suits bridges and heavily loaded members.",
+  "fr": "Le câble non adhérent est graissé et gainé, il reste libre dans le béton : c'est l'usage courant en dalles. Le câble adhérent circule dans une gaine injectée après mise en tension et travaille en solidarité avec le béton, ce qui convient aux ponts et aux éléments fortement chargés."
+ },
+ "index.088": {
+  "ar": "كم تستغرق الدراسة المبدئية؟",
+  "en": "How long does the preliminary study take?",
+  "fr": "Quel délai pour l'étude préliminaire ?"
+ },
+ "index.089": {
+  "ar": "48 ساعة عمل من استلام الرسومات المعمارية والإنشائية، وتشمل السماكة المقترحة ومقارنة مبدئية للكميات مع النظام التقليدي.",
+  "en": "Within 48 working hours of receiving the architectural and structural drawings, covering the proposed slab depth and an initial quantity comparison against a conventional system.",
+  "fr": "Sous 48 heures ouvrées après réception des plans d'architecture et de structure ; elle couvre l'épaisseur proposée et un comparatif initial des quantités face au système classique."
+ },
+ "index.090": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "index.091": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "index.092": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "index.093": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "index.094": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "index.095": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "index.096": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "index.097": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "index.098": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "index.099": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "index.100": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "index.101": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "index.102": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "index.103": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "index.104": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ },
+ "about.001": {
+  "ar": "من نحن | سبان تك — 987 ألف م² بلاطات لاحقة الشد",
+  "en": "About | Span Tech — 987,000 m² of post-tensioned slabs",
+  "fr": "À propos | Span Tech — 987 000 m² de dalles post-contraintes"
+ },
+ "about.002": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "about.003": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "about.004": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "about.005": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "about.006": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "about.007": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "about.008": {
+  "ar": "من نحن",
+  "en": "About us",
+  "fr": "À propos"
+ },
+ "about.009": {
+  "ar": "شركة قامت على فكرة واحدة: الخرسانة يمكن أن تعمل بكفاءة أعلى",
+  "en": "A company built on one idea: concrete can work smarter",
+  "fr": "Une entreprise fondée sur une idée : le béton peut travailler plus intelligemment"
+ },
+ "about.010": {
+  "ar": "سبان تك شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. انطلقت من القاهرة عام 2016، ولديها اليوم خمسة مكاتب في مصر والسعودية وقطر والمغرب وأوغندا، وأكثر من 150 مهندساً وفنياً.",
+  "en": "Span Tech is a general contractor with a dedicated post-tensioning division. We started in Cairo in 2016 and now run five offices across Egypt, Saudi Arabia, Qatar, Morocco and Uganda, with more than 150 engineers and technicians.",
+  "fr": "Span Tech est une entreprise générale dotée d'une division post-tension. Fondée au Caire en 2016, elle compte aujourd'hui cinq bureaux en Égypte, Arabie saoudite, Qatar, Maroc et Ouganda, et plus de 150 ingénieurs et techniciens."
+ },
+ "about.011": {
+  "ar": "كلمة الرئيس التنفيذي",
+  "en": "From the CEO",
+  "fr": "Le mot du PDG"
+ },
+ "about.012": {
+  "ar": "حين بدأنا سبان تك، كان السوق ينظر إلى الشد اللاحق باعتباره خياراً للمشاريع الضخمة وحدها. اتجهنا إلى العكس: أن يكون هذا النظام متاحاً لمدرسة مساحتها ثمانية آلاف متر مربع كما هو متاح لمركز تجاري مساحته 120 ألفاً.",
+  "en": "When we started Span Tech, the market treated post-tensioning as something reserved for mega-projects. We worked in the opposite direction: making the system as accessible to an 8,000 m² school as it is to a 120,000 m² mall.",
+  "fr": "À nos débuts, le marché réservait la post-tension aux très grands projets. Nous avons pris le chemin inverse : rendre ce système aussi accessible à une école de 8 000 m² qu'à un centre commercial de 120 000 m²."
+ },
+ "about.013": {
+  "ar": "وما جعل ذلك ممكناً هو إمساكنا بالسلسلة كاملة: التصميم والتصنيع والتوريد والتنفيذ. فلا وسيط بين المهندس الذي رسم مسار الكابل والفني الذي يمدّه في الموقع.",
+  "en": "What made that possible was holding the whole chain: design, manufacturing, supply and installation. There is no intermediary between the engineer who drew the tendon profile and the technician who lays it on site.",
+  "fr": "Cela a été possible en maîtrisant toute la chaîne : conception, fabrication, fourniture et pose. Aucun intermédiaire entre l'ingénieur qui trace le câble et le technicien qui le met en place."
+ },
+ "about.014": {
+  "ar": "والنتيجة بعد تسع سنوات: 987 ألف متر مربع من البلاطات، و20 ألف طن من حديد التسليح لم تُستهلك، وعشرون مشروعاً في أربع دول. وما زلنا في البداية.",
+  "en": "Nine years on, the result is 987,000 m² of slabs, 20,000 tonnes of reinforcement never spent, and twenty projects across four countries. We are still early.",
+  "fr": "Neuf ans plus tard : 987 000 m² de dalles, 20 000 tonnes d'acier économisées et vingt projets dans quatre pays. Et ce n'est qu'un début."
+ },
+ "about.015": {
+  "ar": "حسام سالم — الرئيس التنفيذي",
+  "en": "Hossam Salem — CEO",
+  "fr": "Hossam Salem — PDG"
+ },
+ "about.016": {
+  "ar": "تأسيس سبان تك في القاهرة، وأول تعاقد على مشروع ليك فيو ريزيدنس (119 عمارة).",
+  "en": "Span Tech founded in Cairo; first contract on Lake View Residence (119 buildings).",
+  "fr": "Création de Span Tech au Caire ; premier contrat sur Lake View Residence (119 bâtiments)."
+ },
+ "about.017": {
+  "ar": "التوسع في القطاع التجاري: القطامية وأرابيلا وبوليفارد، بأكثر من 270 ألف متر مربع.",
+  "en": "Expansion into retail: Qattamia, Arabilla and Boulevard — over 270,000 m² combined.",
+  "fr": "Développement dans le commerce : Qattamia, Arabilla et Boulevard — plus de 270 000 m² au total."
+ },
+ "about.018": {
+  "ar": "دخول القطاع التعليمي والعاصمة الإدارية، وبداية مشروع ARK.",
+  "en": "Entry into the education sector and the New Administrative Capital; ARK begins.",
+  "fr": "Entrée dans le secteur éducatif et la Nouvelle Capitale ; démarrage du projet ARK."
+ },
+ "about.019": {
+  "ar": "التوسع في السعودية: ثمانية مشاريع في الرياض وجدة، منها هياكل خرسانية كاملة.",
+  "en": "Saudi expansion: eight projects in Riyadh and Jeddah, including complete concrete structures.",
+  "fr": "Expansion saoudienne : huit projets à Riyad et Djeddah, dont des structures béton complètes."
+ },
+ "about.020": {
+  "ar": "خمس مكاتب في المنطقة، و150+ مهندس وفني، واستمرار العمل في ARK.",
+  "en": "Five regional offices, 150+ engineers and technicians, ARK still running.",
+  "fr": "Cinq bureaux régionaux, plus de 150 ingénieurs et techniciens, ARK toujours en cours."
+ },
+ "about.021": {
+  "ar": "بلاطات منفذة",
+  "en": "Slabs installed",
+  "fr": "Dalles posées"
+ },
+ "about.022": {
+  "ar": "طن حديد موفَّر",
+  "en": "Tonnes of rebar saved",
+  "fr": "Tonnes d'acier économisées"
+ },
+ "about.023": {
+  "ar": "عميل",
+  "en": "Clients",
+  "fr": "Clients"
+ },
+ "about.024": {
+  "ar": "مهندس وفني",
+  "en": "Engineers and technicians",
+  "fr": "Ingénieurs et techniciens"
+ },
+ "about.025": {
+  "ar": "ما نلتزم به",
+  "en": "What we are working toward",
+  "fr": "Ce vers quoi nous travaillons"
+ },
+ "about.026": {
+  "ar": "ليست رؤية معلَّقة على الجدار، بل أربعة التزامات نُحاسَب عليها في كل مشروع.",
+  "en": "Not a statement for the wall — four commitments we are held to on every project.",
+  "fr": "Pas une déclaration murale — quatre engagements évalués sur chaque projet."
+ },
+ "about.027": {
+  "ar": "نظام مفهوم قبل تنفيذه",
+  "en": "A system understood before it is built",
+  "fr": "Un système compris avant d'être posé"
+ },
+ "about.028": {
+  "ar": "نشرح للاستشاري والمالك ما سيحدث وإلى أي مدى، بالأرقام، قبل التوقيع لا بعده.",
+  "en": "We explain to the consultant and the owner exactly what will happen and to what extent, in numbers, before signing rather than after.",
+  "fr": "Nous expliquons au bureau d'études et au maître d'ouvrage ce qui va se passer, chiffres à l'appui, avant la signature et non après."
+ },
+ "about.029": {
+  "ar": "جودة تُقاس لا تُوصف",
+  "en": "Quality that is measured, not described",
+  "fr": "Une qualité mesurée, pas décrite"
+ },
+ "about.030": {
+  "ar": "لكل كابل قراءة استطالة، ولكل مكبس شهادة معايرة سارية، ولكل صبّة محضر مراجعة سابق لها.",
+  "en": "Every tendon has an elongation reading, every jack a valid calibration certificate, and every pour a pre-pour inspection record.",
+  "fr": "Chaque câble a sa mesure d'allongement, chaque vérin son certificat d'étalonnage valide, chaque coulage son procès-verbal de contrôle."
+ },
+ "about.031": {
+  "ar": "أقل مواد لنفس الأداء",
+  "en": "Less material for the same performance",
+  "fr": "Moins de matière, même performance"
+ },
+ "about.032": {
+  "ar": "كل طن من الحديد ومتر مكعب من الخرسانة يُوفَّر هو خفض للتكلفة وللأثر البيئي في آن واحد.",
+  "en": "Every tonne of steel and cubic metre of concrete saved is a reduction in cost and in environmental footprint at once.",
+  "fr": "Chaque tonne d'acier et mètre cube de béton économisés réduisent à la fois le coût et l'empreinte environnementale."
+ },
+ "about.033": {
+  "ar": "السلامة شرط لا بند",
+  "en": "Safety as a condition, not a clause",
+  "fr": "La sécurité comme condition, non comme clause"
+ },
+ "about.034": {
+  "ar": "تنطوي أعمال الشد على طاقة مخزَّنة عالية، فلا تبدأ أي عملية شد دون تأمين المنطقة خلف المكبس وتدريب موثَّق للطاقم.",
+  "en": "Stressing involves high stored energy. No stressing operation starts without the zone behind the jack secured and the crew's training documented.",
+  "fr": "La mise en tension met en jeu une forte énergie accumulée. Aucune opération ne démarre sans sécurisation de la zone derrière le vérin et formation documentée de l'équipe."
+ },
+ "about.035": {
+  "ar": "مكاتبنا",
+  "en": "Our offices",
+  "fr": "Nos bureaux"
+ },
+ "about.036": {
+  "ar": "خمسة مكاتب تعني معدات وطواقم متمركزة في المنطقة، فالتعبئة تستغرق أياماً لا شهوراً.",
+  "en": "Five offices means equipment and crews already in the region — mobilisation takes days, not months.",
+  "fr": "Cinq bureaux, c'est du matériel et des équipes déjà sur place — une mobilisation en jours, pas en mois."
+ },
+ "about.037": {
+  "ar": "مصر — القاهرة",
+  "en": "Egypt — Cairo",
+  "fr": "Égypte — Le Caire"
+ },
+ "about.038": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "about.039": {
+  "ar": "السعودية — الرياض",
+  "en": "Saudi Arabia — Riyadh",
+  "fr": "Arabie saoudite — Riyad"
+ },
+ "about.040": {
+  "ar": "مكتب 10، مركز المرسلات",
+  "en": "Office 10, Al Morsalat Center",
+  "fr": "Bureau 10, Al Morsalat Center"
+ },
+ "about.041": {
+  "ar": "قطر — الدوحة",
+  "en": "Qatar — Doha",
+  "fr": "Qatar — Doha"
+ },
+ "about.042": {
+  "ar": "مبنى 94، شارع 420، العزيزية",
+  "en": "Building 94, St. 420, Azizia",
+  "fr": "Bâtiment 94, rue 420, Azizia"
+ },
+ "about.043": {
+  "ar": "أوغندا — كمبالا",
+  "en": "Uganda — Kampala",
+  "fr": "Ouganda — Kampala"
+ },
+ "about.044": {
+  "ar": "قطعة 292، طريق ماواندا",
+  "en": "Plot 292, Mawanda Rd.",
+  "fr": "Parcelle 292, Mawanda Rd."
+ },
+ "about.045": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "about.046": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "about.047": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "about.048": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "about.049": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "about.050": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "about.051": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "about.052": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "about.053": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "about.054": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "about.055": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "about.056": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "about.057": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "about.058": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "about.059": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ },
+ "services.001": {
+  "ar": "الخدمات | تصميم وتوريد وتنفيذ الشد اللاحق — سبان تك",
+  "en": "Services | Post-tensioning design, supply and installation — Span Tech",
+  "fr": "Services | Conception, fourniture et pose de post-tension — Span Tech"
+ },
+ "services.002": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "services.003": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "services.004": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "services.005": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "services.006": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "services.007": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "services.008": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "services.009": {
+  "ar": "أربع خدمات، ويمكن التعاقد على أي منها على حدة",
+  "en": "Four services — and you can take any one on its own",
+  "fr": "Quatre services — chacun peut être pris séparément"
+ },
+ "services.010": {
+  "ar": "من عملائنا من يكتفي بالتصميم وينفّذ بطاقمه، ومنهم من يُسلّمنا الهيكل كاملاً. وكلا النطاقين عمل معتاد لدينا.",
+  "en": "Some clients take the design only and install with their own crews; others hand us the entire structure. Both are routine for us.",
+  "fr": "Certains clients ne prennent que la conception et posent avec leurs équipes ; d'autres nous confient toute la structure. Les deux sont notre quotidien."
+ },
+ "services.011": {
+  "ar": "التصميم الإنشائي",
+  "en": "Structural design",
+  "fr": "Conception structurelle"
+ },
+ "services.012": {
+  "ar": "نستلم الرسومات المعمارية والإنشائية، ونُنمذج البلاطة ونحللها، ونحدد مسارات الكابلات وأعدادها وقوى الشد، ثم نُصدر الرسومات التنفيذية التي يعمل عليها الموقع. ويُراجع العمل مهندس ثانٍ قبل إصداره.",
+  "en": "We receive the architectural and structural drawings, model and analyse the slab, set tendon profiles, counts and stressing forces, and issue the shop drawings the site works from. Everything is checked by a second engineer before release.",
+  "fr": "Nous recevons les plans d'architecture et de structure, modélisons et analysons la dalle, définissons tracés, nombre de câbles et forces de tension, puis délivrons les plans d'exécution utilisés sur le chantier. Tout est vérifié par un second ingénieur avant diffusion."
+ },
+ "services.013": {
+  "ar": "ما تستلمه",
+  "en": "What you receive",
+  "fr": "Ce que vous recevez"
+ },
+ "services.014": {
+  "ar": "مذكرة حسابية بالسماكة المقترحة والنظام",
+  "en": "Design note with proposed depth and system",
+  "fr": "Note de calcul : épaisseur et système proposés"
+ },
+ "services.015": {
+  "ar": "رسومات مسارات الكابلات ومناسيبها",
+  "en": "Tendon layout and profile drawings",
+  "fr": "Plans de tracés et cotes des câbles"
+ },
+ "services.016": {
+  "ar": "جدول شد بقوى الشد والاستطالات المتوقعة",
+  "en": "Stressing schedule with forces and expected elongations",
+  "fr": "Calendrier de tension : forces et allongements attendus"
+ },
+ "services.017": {
+  "ar": "تفاصيل الحديد الإضافي عند الكاسات والفتحات",
+  "en": "Additional reinforcement details at anchorages and openings",
+  "fr": "Détails d'armatures aux ancrages et réservations"
+ },
+ "services.018": {
+  "ar": "حصر كميات للمقارنة مع النظام التقليدي",
+  "en": "Quantity take-off for comparison against conventional RC",
+  "fr": "Métré comparatif avec le béton armé classique"
+ },
+ "services.019": {
+  "ar": "التصنيع والتوريد",
+  "en": "Manufacturing and supply",
+  "fr": "Fabrication et fourniture"
+ },
+ "services.020": {
+  "ar": "نُصنّع ونورّد ملحقات الشد اللاحق ضمن نظام جودة مطابق للمواصفات الدولية. وتصل المواد إلى الموقع مقطوعة على المقاسات ومرقَّمة وفق جدول الصب، فلا يُهدر وقت في الفرز.",
+  "en": "We manufacture and supply post-tensioning accessories under a quality system aligned with international standards. Material arrives cut to length and numbered against the pour schedule, so no time is lost sorting on site.",
+  "fr": "Nous fabriquons et fournissons les accessoires de post-tension sous un système qualité conforme aux normes internationales. Le matériel arrive coupé à longueur et repéré selon le calendrier de coulage : aucun temps perdu au tri."
+ },
+ "services.021": {
+  "ar": "ما نورّده",
+  "en": "What we supply",
+  "fr": "Ce que nous fournissons"
+ },
+ "services.022": {
+  "ar": "جدائل (Strands) عالية المقاومة — مرتبطة وغير مرتبطة",
+  "en": "High-tensile strand — bonded and unbonded",
+  "fr": "Torons à haute résistance — adhérents et non adhérents"
+ },
+ "services.023": {
+  "ar": "رؤوس تثبيت وأسافين (Anchor heads &amp; wedges)",
+  "en": "Anchor heads and wedges",
+  "fr": "Têtes d'ancrage et clavettes"
+ },
+ "services.024": {
+  "ar": "أغلفة معدنية وبلاستيكية (Ducts)، ومواد الجراوت",
+  "en": "Steel and plastic ducts, and grout materials",
+  "fr": "Gaines acier et plastique, produits d'injection"
+ },
+ "services.025": {
+  "ar": "مكابس شد ومضخات معايرة بشهادات سارية",
+  "en": "Stressing jacks and pumps with valid calibration certificates",
+  "fr": "Vérins et pompes avec certificats d'étalonnage valides"
+ },
+ "services.026": {
+  "ar": "اعتماد PTI ومطابقة BS 4447 و ETAG",
+  "en": "PTI approval, BS 4447 and ETAG compliance",
+  "fr": "Agrément PTI, conformité BS 4447 et ETAG"
+ },
+ "services.027": {
+  "ar": "التنفيذ في الموقع",
+  "en": "Site installation",
+  "fr": "Pose sur chantier"
+ },
+ "services.028": {
+  "ar": "يقوم طاقم متخصص بمدّ الكابلات وضبط المناسيب، وإجراء مراجعة موثَّقة قبل الصب. وبعد بلوغ الخرسانة مقاومتها يُنفَّذ الشد على مراحل وفق الجدول، يليه الحقن، وتُسجَّل كل قراءة استطالة وتُقارن بالقيمة المتوقعة.",
+  "en": "A specialised crew lays the tendons, sets the profiles and runs a documented pre-pour inspection. Once the concrete reaches strength, stressing proceeds in stages per the schedule, then grouting; every elongation reading is logged and compared against the predicted value.",
+  "fr": "Une équipe spécialisée met en place les câbles, règle les tracés et réalise un contrôle documenté avant coulage. Dès que le béton atteint sa résistance, la mise en tension se fait par étapes selon le planning, puis l'injection ; chaque allongement est relevé et comparé à la valeur théorique."
+ },
+ "services.029": {
+  "ar": "ملف التسليم",
+  "en": "The handover file",
+  "fr": "Le dossier de réception"
+ },
+ "services.030": {
+  "ar": "تقرير استطالة لكل كابل مقارن بالقيمة النظرية",
+  "en": "Elongation report per tendon against the theoretical value",
+  "fr": "Rapport d'allongement par câble face à la valeur théorique"
+ },
+ "services.031": {
+  "ar": "محاضر مراجعة ما قبل الصب معتمدة من الاستشاري",
+  "en": "Consultant-signed pre-pour inspection records",
+  "fr": "PV de contrôle avant coulage validés par le bureau d'études"
+ },
+ "services.032": {
+  "ar": "شهادات معايرة مكابس الشد والمضخات",
+  "en": "Jack and pump calibration certificates",
+  "fr": "Certificats d'étalonnage des vérins et pompes"
+ },
+ "services.033": {
+  "ar": "سجل الحقن وشهادات المواد",
+  "en": "Grouting log and material certificates",
+  "fr": "Registre d'injection et certificats matériaux"
+ },
+ "services.034": {
+  "ar": "رسومات As-Built لمسارات الكابلات",
+  "en": "As-built drawings of tendon layouts",
+  "fr": "Plans de récolement des tracés"
+ },
+ "services.035": {
+  "ar": "المقاولات العامة",
+  "en": "General contracting",
+  "fr": "Entreprise générale"
+ },
+ "services.036": {
+  "ar": "يُفضّل بعض المُلاك أن تتولى جهة واحدة تسليم الهيكل الخرساني كاملاً بدل توزيعه على عدة مقاولين. وهو ما نفّذناه في مدارس الأندلس بجدة (24 ألف م²) ومدارس مدينة العلوم بالرياض (12 ألف م²).",
+  "en": "On some projects the owner prefers a single party to deliver the whole concrete structure rather than splitting it between contractors. We did exactly that at Al Andalos Schools in Jeddah (24,000 m²) and Science City Schools in Riyadh (12,000 m²).",
+  "fr": "Sur certains projets, le maître d'ouvrage préfère un interlocuteur unique pour toute la structure béton plutôt qu'un découpage entre entreprises. C'est ce que nous avons fait aux écoles Al Andalos à Djeddah (24 000 m²) et Science City à Riyad (12 000 m²)."
+ },
+ "services.037": {
+  "ar": "قطاعات عملنا فيها",
+  "en": "Sectors we have delivered in",
+  "fr": "Secteurs où nous intervenons"
+ },
+ "services.038": {
+  "ar": "مراكز تجارية ومولات",
+  "en": "Malls and retail centres",
+  "fr": "Centres commerciaux"
+ },
+ "services.039": {
+  "ar": "مدارس ومجمعات تعليمية",
+  "en": "Schools and education campuses",
+  "fr": "Écoles et campus scolaires"
+ },
+ "services.040": {
+  "ar": "مجمعات سكنية وأبراج",
+  "en": "Residential compounds and towers",
+  "fr": "Ensembles résidentiels et tours"
+ },
+ "services.041": {
+  "ar": "مواقف سيارات وبدرومات",
+  "en": "Car parks and basements",
+  "fr": "Parkings et sous-sols"
+ },
+ "services.042": {
+  "ar": "مبانٍ عامة ودور عبادة",
+  "en": "Public buildings and places of worship",
+  "fr": "Bâtiments publics et lieux de culte"
+ },
+ "services.043": {
+  "ar": "متى تتواصل معنا؟",
+  "en": "When to call us",
+  "fr": "Quand nous appeler ?"
+ },
+ "services.044": {
+  "ar": "يؤثر التوقيت تأثيراً كبيراً في العائد. وهذه أنسب أربع لحظات.",
+  "en": "Timing changes the return significantly. These are the four best moments.",
+  "fr": "Le moment de l'appel change beaucoup le résultat. Voici les quatre meilleurs."
+ },
+ "services.045": {
+  "ar": "قبل اعتماد النظام الإنشائي، وهو الأنسب على الإطلاق، إذ يظل تغيير السماكة ممكناً دون تعديل معماري.",
+  "en": "Before the structural system is fixed — by far the best moment, since depth can still change without touching the architecture.",
+  "fr": "Avant l'arrêt du système structurel — le meilleur moment : l'épaisseur peut encore changer sans toucher à l'architecture."
+ },
+ "services.046": {
+  "ar": "عند تجاوز البحور ثمانية أمتار، إذ يبدأ الفرق بين النظامين في الظهور بوضوح في الكميات.",
+  "en": "When spans exceed 8 metres — beyond that point the gap between the two systems starts to show clearly in quantities.",
+  "fr": "Lorsque les portées dépassent 8 mètres — au-delà, l'écart entre les deux systèmes devient net dans les quantités."
+ },
+ "services.047": {
+  "ar": "عند تقييد الارتفاع الكلي، إذ قد يوفّر تقليل سماكة كل بلاطة دوراً كاملاً ضمن الارتفاع المسموح به.",
+  "en": "When overall height is constrained — trimming each slab can free a whole extra floor within the same permitted height.",
+  "fr": "Quand la hauteur totale est contrainte — réduire chaque dalle peut libérer un étage entier dans le même gabarit."
+ },
+ "services.048": {
+  "ar": "عند ضغط البرنامج الزمني، إذ تصبح دورة الشدة أسرع ويتراكم الفرق مع تكرار الأدوار.",
+  "en": "When the programme is tight — the formwork cycle runs faster, and the gain compounds with every repeated floor.",
+  "fr": "Quand le planning est tendu — le cycle de coffrage est plus rapide et le gain se cumule à chaque étage répété."
+ },
+ "services.049": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "services.050": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "services.051": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "services.052": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "services.053": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "services.054": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "services.055": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "services.056": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "services.057": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "services.058": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "services.059": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "services.060": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "services.061": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "services.062": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "services.063": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ },
+ "projects.001": {
+  "ar": "المشاريع | سبان تك — بلاطات لاحقة الشد في مصر والسعودية",
+  "en": "Projects | Span Tech — post-tensioned slabs across Egypt and Saudi Arabia",
+  "fr": "Projets | Span Tech — dalles post-contraintes en Égypte et en Arabie saoudite"
+ },
+ "projects.002": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "projects.003": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "projects.004": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "projects.005": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "projects.006": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "projects.007": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "projects.008": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "projects.009": {
+  "ar": "عشرين مشروع، أربع دول، 987 ألف متر مربع",
+  "en": "Twenty projects, four countries, 987,000 m²",
+  "fr": "Vingt projets, quatre pays, 987 000 m²"
+ },
+ "projects.010": {
+  "ar": "كل مشروع بمساحته وسنته ونطاق أعمالنا فيه. اضغط على أي علامة في الخريطة لعرض البطاقة المختصرة.",
+  "en": "Every project with its area, year and our scope of work. Tap any marker on the map for the summary card.",
+  "fr": "Chaque projet avec sa surface, son année et notre périmètre d'intervention. Cliquez sur un repère pour la fiche résumée."
+ },
+ "projects.011": {
+  "ar": "الكل",
+  "en": "All",
+  "fr": "Tous"
+ },
+ "projects.012": {
+  "ar": "مراكز تجارية",
+  "en": "Retail",
+  "fr": "Commerce"
+ },
+ "projects.013": {
+  "ar": "تعليمي",
+  "en": "Education",
+  "fr": "Éducation"
+ },
+ "projects.014": {
+  "ar": "سكني",
+  "en": "Residential",
+  "fr": "Résidentiel"
+ },
+ "projects.015": {
+  "ar": "متعدد الاستخدام",
+  "en": "Mixed use",
+  "fr": "Usage mixte"
+ },
+ "projects.016": {
+  "ar": "مبانٍ عامة",
+  "en": "Public",
+  "fr": "Public"
+ },
+ "projects.017": {
+  "ar": "ملاحظة: إحداثيات الخريطة تقريبية على مستوى المدينة — تُستبدل بالإحداثيات الدقيقة من لوحة التحكم.",
+  "en": "Note: map coordinates are approximate at city level and are replaced with exact values from the dashboard.",
+  "fr": "Note : les coordonnées sont approximatives à l'échelle de la ville et seront remplacées par les valeurs exactes depuis le tableau de bord."
+ },
+ "projects.018": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "projects.019": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "projects.020": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "projects.021": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "projects.022": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "projects.023": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "projects.024": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "projects.025": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "projects.026": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "projects.027": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "projects.028": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "projects.029": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "projects.030": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "projects.031": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "projects.032": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ },
+ "news.001": {
+  "ar": "الأخبار | سبان تك",
+  "en": "News | Span Tech",
+  "fr": "Actualités | Span Tech"
+ },
+ "news.002": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "news.003": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "news.004": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "news.005": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "news.006": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "news.007": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "news.008": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "news.009": {
+  "ar": "أخبار الشركة والمشاريع",
+  "en": "Company and project news",
+  "fr": "Actualités de l'entreprise et des projets"
+ },
+ "news.010": {
+  "ar": "تعاقدات جديدة، مراحل تنفيذ، اعتمادات فنية، ومشاركات في المعارض المتخصصة.",
+  "en": "New contracts, construction milestones, technical approvals and appearances at industry events.",
+  "fr": "Nouveaux contrats, jalons de chantier, agréments techniques et participations aux salons du secteur."
+ },
+ "news.011": {
+  "ar": "عنوان الخبر الأول",
+  "en": "First news headline",
+  "fr": "Titre de la première actualité"
+ },
+ "news.012": {
+  "ar": "موضع مخصص للخبر، يُولَّد تلقائياً من قسم «الأخبار» في لوحة التحكم: العنوان والتاريخ والصورة والملخص.",
+  "en": "Placeholder card. It is generated automatically from the News section of the dashboard — title, date, image and summary.",
+  "fr": "Bloc réservé. Il est généré automatiquement depuis la section Actualités du tableau de bord — titre, date, image et résumé."
+ },
+ "news.013": {
+  "ar": "عنوان الخبر الثاني",
+  "en": "Second news headline",
+  "fr": "Titre de la deuxième actualité"
+ },
+ "news.014": {
+  "ar": "أقوى الأخبار في محركات البحث هي التي تحمل رقماً: «تنفيذ 12 ألف م² من البلاطات في مشروع كذا» أجدى من «إنجاز جديد للشركة».",
+  "en": "The strongest posts for search are the ones carrying a number: “12,000 m² of slabs completed at project X” beats “another company achievement”.",
+  "fr": "Les meilleures publications pour le référencement portent un chiffre : « 12 000 m² de dalles achevés sur le projet X » vaut mieux que « nouvelle réussite »."
+ },
+ "news.015": {
+  "ar": "عنوان الخبر الثالث",
+  "en": "Third news headline",
+  "fr": "Titre de la troisième actualité"
+ },
+ "news.016": {
+  "ar": "خبر واحد شهرياً يكفي؛ فالانتظام أهم من العدد بالنسبة لمحركات البحث.",
+  "en": "One post a month is enough. For search ranking, consistency matters more than volume.",
+  "fr": "Une publication par mois suffit. Pour le référencement, la régularité prime sur le volume."
+ },
+ "news.017": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "news.018": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "news.019": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "news.020": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "news.021": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "news.022": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "news.023": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "news.024": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "news.025": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "news.026": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "news.027": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "news.028": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "news.029": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "news.030": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "news.031": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ },
+ "contact.001": {
+  "ar": "تواصل معنا | سبان تك — دراسة مبدئية خلال 48 ساعة",
+  "en": "Contact | Span Tech — preliminary study within 48 hours",
+  "fr": "Contact | Span Tech — étude préliminaire sous 48 heures"
+ },
+ "contact.002": {
+  "ar": "الاسم بالكامل",
+  "en": "Full name",
+  "fr": "Nom complet"
+ },
+ "contact.003": {
+  "ar": "اسم الجهة",
+  "en": "Organisation name",
+  "fr": "Nom de l'organisation"
+ },
+ "contact.004": {
+  "ar": "المساحة التقريبية، وأكبر بحر، وعدد الأدوار، والموقع، والتوقيت المتوقع للتنفيذ",
+  "en": "Approximate area, longest span, number of floors, location and expected start",
+  "fr": "Surface approximative, portée maximale, nombre d'étages, localisation et démarrage prévu"
+ },
+ "contact.005": {
+  "ar": "الرئيسية",
+  "en": "Home",
+  "fr": "Accueil"
+ },
+ "contact.006": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "contact.007": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "contact.008": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "contact.009": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "contact.010": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "contact.011": {
+  "ar": "تواصل معنا",
+  "en": "Contact",
+  "fr": "Contact"
+ },
+ "contact.012": {
+  "ar": "أرسل الرسومات، واستلم أرقاماً",
+  "en": "Send the drawings, receive numbers",
+  "fr": "Envoyez vos plans, recevez des chiffres"
+ },
+ "contact.013": {
+  "ar": "نحتاج المسقط الأفقي الإنشائي والمعماري وأحمال التشغيل. وخلال 48 ساعة عمل تصلك السماكة المقترحة ومقارنة الكميات مع النظام التقليدي.",
+  "en": "We need the structural and architectural floor plans and the service loads. Within 48 working hours you receive the proposed slab depth and a quantity comparison against conventional RC.",
+  "fr": "Il nous faut les plans de structure et d'architecture ainsi que les charges d'exploitation. Sous 48 heures ouvrées, vous recevez l'épaisseur proposée et le comparatif de quantités."
+ },
+ "contact.014": {
+  "ar": "نموذج طلب دراسة",
+  "en": "Request a study",
+  "fr": "Demande d'étude"
+ },
+ "contact.015": {
+  "ar": "الاسم",
+  "en": "Name",
+  "fr": "Nom"
+ },
+ "contact.016": {
+  "ar": "الشركة / المكتب الاستشاري",
+  "en": "Company / consultancy",
+  "fr": "Société / bureau d'études"
+ },
+ "contact.017": {
+  "ar": "البريد الإلكتروني",
+  "en": "Email",
+  "fr": "E-mail"
+ },
+ "contact.018": {
+  "ar": "رقم الهاتف",
+  "en": "Phone",
+  "fr": "Téléphone"
+ },
+ "contact.019": {
+  "ar": "نوع المشروع",
+  "en": "Project type",
+  "fr": "Type de projet"
+ },
+ "contact.020": {
+  "ar": "مركز تجاري",
+  "en": "Retail",
+  "fr": "Commerce"
+ },
+ "contact.021": {
+  "ar": "تعليمي",
+  "en": "Education",
+  "fr": "Éducation"
+ },
+ "contact.022": {
+  "ar": "سكني",
+  "en": "Residential",
+  "fr": "Résidentiel"
+ },
+ "contact.023": {
+  "ar": "مواقف سيارات",
+  "en": "Car park",
+  "fr": "Parking"
+ },
+ "contact.024": {
+  "ar": "أخرى",
+  "en": "Other",
+  "fr": "Autre"
+ },
+ "contact.025": {
+  "ar": "تفاصيل المشروع",
+  "en": "Project details",
+  "fr": "Détails du projet"
+ },
+ "contact.026": {
+  "ar": "إرسال الطلب",
+  "en": "Send request",
+  "fr": "Envoyer la demande"
+ },
+ "contact.027": {
+  "ar": "أو أرسل الرسومات مباشرة على البريد الإلكتروني — ملفات DWG أو PDF.",
+  "en": "Or send the drawings straight to our email — DWG or PDF files.",
+  "fr": "Ou envoyez directement les plans par e-mail — fichiers DWG ou PDF."
+ },
+ "contact.028": {
+  "ar": "مكاتبنا",
+  "en": "Our offices",
+  "fr": "Nos bureaux"
+ },
+ "contact.029": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "contact.030": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "contact.031": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "contact.032": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض 12462",
+  "en": "Office 10, Al Morsalat Center, Riyadh 12462",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad 12462"
+ },
+ "contact.033": {
+  "ar": "قطر",
+  "en": "Qatar",
+  "fr": "Qatar"
+ },
+ "contact.034": {
+  "ar": "مبنى 94، شارع 420، العزيزية",
+  "en": "Building 94, St. 420, Azizia",
+  "fr": "Bâtiment 94, rue 420, Azizia"
+ },
+ "contact.035": {
+  "ar": "أوغندا",
+  "en": "Uganda",
+  "fr": "Ouganda"
+ },
+ "contact.036": {
+  "ar": "قطعة 292، طريق ماواندا، كمبالا",
+  "en": "Plot 292, Mawanda Rd., Kampala",
+  "fr": "Parcelle 292, Mawanda Rd., Kampala"
+ },
+ "contact.037": {
+  "ar": "لديك مشروع قيد التصميم؟",
+  "en": "Have a project on the table?",
+  "fr": "Un projet sur la table ?"
+ },
+ "contact.038": {
+  "ar": "أرسل إلينا الرسومات المعمارية والإنشائية، لتصلك دراسة مبدئية تتضمن السماكة المقترحة ومقارنة الكميات خلال 48 ساعة عمل.",
+  "en": "Send us the architectural and structural drawings and you will receive a preliminary study — proposed slab depth and quantity comparison — within 48 working hours.",
+  "fr": "Envoyez-nous les plans d'architecture et de structure : vous recevrez une étude préliminaire — épaisseur proposée et comparatif des quantités — sous 48 heures ouvrées."
+ },
+ "contact.039": {
+  "ar": "أرسل الرسومات",
+  "en": "Send your drawings",
+  "fr": "Envoyer vos plans"
+ },
+ "contact.040": {
+  "ar": "اتصل بنا",
+  "en": "Call us",
+  "fr": "Nous appeler"
+ },
+ "contact.041": {
+  "ar": "شركة مقاولات عامة بقسم متخصص في الخرسانة لاحقة الشد. نُصمّم ونُصنّع ونورّد ونُنفّذ، من الرسومات الأولى حتى تقرير الاستطالة الأخير.",
+  "en": "A general contractor with a dedicated post-tensioning division. We design, manufacture, supply and install — from the first drawing to the final elongation report.",
+  "fr": "Entreprise générale dotée d'une division post-tension. Nous concevons, fabriquons, fournissons et posons — du premier plan au dernier rapport d'allongement."
+ },
+ "contact.042": {
+  "ar": "الموقع",
+  "en": "Site",
+  "fr": "Site"
+ },
+ "contact.043": {
+  "ar": "من نحن",
+  "en": "About",
+  "fr": "À propos"
+ },
+ "contact.044": {
+  "ar": "الخدمات",
+  "en": "Services",
+  "fr": "Services"
+ },
+ "contact.045": {
+  "ar": "المشاريع",
+  "en": "Projects",
+  "fr": "Projets"
+ },
+ "contact.046": {
+  "ar": "الأخبار",
+  "en": "News",
+  "fr": "Actualités"
+ },
+ "contact.047": {
+  "ar": "مصر",
+  "en": "Egypt",
+  "fr": "Égypte"
+ },
+ "contact.048": {
+  "ar": "فيلا 119، شارع محمد نجيب، القاهرة الجديدة",
+  "en": "Villa 119, M. Naguib St., New Cairo",
+  "fr": "Villa 119, rue M. Naguib, Le Caire Nouveau"
+ },
+ "contact.049": {
+  "ar": "السعودية",
+  "en": "Saudi Arabia",
+  "fr": "Arabie saoudite"
+ },
+ "contact.050": {
+  "ar": "مكتب 10، مركز المرسلات، الرياض",
+  "en": "Office 10, Al Morsalat Center, Riyadh",
+  "fr": "Bureau 10, Al Morsalat Center, Riyad"
+ },
+ "contact.051": {
+  "ar": "© 2026 سبان تك. جميع الحقوق محفوظة.",
+  "en": "© 2026 Span Tech. All rights reserved.",
+  "fr": "© 2026 Span Tech. Tous droits réservés."
+ }
+};
+var ST_CONTENT_META = {"index.001":{"page":"index","tag":"title","kind":"title"},"index.002":{"page":"index","tag":"link","kind":"text"},"index.003":{"page":"index","tag":"a","kind":"text"},"index.004":{"page":"index","tag":"a","kind":"text"},"index.005":{"page":"index","tag":"a","kind":"text"},"index.006":{"page":"index","tag":"a","kind":"text"},"index.007":{"page":"index","tag":"a","kind":"text"},"index.008":{"page":"index","tag":"div","kind":"text"},"index.009":{"page":"index","tag":"p","kind":"text"},"index.010":{"page":"index","tag":"h1","kind":"text"},"index.011":{"page":"index","tag":"p","kind":"text"},"index.012":{"page":"index","tag":"a","kind":"text"},"index.013":{"page":"index","tag":"div","kind":"text"},"index.014":{"page":"index","tag":"div","kind":"text"},"index.015":{"page":"index","tag":"circle","kind":"text"},"index.016":{"page":"index","tag":"p","kind":"text"},"index.017":{"page":"index","tag":"b","kind":"text"},"index.018":{"page":"index","tag":"div","kind":"text"},"index.019":{"page":"index","tag":"span","kind":"text"},"index.020":{"page":"index","tag":"span","kind":"text"},"index.021":{"page":"index","tag":"span","kind":"text"},"index.022":{"page":"index","tag":"svg","kind":"text"},"index.023":{"page":"index","tag":"circle","kind":"text"},"index.024":{"page":"index","tag":"svg","kind":"text"},"index.025":{"page":"index","tag":"circle","kind":"text"},"index.026":{"page":"index","tag":"article","kind":"text"},"index.027":{"page":"index","tag":"path","kind":"text"},"index.028":{"page":"index","tag":"svg","kind":"text"},"index.029":{"page":"index","tag":"rect","kind":"text"},"index.030":{"page":"index","tag":"p","kind":"text"},"index.031":{"page":"index","tag":"span","kind":"text"},"index.032":{"page":"index","tag":"p","kind":"text"},"index.033":{"page":"index","tag":"article","kind":"text"},"index.034":{"page":"index","tag":"p","kind":"text"},"index.035":{"page":"index","tag":"span","kind":"text"},"index.036":{"page":"index","tag":"p","kind":"text"},"index.037":{"page":"index","tag":"p","kind":"text"},"index.038":{"page":"index","tag":"p","kind":"text"},"index.039":{"page":"index","tag":"span","kind":"text"},"index.040":{"page":"index","tag":"p","kind":"text"},"index.041":{"page":"index","tag":"span","kind":"text"},"index.042":{"page":"index","tag":"p","kind":"text"},"index.043":{"page":"index","tag":"span","kind":"text"},"index.044":{"page":"index","tag":"p","kind":"text"},"index.045":{"page":"index","tag":"span","kind":"text"},"index.046":{"page":"index","tag":"p","kind":"text"},"index.047":{"page":"index","tag":"p","kind":"text"},"index.048":{"page":"index","tag":"p","kind":"text"},"index.049":{"page":"index","tag":"p","kind":"text"},"index.050":{"page":"index","tag":"p","kind":"text"},"index.051":{"page":"index","tag":"p","kind":"text"},"index.052":{"page":"index","tag":"p","kind":"text"},"index.053":{"page":"index","tag":"p","kind":"text"},"index.054":{"page":"index","tag":"p","kind":"text"},"index.055":{"page":"index","tag":"p","kind":"text"},"index.056":{"page":"index","tag":"p","kind":"text"},"index.057":{"page":"index","tag":"h2","kind":"text"},"index.058":{"page":"index","tag":"div","kind":"text"},"index.059":{"page":"index","tag":"span","kind":"text"},"index.060":{"page":"index","tag":"p","kind":"text"},"index.061":{"page":"index","tag":"p","kind":"text"},"index.062":{"page":"index","tag":"span","kind":"text"},"index.063":{"page":"index","tag":"div","kind":"text"},"index.064":{"page":"index","tag":"span","kind":"text"},"index.065":{"page":"index","tag":"span","kind":"text"},"index.066":{"page":"index","tag":"p","kind":"text"},"index.067":{"page":"index","tag":"span","kind":"text"},"index.068":{"page":"index","tag":"div","kind":"text"},"index.069":{"page":"index","tag":"span","kind":"text"},"index.070":{"page":"index","tag":"p","kind":"text"},"index.071":{"page":"index","tag":"p","kind":"text"},"index.072":{"page":"index","tag":"span","kind":"text"},"index.073":{"page":"index","tag":"a","kind":"text"},"index.074":{"page":"index","tag":"div","kind":"text"},"index.075":{"page":"index","tag":"p","kind":"text"},"index.076":{"page":"index","tag":"span","kind":"text"},"index.077":{"page":"index","tag":"span","kind":"text"},"index.078":{"page":"index","tag":"span","kind":"text"},"index.079":{"page":"index","tag":"span","kind":"text"},"index.080":{"page":"index","tag":"p","kind":"text"},"index.081":{"page":"index","tag":"cite","kind":"text"},"index.082":{"page":"index","tag":"div","kind":"text"},"index.083":{"page":"index","tag":"summary","kind":"text"},"index.084":{"page":"index","tag":"p","kind":"text"},"index.085":{"page":"index","tag":"summary","kind":"text"},"index.086":{"page":"index","tag":"p","kind":"text"},"index.087":{"page":"index","tag":"de","kind":"text"},"index.088":{"page":"index","tag":"p","kind":"text"},"index.089":{"page":"index","tag":"details","kind":"text"},"index.090":{"page":"index","tag":"p","kind":"text"},"index.091":{"page":"index","tag":"span","kind":"text"},"index.092":{"page":"index","tag":"p","kind":"text"},"index.093":{"page":"index","tag":"a","kind":"text"},"index.094":{"page":"index","tag":"a","kind":"text"},"index.095":{"page":"index","tag":"p","kind":"text"},"index.096":{"page":"index","tag":"p","kind":"text"},"index.097":{"page":"index","tag":"h3","kind":"text"},"index.098":{"page":"index","tag":"a","kind":"text"},"index.099":{"page":"index","tag":"a","kind":"text"},"index.100":{"page":"index","tag":"a","kind":"text"},"index.101":{"page":"index","tag":"a","kind":"text"},"index.102":{"page":"index","tag":"span","kind":"text"},"index.103":{"page":"index","tag":"a","kind":"text"},"index.104":{"page":"index","tag":"span","kind":"text"},"about.001":{"page":"about","tag":"title","kind":"title"},"about.002":{"page":"about","tag":"link","kind":"text"},"about.003":{"page":"about","tag":"a","kind":"text"},"about.004":{"page":"about","tag":"a","kind":"text"},"about.005":{"page":"about","tag":"a","kind":"text"},"about.006":{"page":"about","tag":"a","kind":"text"},"about.007":{"page":"about","tag":"a","kind":"text"},"about.008":{"page":"about","tag":"span","kind":"text"},"about.009":{"page":"about","tag":"button","kind":"text"},"about.010":{"page":"about","tag":"h1","kind":"text"},"about.011":{"page":"about","tag":"p","kind":"text"},"about.012":{"page":"about","tag":"h2","kind":"text"},"about.013":{"page":"about","tag":"p","kind":"text"},"about.014":{"page":"about","tag":"p","kind":"text"},"about.015":{"page":"about","tag":"p","kind":"text"},"about.016":{"page":"about","tag":"p","kind":"text"},"about.017":{"page":"about","tag":"p","kind":"text"},"about.018":{"page":"about","tag":"p","kind":"text"},"about.019":{"page":"about","tag":"p","kind":"text"},"about.020":{"page":"about","tag":"p","kind":"text"},"about.021":{"page":"about","tag":"p","kind":"text"},"about.022":{"page":"about","tag":"div","kind":"text"},"about.023":{"page":"about","tag":"div","kind":"text"},"about.024":{"page":"about","tag":"span","kind":"text"},"about.025":{"page":"about","tag":"span","kind":"text"},"about.026":{"page":"about","tag":"section","kind":"text"},"about.027":{"page":"about","tag":"p","kind":"text"},"about.028":{"page":"about","tag":"article","kind":"text"},"about.029":{"page":"about","tag":"p","kind":"text"},"about.030":{"page":"about","tag":"articl","kind":"text"},"about.031":{"page":"about","tag":"p","kind":"text"},"about.032":{"page":"about","tag":"article","kind":"text"},"about.033":{"page":"about","tag":"p","kind":"text"},"about.034":{"page":"about","tag":"article","kind":"text"},"about.035":{"page":"about","tag":"p","kind":"text"},"about.036":{"page":"about","tag":"span","kind":"text"},"about.037":{"page":"about","tag":"p","kind":"text"},"about.038":{"page":"about","tag":"p","kind":"text"},"about.039":{"page":"about","tag":"p","kind":"text"},"about.040":{"page":"about","tag":"span","kind":"text"},"about.041":{"page":"about","tag":"p","kind":"text"},"about.042":{"page":"about","tag":"p","kind":"text"},"about.043":{"page":"about","tag":"p","kind":"text"},"about.044":{"page":"about","tag":"p","kind":"text"},"about.045":{"page":"about","tag":"p","kind":"text"},"about.046":{"page":"about","tag":"div","kind":"text"},"about.047":{"page":"about","tag":"p","kind":"text"},"about.048":{"page":"about","tag":"a","kind":"text"},"about.049":{"page":"about","tag":"a","kind":"text"},"about.050":{"page":"about","tag":"p","kind":"text"},"about.051":{"page":"about","tag":"p","kind":"text"},"about.052":{"page":"about","tag":"h3","kind":"text"},"about.053":{"page":"about","tag":"a","kind":"text"},"about.054":{"page":"about","tag":"a","kind":"text"},"about.055":{"page":"about","tag":"a","kind":"text"},"about.056":{"page":"about","tag":"a","kind":"text"},"about.057":{"page":"about","tag":"span","kind":"text"},"about.058":{"page":"about","tag":"a","kind":"text"},"about.059":{"page":"about","tag":"a","kind":"text"},"services.001":{"page":"services","tag":"title","kind":"title"},"services.002":{"page":"services","tag":"li","kind":"text"},"services.003":{"page":"services","tag":"div","kind":"text"},"services.004":{"page":"services","tag":"a","kind":"text"},"services.005":{"page":"services","tag":"a","kind":"text"},"services.006":{"page":"services","tag":"a","kind":"text"},"services.007":{"page":"services","tag":"a","kind":"text"},"services.008":{"page":"services","tag":"button","kind":"text"},"services.009":{"page":"services","tag":"button","kind":"text"},"services.010":{"page":"services","tag":"h1","kind":"text"},"services.011":{"page":"services","tag":"span","kind":"text"},"services.012":{"page":"services","tag":"p","kind":"text"},"services.013":{"page":"services","tag":"p","kind":"text"},"services.014":{"page":"services","tag":"h3","kind":"text"},"services.015":{"page":"services","tag":"span","kind":"text"},"services.016":{"page":"services","tag":"span","kind":"text"},"services.017":{"page":"services","tag":"span","kind":"text"},"services.018":{"page":"services","tag":"span","kind":"text"},"services.019":{"page":"services","tag":"span","kind":"text"},"services.020":{"page":"services","tag":"p","kind":"text"},"services.021":{"page":"services","tag":"p","kind":"text"},"services.022":{"page":"services","tag":"h3","kind":"text"},"services.023":{"page":"services","tag":"span","kind":"text"},"services.024":{"page":"services","tag":"span","kind":"text"},"services.025":{"page":"services","tag":"span","kind":"text"},"services.026":{"page":"services","tag":"span","kind":"text"},"services.027":{"page":"services","tag":"span","kind":"text"},"services.028":{"page":"services","tag":"p","kind":"text"},"services.029":{"page":"services","tag":"p","kind":"text"},"services.030":{"page":"services","tag":"h3","kind":"text"},"services.031":{"page":"services","tag":"span","kind":"text"},"services.032":{"page":"services","tag":"span","kind":"text"},"services.033":{"page":"services","tag":"span","kind":"text"},"services.034":{"page":"services","tag":"span","kind":"text"},"services.035":{"page":"services","tag":"span","kind":"text"},"services.036":{"page":"services","tag":"p","kind":"text"},"services.037":{"page":"services","tag":"p","kind":"text"},"services.038":{"page":"services","tag":"h3","kind":"text"},"services.039":{"page":"services","tag":"span","kind":"text"},"services.040":{"page":"services","tag":"span","kind":"text"},"services.041":{"page":"services","tag":"span","kind":"text"},"services.042":{"page":"services","tag":"span","kind":"text"},"services.043":{"page":"services","tag":"span","kind":"text"},"services.044":{"page":"services","tag":"span","kind":"text"},"services.045":{"page":"services","tag":"p","kind":"text"},"services.046":{"page":"services","tag":"p","kind":"text"},"services.047":{"page":"services","tag":"p","kind":"text"},"services.048":{"page":"services","tag":"p","kind":"text"},"services.049":{"page":"services","tag":"p","kind":"text"},"services.050":{"page":"services","tag":"span","kind":"text"},"services.051":{"page":"services","tag":"p","kind":"text"},"services.052":{"page":"services","tag":"div","kind":"text"},"services.053":{"page":"services","tag":"a","kind":"text"},"services.054":{"page":"services","tag":"p","kind":"text"},"services.055":{"page":"services","tag":"p","kind":"text"},"services.056":{"page":"services","tag":"h3","kind":"text"},"services.057":{"page":"services","tag":"a","kind":"text"},"services.058":{"page":"services","tag":"a","kind":"text"},"services.059":{"page":"services","tag":"a","kind":"text"},"services.060":{"page":"services","tag":"a","kind":"text"},"services.061":{"page":"services","tag":"span","kind":"text"},"services.062":{"page":"services","tag":"a","kind":"text"},"services.063":{"page":"services","tag":"span","kind":"text"},"projects.001":{"page":"projects","tag":"title","kind":"title"},"projects.002":{"page":"projects","tag":"link","kind":"text"},"projects.003":{"page":"projects","tag":"div","kind":"text"},"projects.004":{"page":"projects","tag":"nav","kind":"text"},"projects.005":{"page":"projects","tag":"a","kind":"text"},"projects.006":{"page":"projects","tag":"a","kind":"text"},"projects.007":{"page":"projects","tag":"a","kind":"text"},"projects.008":{"page":"projects","tag":"button","kind":"text"},"projects.009":{"page":"projects","tag":"button","kind":"text"},"projects.010":{"page":"projects","tag":"p","kind":"text"},"projects.011":{"page":"projects","tag":"p","kind":"text"},"projects.012":{"page":"projects","tag":"p","kind":"text"},"projects.013":{"page":"projects","tag":"button","kind":"text"},"projects.014":{"page":"projects","tag":"button","kind":"text"},"projects.015":{"page":"projects","tag":"button","kind":"text"},"projects.016":{"page":"projects","tag":"button","kind":"text"},"projects.017":{"page":"projects","tag":"div","kind":"text"},"projects.018":{"page":"projects","tag":"p","kind":"text"},"projects.019":{"page":"projects","tag":"p","kind":"text"},"projects.020":{"page":"projects","tag":"p","kind":"text"},"projects.021":{"page":"projects","tag":"d","kind":"text"},"projects.022":{"page":"projects","tag":"a","kind":"text"},"projects.023":{"page":"projects","tag":"p","kind":"text"},"projects.024":{"page":"projects","tag":"p","kind":"text"},"projects.025":{"page":"projects","tag":"div","kind":"text"},"projects.026":{"page":"projects","tag":"div","kind":"text"},"projects.027":{"page":"projects","tag":"span","kind":"text"},"projects.028":{"page":"projects","tag":"a","kind":"text"},"projects.029":{"page":"projects","tag":"a","kind":"text"},"projects.030":{"page":"projects","tag":"span","kind":"text"},"projects.031":{"page":"projects","tag":"a","kind":"text"},"projects.032":{"page":"projects","tag":"span","kind":"text"},"news.001":{"page":"news","tag":"title","kind":"title"},"news.002":{"page":"news","tag":"a","kind":"text"},"news.003":{"page":"news","tag":"a","kind":"text"},"news.004":{"page":"news","tag":"a","kind":"text"},"news.005":{"page":"news","tag":"a","kind":"text"},"news.006":{"page":"news","tag":"a","kind":"text"},"news.007":{"page":"news","tag":"a","kind":"text"},"news.008":{"page":"news","tag":"span","kind":"text"},"news.009":{"page":"news","tag":"p","kind":"text"},"news.010":{"page":"news","tag":"h1","kind":"text"},"news.011":{"page":"news","tag":"p","kind":"text"},"news.012":{"page":"news","tag":"h3","kind":"text"},"news.013":{"page":"news","tag":"p","kind":"text"},"news.014":{"page":"news","tag":"h3","kind":"text"},"news.015":{"page":"news","tag":"p","kind":"text"},"news.016":{"page":"news","tag":"h3","kind":"text"},"news.017":{"page":"news","tag":"span","kind":"text"},"news.018":{"page":"news","tag":"h2","kind":"text"},"news.019":{"page":"news","tag":"span","kind":"text"},"news.020":{"page":"news","tag":"a","kind":"text"},"news.021":{"page":"news","tag":"div","kind":"text"},"news.022":{"page":"news","tag":"p","kind":"text"},"news.023":{"page":"news","tag":"h3","kind":"text"},"news.024":{"page":"news","tag":"a","kind":"text"},"news.025":{"page":"news","tag":"a","kind":"text"},"news.026":{"page":"news","tag":"a","kind":"text"},"news.027":{"page":"news","tag":"a","kind":"text"},"news.028":{"page":"news","tag":"h3","kind":"text"},"news.029":{"page":"news","tag":"a","kind":"text"},"news.030":{"page":"news","tag":"h3","kind":"text"},"news.031":{"page":"news","tag":"a","kind":"text"},"contact.001":{"page":"contact","tag":"title","kind":"title"},"contact.002":{"page":"contact","tag":"input","kind":"placeholder"},"contact.003":{"page":"contact","tag":"input","kind":"placeholder"},"contact.004":{"page":"contact","tag":"input","kind":"placeholder"},"contact.005":{"page":"contact","tag":"link","kind":"text"},"contact.006":{"page":"contact","tag":"a","kind":"text"},"contact.007":{"page":"contact","tag":"a","kind":"text"},"contact.008":{"page":"contact","tag":"a","kind":"text"},"contact.009":{"page":"contact","tag":"a","kind":"text"},"contact.010":{"page":"contact","tag":"a","kind":"text"},"contact.011":{"page":"contact","tag":"span","kind":"text"},"contact.012":{"page":"contact","tag":"span","kind":"text"},"contact.013":{"page":"contact","tag":"span","kind":"text"},"contact.014":{"page":"contact","tag":"p","kind":"text"},"contact.015":{"page":"contact","tag":"div","kind":"text"},"contact.016":{"page":"contact","tag":"div","kind":"text"},"contact.017":{"page":"contact","tag":"label","kind":"text"},"contact.018":{"page":"contact","tag":"input","kind":"text"},"contact.019":{"page":"contact","tag":"span","kind":"text"},"contact.020":{"page":"contact","tag":"label","kind":"text"},"contact.021":{"page":"contact","tag":"input","kind":"text"},"contact.022":{"page":"contact","tag":"label","kind":"text"},"contact.023":{"page":"contact","tag":"sel","kind":"text"},"contact.024":{"page":"contact","tag":"span","kind":"text"},"contact.025":{"page":"contact","tag":"option","kind":"text"},"contact.026":{"page":"contact","tag":"span","kind":"text"},"contact.027":{"page":"contact","tag":"label","kind":"text"},"contact.028":{"page":"contact","tag":"b","kind":"text"},"contact.029":{"page":"contact","tag":"span","kind":"text"},"contact.030":{"page":"contact","tag":"p","kind":"text"},"contact.031":{"page":"contact","tag":"div","kind":"text"},"contact.032":{"page":"contact","tag":"span","kind":"text"},"contact.033":{"page":"contact","tag":"div","kind":"text"},"contact.034":{"page":"contact","tag":"b","kind":"text"},"contact.035":{"page":"contact","tag":"a","kind":"text"},"contact.036":{"page":"contact","tag":"div","kind":"text"},"contact.037":{"page":"contact","tag":"div","kind":"text"},"contact.038":{"page":"contact","tag":"span","kind":"text"},"contact.039":{"page":"contact","tag":"p","kind":"text"},"contact.040":{"page":"contact","tag":"p","kind":"text"},"contact.041":{"page":"contact","tag":"p","kind":"text"},"contact.042":{"page":"contact","tag":"p","kind":"text"},"contact.043":{"page":"contact","tag":"p","kind":"text"},"contact.044":{"page":"contact","tag":"p","kind":"text"},"contact.045":{"page":"contact","tag":"p","kind":"text"},"contact.046":{"page":"contact","tag":"p","kind":"text"},"contact.047":{"page":"contact","tag":"span","kind":"text"},"contact.048":{"page":"contact","tag":"div","kind":"text"},"contact.049":{"page":"contact","tag":"a","kind":"text"},"contact.050":{"page":"contact","tag":"di","kind":"text"},"contact.051":{"page":"contact","tag":"span","kind":"text"}};
+
+</script>
+<script>
+/* ================= بيانات المشاريع ================= */
+var SEED = [
+ ["ark","مشروع ARK","ARK","ARK","mixed","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","2250000","2022 —",30.0180,31.5310,"design_exec"],
+ ["lakeview","ليك فيو ريزيدنس","Lake View Residence","Lake View Residence","residential","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","300000","2016–2020",30.0562,31.4405,"design_exec"],
+ ["arabilla","أرابيلا مول","Arabilla Mall","Arabilla Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","120000","2016–2018",30.0330,31.4700,"design_exec"],
+ ["enawalks","إنا ووكس مول","Ena Walks Mall","Ena Walks Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","120000","2021–2022",30.0118,31.4960,"design_exec"],
+ ["boulevard","بوليفارد مول","Boulevard Mall","Boulevard Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","107000","2019–2020",30.0405,31.4530,"design_exec"],
+ ["qattamia","القطامية مول","Qattamia Mall","Qattamia Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","50000","2017–2018",29.9880,31.4380,"exec"],
+ ["iguall","إيجول مول","Iguall Mall","Iguall Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","21000","2022–2023",30.0290,31.4820,"design_exec"],
+ ["rio","ريو مول","Rio Mall","Rio Mall","retail","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","10000","2023–2024",30.0435,31.4615,"design_exec"],
+ ["sahara","مدرسة صحارى","Sahara School","École Sahara","education","العاصمة الإدارية، مصر","New Administrative Capital, Egypt","Nouvelle Capitale, Égypte","25000","2022–2023",30.0250,31.7450,"design_exec"],
+ ["kemit","مدرسة كيميت","Kemit School","École Kemit","education","العاصمة الإدارية، مصر","New Administrative Capital, Egypt","Nouvelle Capitale, Égypte","13000","2023–2024",30.0090,31.7620,"design_exec"],
+ ["glory","مدرسة جلوري","Glory School","École Glory","education","المنصورة، مصر","Mansoura, Egypt","Mansoura, Égypte","15000","2018",31.0409,31.3785,"design_exec"],
+ ["pricetone","مدرسة برايستون","Pricetone School","École Pricetone","education","القاهرة الجديدة، مصر","New Cairo, Egypt","Le Caire Nouveau, Égypte","8000","2017",30.0210,31.4990,"design_exec"],
+ ["andalos-full","مدارس الأندلس — الهيكل الكامل","Al Andalos Schools — full structure","Écoles Al Andalos — structure complète","education","جدة، السعودية","Jeddah, Saudi Arabia","Djeddah, Arabie saoudite","24000","2024",21.5433,39.1728,"structure"],
+ ["andalos-pt","مدارس الأندلس — أعمال الشد","Al Andalos Schools — PT works","Écoles Al Andalos — post-tension","education","جدة، السعودية","Jeddah, Saudi Arabia","Djeddah, Arabie saoudite","5000","2024",21.5120,39.1990,"design_exec"],
+ ["newgen","مدارس الجيل الجديد","New Generation Schools","Écoles New Generation","education","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","15000","2024",24.7420,46.7100,"design_exec"],
+ ["sciencecity","مدارس مدينة العلوم — الهيكل الكامل","Science City Schools — full structure","Écoles Science City — structure complète","education","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","12000","2024",24.6890,46.6420,"structure"],
+ ["sinwan","مدرسة سنوان","Sinwan School","École Sinwan","education","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","10000","2024",24.7650,46.6350,"design_exec"],
+ ["safa-mall","الصفا مول","Al Safa Mall","Al Safa Mall","retail","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","12000","2024",24.7010,46.7280,"design_exec"],
+ ["ghorabi","الغرابي مول","Al Ghorabi Mall","Al Ghorabi Mall","retail","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","8000","2024",24.7280,46.6890,"design_exec"],
+ ["safa-mosque","جامع الصفا","Al Safa Mosque","Mosquée Al Safa","public","الرياض، السعودية","Riyadh, Saudi Arabia","Riyad, Arabie saoudite","2500","2024",24.6950,46.7350,"design_exec"]
+];
+var CATS = { retail:"مركز تجاري", education:"تعليمي", residential:"سكني", mixed:"متعدد الاستخدام", office:"إداري", public:"مبنى عام" };
+var SCOPES = { design_exec:"تصميم + تنفيذ", exec:"تنفيذ", structure:"هيكل كامل" };
+var PAGE_AR = { index:"الرئيسية", about:"من نحن", services:"الخدمات", projects:"المشاريع", news:"الأخبار", contact:"تواصل معنا" };
+var KIND_AR = { title:"عنوان الصفحة في جوجل", placeholder:"نص داخل خانة الإدخال" };
+var TAG_AR = { h1:"عنوان رئيسي", h2:"عنوان قسم", h3:"عنوان فرعي", h4:"عنوان فرعي", p:"فقرة", a:"رابط",
+               span:"نص قصير", b:"رقم أو نص بارز", li:"عنصر قائمة", summary:"سؤال", cite:"توقيع",
+               label:"عنوان حقل", option:"خيار في قائمة", button:"زر" };
+
+function seed(){
+  return SEED.map(function(r){
+    return { id:r[0], img:"assets/img/"+r[0], imgs:["assets/img/"+r[0]+".jpg"], cat:r[4],
+             area:r[8], year:r[9], lat:r[10], lng:r[11], scope:r[13],
+             depth:"", span:"", tendon:"", client:"", consultant:"",
+             ar:{n:r[1], l:r[5], t:CATS[r[4]]}, en:{n:r[2], l:r[6], t:""}, fr:{n:r[3], l:r[7], t:""} };
+  });
+}
+
+
+/* ===== مشاريع مضافة (سبتمبر 2026) — تُدمج تلقائياً لو مش موجودة في المحفوظ ===== */
+var ADDED = [
+  { id:"nobalaa-qadisiyah", img:"assets/img/nobalaa-qadisiyah", imgs:["assets/img/nobalaa-qadisiyah.jpg","assets/img/nobalaa-qadisiyah-2.jpg","assets/img/nobalaa-qadisiyah-3.jpg","assets/img/nobalaa-qadisiyah-4.jpg","assets/img/nobalaa-qadisiyah-5.jpg"], shots:["assets/img/nobalaa-qadisiyah.jpg","assets/img/nobalaa-qadisiyah-2.jpg","assets/img/nobalaa-qadisiyah-3.jpg","assets/img/nobalaa-qadisiyah-4.jpg","assets/img/nobalaa-qadisiyah-5.jpg"], cat:"education",
+    area:"", year:"2026", lat:24.813528, lng:46.814083, scope:"", depth:"", span:"", tendon:"", client:"", consultant:"",
+    ar:{n:"مدارس النبلاء الأهلية", l:"حي القادسية، الرياض، السعودية", t:"تعليمي"}, en:{n:"Al Nobalaa Private Schools", l:"Al Qadisiyah, Riyadh, Saudi Arabia", t:"Education"}, fr:{n:"Écoles privées Al Nobalaa", l:"Al Qadisiyah, Riyad, Arabie saoudite", t:"Éducation"} },
+  { id:"andalus-riyadh", img:"assets/img/andalus-riyadh", imgs:["assets/img/andalus-riyadh.jpg","assets/img/andalus-riyadh-2.jpg","assets/img/andalus-riyadh-3.jpg","assets/img/andalus-riyadh-4.jpg","assets/img/andalus-riyadh-5.jpg"], shots:["assets/img/andalus-riyadh.jpg","assets/img/andalus-riyadh-2.jpg","assets/img/andalus-riyadh-3.jpg","assets/img/andalus-riyadh-4.jpg","assets/img/andalus-riyadh-5.jpg"], cat:"education",
+    area:"", year:"2026", lat:24.6692044, lng:46.7740811, scope:"", depth:"", span:"", tendon:"", client:"", consultant:"",
+    ar:{n:"مدارس الأندلس الأهلية والعالمية — الرياض", l:"الرياض، السعودية", t:"تعليمي"}, en:{n:"Al Andalus Private and International Schools — Riyadh", l:"Riyadh, Saudi Arabia", t:"Education"}, fr:{n:"Écoles privées et internationales Al Andalus — Riyad", l:"Riyad, Arabie saoudite", t:"Éducation"} },
+  { id:"here2grow-hamra", img:"assets/img/here2grow-hamra", imgs:["assets/img/here2grow-hamra.jpg","assets/img/here2grow-hamra-2.jpg","assets/img/here2grow-hamra-3.jpg"], shots:["assets/img/here2grow-hamra.jpg","assets/img/here2grow-hamra-2.jpg","assets/img/here2grow-hamra-3.jpg"], cat:"education",
+    area:"", year:"2026", lat:24.776389, lng:46.756889, scope:"", depth:"", span:"", tendon:"", client:"", consultant:"",
+    ar:{n:"مدارس هنا لنكبر العالمية", l:"حي الحمراء، الرياض، السعودية", t:"تعليمي"}, en:{n:"Here 2 Grow International School", l:"Al Hamra, Riyadh, Saudi Arabia", t:"Education"}, fr:{n:"École internationale Here 2 Grow", l:"Al Hamra, Riyad, Arabie saoudite", t:"Éducation"} },
+  { id:"malaz-tower", img:"assets/img/malaz-tower", imgs:["assets/img/malaz-tower.jpg","assets/img/malaz-tower-2.jpg","assets/img/malaz-tower-3.jpg","assets/img/malaz-tower-4.jpg"], shots:["assets/img/malaz-tower.jpg","assets/img/malaz-tower-2.jpg","assets/img/malaz-tower-3.jpg","assets/img/malaz-tower-4.jpg"], cat:"office",
+    area:"", year:"", lat:24.671, lng:46.728, scope:"", depth:"", span:"", tendon:"", client:"", consultant:"مسارات الإبداع للاستشارات الهندسية",
+    ar:{n:"برج الأعمال 2", l:"حي الملز، الرياض، السعودية", t:"إداري"}, en:{n:"Business Tower 2", l:"Al Malaz, Riyadh, Saudi Arabia", t:"Offices"}, fr:{n:"Business Tower 2", l:"Al Malaz, Riyad, Arabie saoudite", t:"Bureaux"} },
+  { id:"najd-mall", img:"assets/img/najd-mall", imgs:["assets/img/najd-mall.jpg","assets/img/najd-mall-2.jpg","assets/img/najd-mall-3.jpg","assets/img/najd-mall-4.jpg","assets/img/najd-mall-5.jpg","assets/img/najd-mall-6.jpg","assets/img/najd-mall-7.jpg"], shots:["assets/img/najd-mall.jpg","assets/img/najd-mall-2.jpg","assets/img/najd-mall-3.jpg","assets/img/najd-mall-4.jpg","assets/img/najd-mall-5.jpg","assets/img/najd-mall-6.jpg","assets/img/najd-mall-7.jpg"], cat:"retail",
+    area:"", year:"2025", lat:24.7921093, lng:46.7181386, scope:"", depth:"", span:"", tendon:"", client:"شركة رائدة الأماكن للخدمات العقارية", consultant:"",
+    ar:{n:"نجد مول", l:"الرياض، السعودية", t:"مركز تجاري"}, en:{n:"Najd Mall", l:"Riyadh, Saudi Arabia", t:"Retail"}, fr:{n:"Najd Mall", l:"Riyad, Arabie saoudite", t:"Commerce"} },
+  { id:"qmra-narjis", img:"assets/img/qmra-narjis", imgs:["assets/img/qmra-narjis.jpg"], shots:["assets/img/qmra-narjis.jpg"], cat:"office",
+    area:"", year:"", lat:24.8722602, lng:46.6597157, scope:"", depth:"", span:"", tendon:"", client:"شركة أنوى المدن للتطوير العقاري", consultant:"",
+    ar:{n:"مبنى قمرا الإداري", l:"حي النرجس، الرياض، السعودية", t:"إداري"}, en:{n:"Qmra Administrative Building", l:"Al Narjis, Riyadh, Saudi Arabia", t:"Offices"}, fr:{n:"Immeuble administratif Qmra", l:"Al Narjis, Riyad, Arabie saoudite", t:"Bureaux"} },
+  { id:"masat-alilm", img:"assets/img/masat-alilm", imgs:["assets/img/masat-alilm.jpg","assets/img/masat-alilm-2.jpg","assets/img/masat-alilm-3.jpg"], shots:["assets/img/masat-alilm.jpg","assets/img/masat-alilm-2.jpg","assets/img/masat-alilm-3.jpg"], cat:"education",
+    area:"", year:"2026", lat:24.6948214, lng:46.7379685, scope:"", depth:"", span:"", tendon:"", client:"", consultant:"",
+    ar:{n:"ملحق مدرسة ماسة العلم", l:"حي الربوة، الرياض، السعودية", t:"تعليمي"}, en:{n:"Masat Al-Ilm School — annex", l:"Al Rabwah, Riyadh, Saudi Arabia", t:"Education"}, fr:{n:"École Masat Al-Ilm — extension", l:"Al Rabwah, Riyad, Arabie saoudite", t:"Éducation"} }
+];
+var ADDED_CONTENT = { "projects.016a": {"ar": "إداري / مكاتب", "en": "Offices", "fr": "Bureaux"} };
+var ADDED_META = { "projects.016a": {"page": "projects", "tag": "button", "kind": "text"} };
+function mergeContent(){
+  var n = 0;
+  Object.keys(ADDED_CONTENT).forEach(function(k){ if (!CONTENT[k]) { CONTENT[k] = ADDED_CONTENT[k]; n++; } });
+  Object.keys(ADDED_META).forEach(function(k){ if (!META[k]) META[k] = ADDED_META[k]; });
+  return n;
+}
+/* دمج: جامع الخضير = جامع الصفا (نفس المشروع) */
+var MOSQUE_IMGS = ["assets/img/safa-mosque.jpg","assets/img/safa-mosque-2.jpg","assets/img/safa-mosque-3.jpg","assets/img/safa-mosque-4.jpg","assets/img/safa-mosque-5.jpg"];
+/* تصحيح إحداثيات لمشاريع قديمة كانت تقريبية */
+var GEO_FIX = [ { id:"ghorabi", lat:24.6462822, lng:46.7189061 } ];
+function fixGeo(){
+  var n = 0;
+  GEO_FIX.forEach(function(g){
+    var p = DATA.filter(function(x){ return x.id === g.id; })[0];
+    if (p && !p.geoFixed) { p.lat = g.lat; p.lng = g.lng; p.geoFixed = 1; n++; }
+  });
+  return n;
+}
+function mergeFixups(){
+  var n = fixGeo(), before = DATA.length;
+  DATA = DATA.filter(function(x){ return x.id !== "khudair-mosque"; });
+  if (DATA.length !== before) n++;
+  var m = DATA.filter(function(x){ return x.id === "safa-mosque"; })[0];
+  if (m && m.mergedKhudair !== 2) {
+    m.ar.n = "جامع محمد علي الخضير"; m.ar.l = "حي الصفا، الرياض، السعودية";
+    m.en.n = "Mohammed Ali Al-Khudair Mosque"; m.en.l = "Al Safa, Riyadh, Saudi Arabia";
+    m.fr.n = "Mosquée Mohammed Ali Al-Khudair"; m.fr.l = "Al Safa, Riyad, Arabie saoudite";
+    m.lat = 24.666333; m.lng = 46.77775;
+    m.img = "assets/img/safa-mosque"; m.imgs = MOSQUE_IMGS.slice(); m.shots = MOSQUE_IMGS.slice();
+    m.mergedKhudair = 2; n++;
+  }
+  return n;
+}
+function mergeAdded(){
+  var have = {};
+  DATA.forEach(function(p){ have[p.id] = 1; });
+  var n = 0;
+  ADDED.forEach(function(p){ if (!have[p.id]) { DATA.push(JSON.parse(JSON.stringify(p))); n++; } });
+  return n;
+}
+
+/* ================= الحالة ================= */
+var DATA = [], CONTENT = {}, META = {}, current = null, dirty = false, shots = [];
+var hasStore = !!(window.storage && window.storage.get);
+
+function toast(m){
+  var t = document.getElementById("toast");
+  t.textContent = m; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.style.display = "none"; }, 2500);
+}
+function stamp(){
+  var d = new Date();
+  document.getElementById("saved").textContent = "حُفظ " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+function persist(){
+  if (!hasStore) { document.getElementById("saved").textContent = "غير محفوظ"; return; }
+  Promise.all([
+    window.storage.set("spantech:projects", JSON.stringify(DATA)),
+    window.storage.set("spantech:content", JSON.stringify(CONTENT))
+  ]).then(stamp).catch(function(){ document.getElementById("saved").textContent = "تعذّر الحفظ"; });
+}
+
+function boot(){
+  document.getElementById("warnBar").hidden = hasStore;
+  META = window.ST_CONTENT_META || {};
+  if (!hasStore) {
+    DATA = seed(); CONTENT = JSON.parse(JSON.stringify(window.ST_CONTENT || {}));
+    mergeAdded(); mergeContent(); mergeFixups();
+    renderList(); renderContent(); return;
+  }
+  Promise.all([
+    window.storage.get("spantech:projects").catch(function(){ return null; }),
+    window.storage.get("spantech:content").catch(function(){ return null; })
+  ]).then(function(r){
+    DATA = (r[0] && r[0].value) ? JSON.parse(r[0].value) : seed();
+    CONTENT = (r[1] && r[1].value) ? JSON.parse(r[1].value) : JSON.parse(JSON.stringify(window.ST_CONTENT || {}));
+    var added = mergeAdded() + mergeContent() + mergeFixups();
+    if (added) { persist(); toast("تم تحديث " + added + " عنصر جديد"); }
+    renderList(); renderContent();
+  });
+}
+
+/* ================= التبويبات ================= */
+document.querySelectorAll(".tabs button").forEach(function(b){
+  b.addEventListener("click", function(){
+    document.querySelectorAll(".tabs button").forEach(function(x){ x.classList.remove("on"); });
+    b.classList.add("on");
+    document.querySelectorAll(".view").forEach(function(v){ v.classList.remove("on"); });
+    document.getElementById("v-" + b.dataset.view).classList.add("on");
+  });
+});
+
+/* ================= قائمة المشاريع ================= */
+function cover(p){ return (p.shots && p.shots.length) ? p.shots[0] : ((p.imgs && p.imgs[0]) || ""); }
+function shotList(p){ return (p.shots && p.shots.length) ? p.shots : (p.imgs || []); }
+
+function completeness(p){
+  var need = [p.ar.n, p.en.n, p.ar.l, p.area, p.year];
+  if (need.some(function(v){ return !v; })) return "part";
+  return (p.lat && p.depth && shotList(p).length) ? "full" : "part";
+}
+
+function renderList(){
+  var q = (document.getElementById("q").value || "").trim().toLowerCase();
+  var list = DATA.filter(function(p){
+    return !q || (p.ar.n + " " + p.en.n + " " + p.ar.l + " " + p.en.l).toLowerCase().indexOf(q) > -1;
+  });
+  document.getElementById("cnt").textContent = DATA.length;
+  document.getElementById("list").innerHTML = list.map(function(p){
+    var c = cover(p);
+    return '<div class="item'+(current===p.id?' on':'')+'" data-id="'+p.id+'">'
+      + '<div class="item-thumb" style="'+(c?"background-image:url('"+c+"')":"")+'"></div>'
+      + '<div class="item-b"><b>'+(p.ar.n||"(بدون اسم)")+'</b><span>'+(p.ar.l||"—")+' · '+shotList(p).length+' صورة</span></div>'
+      + '<span class="dot '+completeness(p)+'"></span></div>';
+  }).join("") || '<div class="empty" style="padding:40px 20px">لا توجد نتائج.</div>';
+  document.querySelectorAll(".item").forEach(function(el){
+    el.addEventListener("click", function(){ open(el.dataset.id); });
+  });
+}
+
+/* ================= الخريطة ================= */
+var pickMap, pickMarker;
+function ensureMap(){
+  if (pickMap) return;
+  pickMap = L.map("pick", { scrollWheelZoom:false }).setView([26, 40], 4);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    { attribution:"&copy; OpenStreetMap, &copy; CARTO", maxZoom:19 }).addTo(pickMap);
+  pickMap.on("click", function(e){
+    setPin(e.latlng.lat, e.latlng.lng);
+    document.getElementById("lat").value = e.latlng.lat.toFixed(5);
+    document.getElementById("lng").value = e.latlng.lng.toFixed(5);
+    dirty = true;
+  });
+}
+function setPin(lat, lng){
+  if (!lat && lat !== 0) { if (pickMarker){ pickMap.removeLayer(pickMarker); pickMarker = null; } return; }
+  var icon = L.divIcon({ className:"", html:'<div style="width:16px;height:16px;border-radius:50%;background:#B5761C;border:3px solid #fff;box-shadow:0 0 0 1px #B5761C"></div>', iconSize:[16,16], iconAnchor:[8,8] });
+  if (pickMarker) pickMarker.setLatLng([lat,lng]); else pickMarker = L.marker([lat,lng],{icon:icon}).addTo(pickMap);
+  pickMap.setView([lat,lng], 12);
+}
+
+/* ================= الألبوم ================= */
+function renderGal(){
+  var g = document.getElementById("gal");
+  g.innerHTML = shots.map(function(u, i){
+    return '<div class="shot">'
+      + '<div class="thumb" style="background-image:url(\'' + u + '\')">' + (i === 0 ? '<span class="cover-badge">الواجهة</span>' : '') + '</div>'
+      + '<div class="shot-bar">'
+      +   '<button data-a="up" data-i="'+i+'" title="تقديم">→</button>'
+      +   '<button data-a="down" data-i="'+i+'" title="تأخير">←</button>'
+      +   (i ? '<button data-a="cover" data-i="'+i+'">واجهة</button>' : '')
+      +   '<button class="rm" data-a="rm" data-i="'+i+'">حذف</button>'
+      + '</div></div>';
+  }).join("")
+  + '<button class="add-shot" id="addShot" type="button">+ أضف صوراً<br><small>يمكن اختيار أكثر من صورة</small></button>';
+
+  document.getElementById("addShot").addEventListener("click", function(){ document.getElementById("shotFile").click(); });
+  g.querySelectorAll("[data-a]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var i = +b.dataset.i, a = b.dataset.a;
+      if (a === "rm") shots.splice(i,1);
+      if (a === "cover") { var x = shots.splice(i,1)[0]; shots.unshift(x); }
+      if (a === "up" && i > 0) { shots.splice(i-1, 0, shots.splice(i,1)[0]); }
+      if (a === "down" && i < shots.length-1) { shots.splice(i+1, 0, shots.splice(i,1)[0]); }
+      dirty = true; renderGal(); preview();
+    });
+  });
+}
+
+function resizeToData(file, cb){
+  var r = new FileReader();
+  r.onload = function(ev){
+    var im = new Image();
+    im.onload = function(){
+      var w = Math.min(1200, im.width), h = Math.round(im.height * w / im.width);
+      var c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(im, 0, 0, w, h);
+      cb(c.toDataURL("image/jpeg", 0.78));
+    };
+    im.src = ev.target.result;
+  };
+  r.readAsDataURL(file);
+}
+
+document.getElementById("shotFile").addEventListener("change", function(e){
+  var files = Array.prototype.slice.call(e.target.files);
+  if (!files.length) return;
+  var left = files.length;
+  files.forEach(function(f){
+    resizeToData(f, function(d){
+      shots.push(d); left--;
+      if (!left) { dirty = true; renderGal(); preview(); renderList(); toast("أُضيفت " + files.length + " صورة"); }
+    });
+  });
+  e.target.value = "";
+});
+
+document.getElementById("addPath").addEventListener("click", function(){
+  var v = document.getElementById("shotPath").value.trim();
+  if (!v) return;
+  shots.push(v); document.getElementById("shotPath").value = "";
+  dirty = true; renderGal(); preview();
+});
+
+/* ================= نموذج المشروع ================= */
+var F = ["n_ar","n_en","n_fr","l_ar","l_en","l_fr","cat","scope","year","area","depth","span","tendon","client","consultant","lat","lng"];
+var val = function(id){ return document.getElementById(id).value.trim(); };
+var set = function(id, v){ document.getElementById(id).value = (v == null) ? "" : v; };
+
+function open(id){
+  var p = DATA.filter(function(x){ return x.id === id; })[0];
+  if (!p) return;
+  current = id;
+  document.getElementById("empty").hidden = true;
+  document.getElementById("form").hidden = false;
+  document.getElementById("formTitle").textContent = p.ar.n || "مشروع جديد";
+
+  set("n_ar",p.ar.n); set("n_en",p.en.n); set("n_fr",p.fr.n);
+  set("l_ar",p.ar.l); set("l_en",p.en.l); set("l_fr",p.fr.l);
+  set("cat",p.cat); set("scope",p.scope); set("year",p.year);
+  set("area",p.area); set("depth",p.depth); set("span",p.span); set("tendon",p.tendon);
+  set("client",p.client); set("consultant",p.consultant);
+  set("lat",p.lat); set("lng",p.lng);
+  shots = shotList(p).slice();
+
+  renderGal(); renderList(); preview();
+  ensureMap();
+  setTimeout(function(){ pickMap.invalidateSize(); setPin(p.lat, p.lng); }, 80);
+}
+
+function blank(){
+  current = "new-" + Date.now();
+  DATA.push({ id:current, img:"", imgs:[], shots:[], cat:"retail", scope:"design_exec", area:"", year:"",
+              lat:"", lng:"", depth:"", span:"", tendon:"", client:"", consultant:"",
+              ar:{n:"",l:"",t:CATS.retail}, en:{n:"",l:"",t:""}, fr:{n:"",l:"",t:""} });
+  open(current);
+  document.getElementById("formTitle").textContent = "مشروع جديد";
+  document.getElementById("n_ar").focus();
+}
+
+function collect(){
+  var p = DATA.filter(function(x){ return x.id === current; })[0];
+  if (!p) return null;
+  p.ar = { n:val("n_ar"), l:val("l_ar"), t:CATS[val("cat")] };
+  p.en = { n:val("n_en"), l:val("l_en"), t:p.en.t || "" };
+  p.fr = { n:val("n_fr") || val("n_en"), l:val("l_fr"), t:p.fr.t || "" };
+  p.cat = val("cat"); p.scope = val("scope"); p.year = val("year");
+  p.area = val("area").replace(/,/g,""); p.depth = val("depth"); p.span = val("span");
+  p.tendon = val("tendon"); p.client = val("client"); p.consultant = val("consultant");
+  p.lat = val("lat") ? parseFloat(val("lat")) : "";
+  p.lng = val("lng") ? parseFloat(val("lng")) : "";
+  p.shots = shots.slice();
+  return p;
+}
+
+function fmt(n){
+  if (!n) return "—";
+  var s = String(n).replace(/,/g,"");
+  return isNaN(s) ? n : Number(s).toLocaleString("en-US");
+}
+
+function preview(){
+  document.getElementById("pvName").textContent  = val("n_ar") || "اسم المشروع";
+  document.getElementById("pvLoc").textContent   = val("l_ar") || "المدينة، الدولة";
+  document.getElementById("pvTag").textContent   = CATS[val("cat")];
+  document.getElementById("pvArea").textContent  = val("area") ? fmt(val("area")) + " m²" : "—";
+  document.getElementById("pvYear").textContent  = val("year") || "—";
+  document.getElementById("pvScope").textContent = SCOPES[val("scope")];
+  document.getElementById("pvImg").style.backgroundImage = shots.length ? "url('" + shots[0] + "')" : "";
+  var b = document.getElementById("pvShots");
+  b.hidden = shots.length < 2;
+  b.textContent = shots.length + " صور";
+}
+
+function validate(){
+  var need = ["n_ar","n_en","l_ar","l_en","year","area"], ok = true;
+  need.forEach(function(id){
+    var bad = !val(id);
+    document.getElementById(id).closest(".f").classList.toggle("bad", bad);
+    if (bad) ok = false;
+  });
+  return ok;
+}
+
+F.forEach(function(id){
+  document.getElementById(id).addEventListener("input", function(){ dirty = true; preview(); });
+});
+document.getElementById("cat").addEventListener("change", preview);
+document.getElementById("scope").addEventListener("change", preview);
+document.getElementById("q").addEventListener("input", renderList);
+document.getElementById("addBtn").addEventListener("click", blank);
+document.getElementById("clearPin").addEventListener("click", function(){ set("lat",""); set("lng",""); setPin(null); dirty = true; });
+
+document.getElementById("saveBtn").addEventListener("click", function(){
+  if (!validate()) { toast("أكمل الحقول المطلوبة المعلّمة بالأحمر"); return; }
+  var p = collect();
+  if (p.id.indexOf("new-") === 0) {
+    var slug = (val("n_en") || "project").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    var base = slug, i = 2;
+    while (DATA.some(function(x){ return x.id === slug && x !== p; })) slug = base + "-" + (i++);
+    p.id = slug; current = slug;
+  }
+  dirty = false; persist(); renderList();
+  document.getElementById("formTitle").textContent = p.ar.n;
+  toast("تم حفظ المشروع");
+});
+
+document.getElementById("delBtn").addEventListener("click", function(){
+  var p = DATA.filter(function(x){ return x.id === current; })[0];
+  if (!p || !confirm("حذف «" + (p.ar.n || "المشروع") + "» نهائياً؟")) return;
+  DATA = DATA.filter(function(x){ return x.id !== current; });
+  current = null; dirty = false;
+  document.getElementById("form").hidden = true;
+  document.getElementById("empty").hidden = false;
+  persist(); renderList(); toast("تم الحذف");
+});
+
+/* ================= محرر النصوص ================= */
+var cPage = "index";
+
+function where(k){
+  var m = META[k] || {};
+  if (KIND_AR[m.kind]) return KIND_AR[m.kind];
+  return TAG_AR[m.tag] || "نص";
+}
+
+function renderContent(){
+  var q = (document.getElementById("cq").value || "").trim().toLowerCase();
+  var base = window.ST_CONTENT || {};
+  var keys = Object.keys(CONTENT).filter(function(k){
+    if ((META[k] || {}).page !== cPage) return false;
+    if (!q) return true;
+    var e = CONTENT[k];
+    return ((e.ar||"") + " " + (e.en||"") + " " + (e.fr||"")).toLowerCase().indexOf(q) > -1;
+  });
+  document.getElementById("ccnt").textContent = keys.length + " نص";
+  document.getElementById("clist").innerHTML = keys.map(function(k){
+    var e = CONTENT[k], o = base[k] || {};
+    var changed = ["ar","en","fr"].some(function(l){ return (e[l]||"") !== (o[l]||""); });
+    return '<div class="txt" data-key="'+k+'">'
+      + '<div class="txt-h"><span class="where">'+where(k)+' — '+PAGE_AR[cPage]+'</span>'
+      + '<span class="key">'+k+'</span>'
+      + (changed ? '<span class="edited">مُعدَّل</span>' : '') + '</div>'
+      + '<div class="tgrid">'
+      +  '<div class="ar"><label>العربية</label><textarea data-l="ar">'+(e.ar||"")+'</textarea></div>'
+      +  '<div class="en"><label>English</label><textarea data-l="en">'+(e.en||"")+'</textarea></div>'
+      +  '<div class="fr"><label>Français</label><textarea data-l="fr">'+(e.fr||"")+'</textarea></div>'
+      + '</div></div>';
+  }).join("") || '<div class="empty">لا توجد نصوص مطابقة.</div>';
+
+  document.querySelectorAll("#clist textarea").forEach(function(t){
+    t.addEventListener("change", function(){
+      var k = t.closest(".txt").dataset.key;
+      CONTENT[k][t.dataset.l] = t.value;
+      persist(); renderContent();
+      toast("تم حفظ النص");
+    });
+  });
+}
+
+document.querySelectorAll("#v-content .chip").forEach(function(c){
+  c.addEventListener("click", function(){
+    document.querySelectorAll("#v-content .chip").forEach(function(x){ x.classList.remove("on"); });
+    c.classList.add("on"); cPage = c.dataset.page; renderContent();
+  });
+});
+document.getElementById("cq").addEventListener("input", renderContent);
+
+/* ================= تصدير واستيراد ================= */
+function download(name, text, type){
+  var b = new Blob([text], { type: type || "text/plain;charset=utf-8" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(b); a.download = name; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1500);
+}
+function esc(s){ return String(s == null ? "" : s).replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/\n/g," "); }
+
+document.getElementById("exportBtn").addEventListener("click", function(){
+  if (dirty && !confirm("يوجد تعديل غير محفوظ في المشروع المفتوح ولن يُصدَّر. المتابعة؟")) return;
+
+  var js = "/* Span Tech — قاعدة بيانات المشاريع (مولَّدة من لوحة التحكم) */\nvar ST_PROJECTS = [\n";
+  js += DATA.map(function(p){
+    var imgs = shotList(p);
+    return '  { id:"'+p.id+'", img:"'+esc(p.img||"")+'", imgs:['+imgs.map(function(u){ return '"'+esc(u)+'"'; }).join(",")+'], '
+      + 'cat:"'+p.cat+'", area:"'+fmt(p.area)+'", year:"'+esc(p.year)+'", '
+      + 'lat:'+(p.lat||"null")+', lng:'+(p.lng||"null")+', scope:"'+p.scope+'", '
+      + 'depth:"'+esc(p.depth)+'", span:"'+esc(p.span)+'",\n'
+      + '    ar:{n:"'+esc(p.ar.n)+'", l:"'+esc(p.ar.l)+'", t:"'+esc(p.ar.t)+'"},\n'
+      + '    en:{n:"'+esc(p.en.n)+'", l:"'+esc(p.en.l)+'", t:"'+esc(p.en.t)+'"},\n'
+      + '    fr:{n:"'+esc(p.fr.n)+'", l:"'+esc(p.fr.l)+'", t:"'+esc(p.fr.t)+'"} }';
+  }).join(",\n\n") + "\n];\n";
+
+  var cjs = "/* Span Tech — محتوى الموقع (يُحرَّر من لوحة التحكم) */\nvar ST_CONTENT = "
+          + JSON.stringify(CONTENT, null, 1) + ";\nvar ST_CONTENT_META = " + JSON.stringify(META) + ";\n";
+
+  download("projects.js", js, "application/javascript;charset=utf-8");
+  setTimeout(function(){ download("content.js", cjs, "application/javascript;charset=utf-8"); }, 500);
+  setTimeout(function(){ download("spantech-backup.json", JSON.stringify({ projects:DATA, content:CONTENT }, null, 2), "application/json"); }, 1000);
+  toast("تم تصدير: projects.js و content.js ونسخة احتياطية");
+});
+
+document.getElementById("importBtn").addEventListener("click", function(){ document.getElementById("importFile").click(); });
+document.getElementById("importFile").addEventListener("change", function(e){
+  var f = e.target.files[0]; if (!f) return;
+  var r = new FileReader();
+  r.onload = function(ev){
+    try {
+      var o = JSON.parse(ev.target.result);
+      if (o.projects) DATA = o.projects;
+      if (o.content)  CONTENT = o.content;
+      current = null;
+      document.getElementById("form").hidden = true;
+      document.getElementById("empty").hidden = false;
+      persist(); renderList(); renderContent();
+      toast("تم الاستيراد");
+    } catch (err) { toast("تعذّرت قراءة الملف — استخدم ملف النسخة الاحتياطية JSON"); }
+  };
+  r.readAsText(f);
+});
+
+window.addEventListener("beforeunload", function(e){
+  if (dirty || !hasStore) { e.preventDefault(); e.returnValue = ""; }
+});
+
+boot();
+</script>
+</body>
+</html>
