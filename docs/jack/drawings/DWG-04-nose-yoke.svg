@@ -45,7 +45,7 @@
     <line x1="151" y1="370" x2="151" y2="405" class="dim"/>
     <line x1="569" y1="370" x2="569" y2="405" class="dim"/>
     <line x1="151" y1="397" x2="569" y2="397" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="330" y="392" class="dimt">270</text>
+    <text x="330" y="392" class="dimt">250</text>
     <line x1="236" y1="230" x2="236" y2="425" class="dim"/>
     <line x1="484" y1="230" x2="484" y2="425" class="dim"/>
     <line x1="236" y1="419" x2="484" y2="419" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
@@ -92,8 +92,8 @@
     <path d="M236 230 L236 608 L118 608" class="lead"/><text x="120" y="628">3  ROD SEATS: M24x1.5 – 6H tapped 45 deep, flat-bottomed, perpendicular to the front face within 0.05.</text>
     <text x="140" y="646">   Both seats must be coplanar within 0.05 mm, otherwise the two cylinders share load unequally.</text>
     <text x="120" y="676" font-weight="bold">MACHINING NOTES:</text>
-    <text x="120" y="694">Machine from 80 mm 7075-T651 plate, finish 75 mm. Flatness of front face 0.05. Ra 1.6 all over, Ra 0.8 on the pad seats.</text>
-    <text x="120" y="712">Break all edges R2. Hard-anodise Type II 20 µm after machining (corrosion, site use). Mass ≈ 4.3 kg.</text>
+    <text x="120" y="694">Machine from 80 x 270 x 190 mm 7075-T651 plate, finish 75 x 250 x 170. Flatness of front face 0.05. Ra 1.6 all over, Ra 0.8 on the pad seats.</text>
+    <text x="120" y="712">Break all edges R2. Hard-anodise Type II 20 µm after machining (corrosion, site use). Mass 4.77 kg (from cad/step).</text>
   </g>
 
   <g>
@@ -103,7 +103,7 @@
     <text x="752" y="666" class="ttl">PT-JACK-04  ·  NOSE YOKE</text>
     <text x="752" y="704" class="lbl">Rev. A · Sheet 4 of 7</text>
     <text x="752" y="726" class="lbl">ISO 2768-mK</text>
-    <text x="972" y="704" class="lbl">Mass 4.3 kg</text>
-    <text x="972" y="726" class="lbl">Scale 1:2 @ A3</text>
+    <text x="972" y="704" class="lbl">Mass 4.77 kg</text>
+    <text x="972" y="726" class="lbl">NOT TO SCALE</text>
   </g>
 </svg>

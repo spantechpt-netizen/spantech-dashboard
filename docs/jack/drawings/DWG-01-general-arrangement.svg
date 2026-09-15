@@ -55,17 +55,17 @@
     <line x1="70" y1="330" x2="70" y2="360" class="dim"/>
     <line x1="402" y1="330" x2="402" y2="360" class="dim"/>
     <line x1="70" y1="352" x2="402" y2="352" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="180" y="347" class="dimt">535 RETRACTED</text>
+    <text x="180" y="347" class="dimt">593 RETRACTED</text>
 
     <line x1="70" y1="375" x2="70" y2="400" class="dim"/>
     <line x1="526" y1="330" x2="526" y2="400" class="dim"/>
     <line x1="70" y1="392" x2="526" y2="392" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="185" y="387" class="dimt">735 FULLY EXTENDED (stroke 200)</text>
+    <text x="185" y="387" class="dimt">793 FULLY EXTENDED (stroke 200)</text>
 
     <line x1="20" y1="131" x2="60" y2="131" class="dim"/>
     <line x1="20" y1="299" x2="60" y2="299" class="dim"/>
     <line x1="38" y1="131" x2="38" y2="299" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="18" y="222" class="dimt" transform="rotate(-90,18,222)">270 WIDTH</text>
+    <text x="18" y="222" class="dimt" transform="rotate(-90,18,222)">250 WIDTH</text>
 
     <line x1="560" y1="165" x2="620" y2="165" class="dim"/>
     <line x1="560" y1="265" x2="620" y2="265" class="dim"/>
@@ -120,7 +120,7 @@
     <line x1="783" y1="330" x2="783" y2="355" class="dim"/>
     <line x1="1007" y1="330" x2="1007" y2="355" class="dim"/>
     <line x1="783" y1="348" x2="1007" y2="348" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="855" y="343">270</text>
+    <text x="855" y="343">250</text>
     <line x1="1030" y1="162" x2="1060" y2="162" class="dim"/>
     <line x1="1030" y1="268" x2="1060" y2="268" class="dim"/>
     <line x1="1050" y1="162" x2="1050" y2="268" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
@@ -147,7 +147,7 @@
     <line x1="940" y1="600" x2="940" y2="720" stroke="#111" stroke-width="1"/>
     <text x="72" y="628" class="ttl">MONO-STRAND POST-TENSIONING STRESSING JACK — 250 kN (25 tf)</text>
     <text x="72" y="662" class="lbl">TWIN CYLINDER, DOUBLE ACTING, 700 bar MAX — GENERAL ARRANGEMENT</text>
-    <text x="72" y="684" class="lbl">All dimensions in millimetres. Third-angle projection. Do not scale drawing.</text>
+    <text x="72" y="684" class="lbl">All dimensions in millimetres. NOT TO SCALE — take geometry from cad/step/.</text>
     <text x="72" y="706" class="lbl">Tolerances unless stated: linear ISO 2768-m, bores H8, rods f7</text>
     <text x="772" y="628" class="lbl">DWG No.</text><text x="772" y="662" class="ttl">PT-JACK-01</text>
     <text x="772" y="690" class="lbl">Sheet 1 of 7</text>

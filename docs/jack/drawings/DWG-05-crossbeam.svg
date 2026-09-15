@@ -48,7 +48,7 @@
     <line x1="158" y1="385" x2="158" y2="420" class="dim"/>
     <line x1="563" y1="385" x2="563" y2="420" class="dim"/>
     <line x1="158" y1="412" x2="563" y2="412" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="340" y="407" class="dimt">270</text>
+    <text x="340" y="407" class="dimt">250</text>
     <line x1="240" y1="250" x2="240" y2="445" class="dim"/>
     <line x1="480" y1="250" x2="480" y2="445" class="dim"/>
     <line x1="240" y1="438" x2="480" y2="438" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
@@ -95,7 +95,7 @@
     <text x="60" y="650">D  Port B (retract): G1/4 on the top face, Ø6 galleries to two side outlets feeding the external Ø8x2.5 HP tubes.</text>
     <text x="60" y="668">E  All cross-drilling breakthroughs must be deburred and plugged with M8x1 grub screws + Loctite 2701.</text>
     <text x="60" y="686">F  Stress at the centre section under 275 kN: bending 80 MPa, shear 23 MPa ⇒ SF 5.9 static / 1.9 fatigue on 7075-T651 (470 MPa).</text>
-    <text x="60" y="704">G  Hard-anodise Type II 20 µm after machining and after all threads are cut. Mass ≈ 6.1 kg.</text>
+    <text x="60" y="704">G  Hard-anodise Type II 20 µm after machining and after all threads are cut. Mass 6.41 kg (from cad/step).</text>
   </g>
 
   <g>
@@ -106,6 +106,6 @@
     <text x="752" y="624" class="lbl">Rev. A · Sheet 5 of 7</text>
     <text x="752" y="646" class="lbl">ISO 2768-mK</text>
     <text x="972" y="624" class="lbl">Mass 6.1 kg</text>
-    <text x="972" y="646" class="lbl">Scale 1:2 @ A3</text>
+    <text x="972" y="646" class="lbl">NOT TO SCALE</text>
   </g>
 </svg>

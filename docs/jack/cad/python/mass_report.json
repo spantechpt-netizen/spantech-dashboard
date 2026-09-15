@@ -1,0 +1,128 @@
+{
+  "parts": [
+    {
+      "part": "P1-nose-yoke",
+      "qty": 1,
+      "material": "al7075",
+      "volume_mm3": 1698432.8,
+      "mass_kg": 4.773
+    },
+    {
+      "part": "P2-crossbeam",
+      "qty": 1,
+      "material": "al7075",
+      "volume_mm3": 2281498.2,
+      "mass_kg": 6.411
+    },
+    {
+      "part": "P3-cylinder-tube",
+      "qty": 2,
+      "material": "steel",
+      "volume_mm3": 579088.5,
+      "mass_kg": 9.092
+    },
+    {
+      "part": "P4-piston-rod",
+      "qty": 2,
+      "material": "steel",
+      "volume_mm3": 310701.0,
+      "mass_kg": 4.878
+    },
+    {
+      "part": "P5-piston",
+      "qty": 2,
+      "material": "steel",
+      "volume_mm3": 44083.6,
+      "mass_kg": 0.692
+    },
+    {
+      "part": "P6-gland-cap",
+      "qty": 2,
+      "material": "al7075",
+      "volume_mm3": 270130.9,
+      "mass_kg": 1.518
+    },
+    {
+      "part": "P7-bearing-pad",
+      "qty": 2,
+      "material": "steel",
+      "volume_mm3": 15389.3,
+      "mass_kg": 0.242
+    },
+    {
+      "part": "P8-gripper-barrel",
+      "qty": 1,
+      "material": "steel",
+      "volume_mm3": 233173.6,
+      "mass_kg": 1.83
+    },
+    {
+      "part": "P10-stop-ring",
+      "qty": 2,
+      "material": "steel",
+      "volume_mm3": 41595.9,
+      "mass_kg": 0.653
+    }
+  ],
+  "subtotal_kg": 30.089,
+  "stations": {
+    "yoke0": 0.0,
+    "yoke1": 75.0,
+    "gland0": 95.0,
+    "gland1": 170.0,
+    "tube0": 140.0,
+    "tube1": 450.0,
+    "beam0": 420.0,
+    "beam1": 500.0,
+    "pist1": 450.0,
+    "pist0": 415.0,
+    "stop1": 215.0,
+    "stop0": 175.0,
+    "grip0": 465.0,
+    "grip1": 575.0,
+    "gcap1": 593.0,
+    "rod0": 30.0,
+    "rod1": 450.0,
+    "L_retracted": 593.0,
+    "L_extended": 793.0
+  },
+  "params": {
+    "BORE": 50.0,
+    "ROD": 32.0,
+    "STROKE": 200.0,
+    "TUBE_OD": 70.0,
+    "TUBE_L": 310.0,
+    "PISTON_L": 35.0,
+    "CYL_CC": 160.0,
+    "THREAD_ENG": 30.0,
+    "YOKE_D": 75.0,
+    "YOKE_W": 250.0,
+    "YOKE_TOP": 85.0,
+    "YOKE_BOT": -85.0,
+    "BRIDGE_BOT": -20.0,
+    "SLOT_W": 22.0,
+    "BEAM_D": 80.0,
+    "BEAM_W": 250.0,
+    "BEAM_H": 170.0,
+    "GRIP_OD": 65.0,
+    "GRIP_L": 75.0,
+    "GRIP_THREAD_D": 60.0,
+    "GRIP_THREAD_L": 35.0,
+    "TAPER_INC": 7.0,
+    "WEDGE_SMALL": 25.0,
+    "WEDGE_L": 70.0,
+    "GLAND_L": 75.0,
+    "GLAND_OD": 86.0,
+    "ROD_NOSE_TH": 24.0,
+    "ROD_NOSE_ENG": 45.0,
+    "ROD_SHLD_D": 44.0,
+    "ROD_SHLD_L": 8.0,
+    "PAD_Z": 30.0,
+    "PAD_Y": 50.0,
+    "PAD_T": 12.0,
+    "PAD_OFFSET": 26.0,
+    "STRAND_D": 15.24,
+    "GALLERY_D": 6.0,
+    "YOKE_GAP": 20.0
+  }
+}
