@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 760" width="1180" height="760" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <pattern id="h3" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#8a5a00" stroke-width="1.4"/></pattern>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 5 L10 2 L10 8 Z" fill="#1a5fb4"/></marker>
+  </defs>
+  <style>
+    .al{fill:#e6e9ee;stroke:#111;stroke-width:2}
+    .alh{fill:url(#h3);stroke:#111;stroke-width:1.8}
+    .hid{fill:none;stroke:#111;stroke-width:1.2;stroke-dasharray:7 4}
+    .oil{fill:none;stroke:#1e7a1e;stroke-width:2.5}
+    .cl{fill:none;stroke:#c0392b;stroke-width:1;stroke-dasharray:14 4 3 4}
+    .dim{stroke:#1a5fb4;stroke-width:1;fill:none}
+    .dimt{fill:#1a5fb4;font-size:13px}
+    .lbl{fill:#111;font-size:13px}
+    .ttl{fill:#111;font-size:19px;font-weight:bold}
+    .lead{stroke:#111;stroke-width:1;fill:none}
+  </style>
+  <rect width="1180" height="760" fill="#fff"/>
+  <text x="50" y="36" class="ttl">PART 2 — REAR CROSSBEAM / MANIFOLD   material 7075-T651   1 off   scale 1:2</text>
+  <text x="50" y="56" class="lbl">This part is simultaneously: the structural beam that carries the gripper reaction, the rear head of both cylinders, and the hydraulic manifold.</text>
+
+  <!-- REAR VIEW (z,y) origin (360,250) scale 1.5 -->
+  <text x="200" y="92" class="lbl" font-weight="bold">REAR VIEW</text>
+  <g transform="translate(360,250) scale(1.5)">
+    <rect x="-135" y="-85" width="270" height="170" rx="8" class="al"/>
+    <circle cx="-80" cy="0" r="35" class="hid"/>
+    <circle cx="80"  cy="0" r="35" class="hid"/>
+    <circle cx="-80" cy="0" r="25" class="hid"/>
+    <circle cx="80"  cy="0" r="25" class="hid"/>
+    <circle cx="0" cy="0" r="30" fill="#fff" stroke="#111" stroke-width="2"/>
+    <circle cx="0" cy="0" r="11" fill="#6b4423" stroke="#111" stroke-width="1"/>
+    <!-- ports on top face -->
+    <rect x="-46" y="-97" width="22" height="12" class="al"/>
+    <rect x="24" y="-97" width="22" height="12" class="al"/>
+    <text x="-56" y="-104" font-size="11" fill="#111">A EXT</text>
+    <text x="20" y="-104" font-size="11" fill="#111">B RET</text>
+    <!-- internal drillings -->
+    <path d="M-35 -85 L-35 -55 L-80 -55 L-80 -35" class="oil"/>
+    <path d="M-35 -55 L35 -55 L80 -55 L80 -35" class="oil"/>
+    <path d="M35 -85 L35 -70 L-110 -70 L-110 0" class="oil" stroke-dasharray="6 3"/>
+    <path d="M35 -70 L110 -70 L110 0" class="oil" stroke-dasharray="6 3"/>
+    <!-- release lever boss -->
+    <rect x="-8" y="85" width="16" height="14" class="al"/>
+    <line x1="-140" y1="0" x2="140" y2="0" class="cl"/>
+    <line x1="0" y1="-100" x2="0" y2="105" class="cl"/>
+  </g>
+  <g>
+    <line x1="158" y1="385" x2="158" y2="420" class="dim"/>
+    <line x1="563" y1="385" x2="563" y2="420" class="dim"/>
+    <line x1="158" y1="412" x2="563" y2="412" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="340" y="407" class="dimt">270</text>
+    <line x1="240" y1="250" x2="240" y2="445" class="dim"/>
+    <line x1="480" y1="250" x2="480" y2="445" class="dim"/>
+    <line x1="240" y1="438" x2="480" y2="438" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="330" y="433" class="dimt">160 C/C</text>
+    <line x1="590" y1="123" x2="630" y2="123" class="dim"/>
+    <line x1="590" y1="378" x2="630" y2="378" class="dim"/>
+    <line x1="620" y1="123" x2="620" y2="378" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="626" y="250" class="dimt">170</text>
+  </g>
+
+  <!-- SECTION (x,y) origin (850,250) scale 1.5 -->
+  <text x="790" y="92" class="lbl" font-weight="bold">SECTION D-D (horizontal, through cylinder axes)</text>
+  <g transform="translate(850,250) scale(1.5)">
+    <path d="M0 -135 L80 -135 L80 135 L0 135 Z" class="alh"/>
+    <!-- cylinder tapped bores from front face, 30 deep, blind at 30, bore Ø50 continues to 40 -->
+    <rect x="0" y="-115" width="30" height="70" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <rect x="0" y="45"  width="30" height="70" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <rect x="30" y="-105" width="10" height="50" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <rect x="30" y="55"  width="10" height="50" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <!-- centre strand bore and gripper thread -->
+    <rect x="0" y="-11" width="80" height="22" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <rect x="55" y="-30" width="25" height="60" fill="#fff" stroke="#111" stroke-width="1.8"/>
+    <!-- drilling -->
+    <path d="M20 -135 L20 -80" class="oil"/>
+    <line x1="-10" y1="0" x2="95" y2="0" class="cl"/>
+    <line x1="-10" y1="-80" x2="95" y2="-80" class="cl"/>
+    <line x1="-10" y1="80" x2="95" y2="80" class="cl"/>
+  </g>
+  <g>
+    <line x1="850" y1="470" x2="850" y2="500" class="dim"/>
+    <line x1="970" y1="470" x2="970" y2="500" class="dim"/>
+    <line x1="850" y1="492" x2="970" y2="492" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="895" y="487" class="dimt">80</text>
+  </g>
+
+  <g class="lbl">
+    <text x="60" y="520" font-weight="bold">FEATURES</text>
+    <text x="60" y="542">A  2 x M70x2 – 6H tapped bores, 30 deep, at 160 C/C, blind. Bore continues Ø50 H9 x 10 deep as the chamber end.</text>
+    <text x="60" y="560">   Perpendicularity to the front face 0.05. Both bores must be parallel within 0.05/100.</text>
+    <text x="60" y="578">B  Centre: Ø22 H9 strand bore through; rear M60x1.5 – 6H, 25 deep, for the gripper barrel;</text>
+    <text x="60" y="596">   front Ø26 H9 x 45 deep guiding the release push tube.</text>
+    <text x="60" y="614">C  Port A (extend): G1/4 on the top face, Ø6 gun-drilled galleries of EQUAL LENGTH to both cap chambers.</text>
+    <text x="60" y="632">   Unequal gallery lengths cause a transient force split between the cylinders — keep them symmetric.</text>
+    <text x="60" y="650">D  Port B (retract): G1/4 on the top face, Ø6 galleries to two side outlets feeding the external Ø8x2.5 HP tubes.</text>
+    <text x="60" y="668">E  All cross-drilling breakthroughs must be deburred and plugged with M8x1 grub screws + Loctite 2701.</text>
+    <text x="60" y="686">F  Stress at the centre section under 275 kN: bending 80 MPa, shear 23 MPa ⇒ SF 5.9 static / 1.9 fatigue on 7075-T651 (470 MPa).</text>
+    <text x="60" y="704">G  Hard-anodise Type II 20 µm after machining and after all threads are cut. Mass ≈ 6.1 kg.</text>
+  </g>
+
+  <g>
+    <rect x="740" y="560" width="380" height="100" fill="none" stroke="#111" stroke-width="2"/>
+    <line x1="740" y1="600" x2="1120" y2="600" stroke="#111" stroke-width="1"/>
+    <line x1="960" y1="600" x2="960" y2="660" stroke="#111" stroke-width="1"/>
+    <text x="752" y="586" class="ttl">PT-JACK-05 · CROSSBEAM</text>
+    <text x="752" y="624" class="lbl">Rev. A · Sheet 5 of 7</text>
+    <text x="752" y="646" class="lbl">ISO 2768-mK</text>
+    <text x="972" y="624" class="lbl">Mass 6.1 kg</text>
+    <text x="972" y="646" class="lbl">Scale 1:2 @ A3</text>
+  </g>
+</svg>

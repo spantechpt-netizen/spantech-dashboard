@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 760" width="1180" height="760" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <pattern id="h1" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
+    <pattern id="h2" width="8" height="8" patternTransform="rotate(-45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
+    <pattern id="h3" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#8a5a00" stroke-width="1.4"/></pattern>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 5 L10 2 L10 8 Z" fill="#1a5fb4"/></marker>
+  </defs>
+  <style>
+    .st{fill:url(#h1);stroke:#111;stroke-width:1.8}
+    .st2{fill:url(#h2);stroke:#111;stroke-width:1.8}
+    .al{fill:url(#h3);stroke:#111;stroke-width:1.8}
+    .cl{fill:none;stroke:#c0392b;stroke-width:1;stroke-dasharray:14 4 3 4}
+    .dim{stroke:#1a5fb4;stroke-width:1;fill:none}
+    .dimt{fill:#1a5fb4;font-size:13px}
+    .lbl{fill:#111;font-size:13px}
+    .ttl{fill:#111;font-size:19px;font-weight:bold}
+    .lead{stroke:#111;stroke-width:1;fill:none}
+    .frc{stroke:#c0392b;stroke-width:2.5;fill:none}
+  </style>
+  <rect width="1180" height="760" fill="#fff"/>
+  <text x="50" y="38" class="ttl">SECTION C-C — WEDGE GRIPPER ASSEMBLY  scale 2:1</text>
+  <text x="50" y="58" class="lbl">Taper narrows FORWARD (towards anchorage). Strand tends to slide forward relative to barrel ⇒ wedges are self-energising.</text>
+
+  <!-- origin at rear face of crossbeam, scale 4 -->
+  <g transform="translate(340,290) scale(4)">
+    <!-- crossbeam (partial) -->
+    <rect x="-70" y="-42" width="70" height="31" class="al"/>
+    <rect x="-70" y="11"  width="70" height="31" class="al"/>
+    <!-- barrel male thread into crossbeam -->
+    <rect x="-25" y="-30" width="25" height="17.5" class="st"/>
+    <rect x="-25" y="12.5" width="25" height="17.5" class="st"/>
+    <!-- barrel body 0..75 OD65 -->
+    <path d="M0 -32.5 L75 -32.5 L75 -18 L70 -18 L70 -16.8 L0 -12.5 Z" class="st"/>
+    <path d="M0 32.5 L75 32.5 L75 18 L70 18 L70 16.8 L0 12.5 Z" class="st"/>
+    <!-- end cap 75..95 -->
+    <rect x="75" y="-26" width="20" height="15" class="st"/>
+    <rect x="75" y="11"  width="20" height="15" class="st"/>
+    <!-- wedges (2 pieces) 2..70 -->
+    <path d="M2 -12.4 L70 -16.7 L70 -8.2 L2 -8.2 Z" class="st2"/>
+    <path d="M2 12.4 L70 16.7 L70 8.2 L2 8.2 Z" class="st2"/>
+    <!-- serration hint -->
+    <g stroke="#111" stroke-width="0.4">
+      <line x1="6" y1="-8.2" x2="6" y2="-7"/><line x1="12" y1="-8.2" x2="12" y2="-7"/><line x1="18" y1="-8.2" x2="18" y2="-7"/>
+      <line x1="24" y1="-8.2" x2="24" y2="-7"/><line x1="30" y1="-8.2" x2="30" y2="-7"/><line x1="36" y1="-8.2" x2="36" y2="-7"/>
+      <line x1="42" y1="-8.2" x2="42" y2="-7"/><line x1="48" y1="-8.2" x2="48" y2="-7"/><line x1="54" y1="-8.2" x2="54" y2="-7"/>
+      <line x1="60" y1="-8.2" x2="60" y2="-7"/><line x1="66" y1="-8.2" x2="66" y2="-7"/>
+    </g>
+    <!-- set spring 70..92 -->
+    <path d="M70 -14 L73 -11 L76 -14 L79 -11 L82 -14 L85 -11 L88 -14 L91 -11" stroke="#1a5fb4" stroke-width="1.4" fill="none"/>
+    <path d="M70 14 L73 11 L76 14 L79 11 L82 14 L85 11 L88 14 L91 11" stroke="#1a5fb4" stroke-width="1.4" fill="none"/>
+    <!-- release push tube -->
+    <rect x="-70" y="-10" width="72" height="2" class="st2"/>
+    <rect x="-70" y="8"   width="72" height="2" class="st2"/>
+    <!-- strand -->
+    <rect x="-90" y="-7.62" width="200" height="15.24" fill="#6b4423"/>
+    <line x1="-95" y1="0" x2="115" y2="0" class="cl"/>
+    <!-- force arrows -->
+    <path d="M40 -25 L20 -25" class="frc" marker-end="url(#a)"/>
+  </g>
+
+  <!-- dimensions -->
+  <g>
+    <line x1="340" y1="440" x2="340" y2="480" class="dim"/>
+    <line x1="640" y1="440" x2="640" y2="480" class="dim"/>
+    <line x1="340" y1="472" x2="640" y2="472" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="440" y="467" class="dimt">BARREL 75</text>
+
+    <line x1="348" y1="220" x2="300" y2="220" class="dim"/>
+    <line x1="348" y1="360" x2="300" y2="360" class="dim"/>
+    <line x1="312" y1="220" x2="312" y2="360" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="180" y="295" class="dimt">Ø25.0 small end</text>
+
+    <line x1="632" y1="223" x2="700" y2="223" class="dim"/>
+    <line x1="632" y1="357" x2="700" y2="357" class="dim"/>
+    <line x1="690" y1="223" x2="690" y2="357" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="700" y="295" class="dimt">Ø33.6 large end</text>
+
+    <line x1="760" y1="160" x2="800" y2="160" class="dim"/>
+    <line x1="760" y1="420" x2="800" y2="420" class="dim"/>
+    <line x1="790" y1="160" x2="790" y2="420" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="796" y="295" class="dimt">Ø65 OD</text>
+  </g>
+
+  <g class="lbl">
+    <path d="M500 175 L500 120 L560 120" class="lead"/><text x="565" y="124">1  BARREL — 42CrMo4, QT 850 MPa min yield, bore gas-nitrided 0.3 mm, HV 650</text>
+    <path d="M420 262 L420 105 L560 105" class="lead"/><text x="565" y="109">2  WEDGES, 2-piece — 16MnCr5 carburised 0.7 mm, HRC 60-62, teeth p=1.0 t=0.3</text>
+    <path d="M700 230 L700 145 L760 145" class="lead"/><text x="765" y="149">3  SET SPRING 60 N — keeps wedges lightly engaged (auto-bite)</text>
+    <path d="M730 320 L730 545 L560 545" class="lead"/><text x="565" y="549">4  END CAP M52x1.5 — retains spring, gives access to change wedge sets</text>
+    <path d="M200 265 L200 580 L560 580" class="lead"/><text x="565" y="584">5  RELEASE PUSH TUBE Ø20/Ø17 — hand lever pushes wedges 6 mm rearward to free the strand</text>
+    <path d="M150 290 L150 615 L560 615" class="lead"/><text x="565" y="619">6  STRAND Ø15.24 (change wedge set for Ø12.7)</text>
+    <path d="M250 165 L250 88 L560 88" class="lead"/><text x="565" y="92">7  REAR CROSSBEAM — barrel screws in M60x1.5, 25 mm engagement</text>
+  </g>
+
+  <g class="lbl">
+    <text x="50" y="520" font-weight="bold">WEDGE MECHANICS (checked in design report §5.7)</text>
+    <text x="50" y="542">Cone half-angle α = 3.5°  (7° included)</text>
+    <text x="50" y="562">Cone friction µ₁ = 0.10 (MoS₂ greased) ⇒ φ₁ = 5.71°</text>
+    <text x="50" y="582">Radial resultant R = F / tan(α+φ₁) = 250 / 0.162 = 1541 kN</text>
+    <text x="50" y="602">Required tooth/strand friction µ₂ ≥ 0.162  — serrated teeth give 0.30-0.50  ✔</text>
+    <text x="50" y="622">Self-locking check: µ₁ = 0.10 &gt; tan α = 0.061  ✔</text>
+    <text x="50" y="642">Barrel hoop at bore σ = 361 MPa &lt; 850/2.35  ✔  SF = 2.35</text>
+  </g>
+
+  <g>
+    <rect x="60" y="672" width="1060" height="68" fill="none" stroke="#111" stroke-width="2"/>
+    <line x1="760" y1="672" x2="760" y2="740" stroke="#111" stroke-width="1"/>
+    <line x1="940" y1="672" x2="940" y2="740" stroke="#111" stroke-width="1"/>
+    <text x="772" y="700" class="lbl">DWG No.</text><text x="772" y="726" class="ttl">PT-JACK-03</text>
+    <text x="952" y="700" class="lbl">Rev. A</text><text x="952" y="726" class="lbl">Sheet 3 of 7</text>
+    <text x="72" y="700" class="ttl">WEDGE GRIPPER — SECTION AND DATA</text>
+    <text x="72" y="726" class="lbl">Replace wedge set every 500 stressing cycles or when tooth wear &gt; 0.1 mm. Never mix worn and new wedge halves.</text>
+  </g>
+</svg>

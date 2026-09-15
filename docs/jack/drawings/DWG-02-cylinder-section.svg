@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 780" width="1180" height="780" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <pattern id="h1" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
+    <pattern id="h2" width="8" height="8" patternTransform="rotate(-45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
+    <pattern id="h3" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#8a5a00" stroke-width="1.4"/></pattern>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 5 L10 2 L10 8 Z" fill="#1a5fb4"/></marker>
+  </defs>
+  <style>
+    .st{fill:url(#h1);stroke:#111;stroke-width:1.8}
+    .st2{fill:url(#h2);stroke:#111;stroke-width:1.8}
+    .al{fill:url(#h3);stroke:#111;stroke-width:1.8}
+    .seal{fill:#c0392b;stroke:#7b241c;stroke-width:1}
+    .guide{fill:#2e7d32;stroke:#1b5e20;stroke-width:1}
+    .oil{fill:#fdf3d0;stroke:none}
+    .cl{fill:none;stroke:#c0392b;stroke-width:1;stroke-dasharray:14 4 3 4}
+    .dim{stroke:#1a5fb4;stroke-width:1;fill:none}
+    .dimt{fill:#1a5fb4;font-size:13px}
+    .lbl{fill:#111;font-size:13px}
+    .ttl{fill:#111;font-size:19px;font-weight:bold}
+    .lead{stroke:#111;stroke-width:1;fill:none}
+  </style>
+  <rect width="1180" height="780" fill="#fff"/>
+  <text x="50" y="36" class="ttl">SECTION B-B — ONE HYDRAULIC CYLINDER (2 off, identical)   scale 1:2</text>
+  <text x="50" y="56" class="lbl">Shown FULLY RETRACTED.  Bore Ø50 · Rod Ø32 · Stroke 200 · Double acting · 700 bar max working pressure.</text>
+
+  <!-- model x=0 is front face of gland cap ; scale 1.85 ; origin (120,260) -->
+  <g transform="translate(120,260) scale(1.85)">
+    <rect x="45" y="-25" width="280" height="50" class="oil"/>
+
+    <!-- TUBE 15..325  ID50 OD70 -->
+    <rect x="15" y="-35" width="310" height="10" class="st"/>
+    <rect x="15" y="25"  width="310" height="10" class="st"/>
+    <!-- external thread hatch marks at both tube ends -->
+    <g stroke="#111" stroke-width="0.6">
+      <line x1="17" y1="-35" x2="17" y2="-38"/><line x1="23" y1="-35" x2="23" y2="-38"/><line x1="29" y1="-35" x2="29" y2="-38"/>
+      <line x1="35" y1="-35" x2="35" y2="-38"/><line x1="41" y1="-35" x2="41" y2="-38"/>
+      <line x1="297" y1="-35" x2="297" y2="-38"/><line x1="303" y1="-35" x2="303" y2="-38"/><line x1="309" y1="-35" x2="309" y2="-38"/>
+      <line x1="315" y1="-35" x2="315" y2="-38"/><line x1="321" y1="-35" x2="321" y2="-38"/>
+    </g>
+
+    <!-- CROSSBEAM boss (aluminium) 290..360, tapped M70x2 to x=325 blind -->
+    <path d="M290 -43 L360 -43 L360 43 L290 43 L290 25 L325 25 L325 -25 L290 -25 Z" class="al"/>
+
+    <!-- GLAND CAP (7075) screwed over tube OD, -30..45, OD86 -->
+    <path d="M-30 -43 L45 -43 L45 -35 L15 -35 L15 -16 L-30 -16 Z" class="al"/>
+    <path d="M-30 43 L45 43 L45 35 L15 35 L15 16 L-30 16 Z" class="al"/>
+
+    <!-- STOP SPACER RING 15..55 -->
+    <rect x="15" y="-25" width="40" height="7" fill="#9e9e9e" stroke="#111" stroke-width="1"/>
+    <rect x="15" y="18"  width="40" height="7" fill="#9e9e9e" stroke="#111" stroke-width="1"/>
+
+    <!-- PISTON 290..325 -->
+    <rect x="290" y="-25" width="35" height="16" class="st2"/>
+    <rect x="290" y="9"   width="35" height="16" class="st2"/>
+    <!-- ROD -50 .. 325 -->
+    <rect x="-50" y="-16" width="375" height="32" class="st2"/>
+    <rect x="-50" y="-14" width="26" height="28" fill="#fff" stroke="#111" stroke-width="1.2"/>
+
+    <!-- piston seal stack -->
+    <rect x="303" y="-25" width="9" height="4" class="seal"/><rect x="303" y="21" width="9" height="4" class="seal"/>
+    <rect x="292" y="-25" width="8" height="3" class="guide"/><rect x="292" y="22" width="8" height="3" class="guide"/>
+    <rect x="316" y="-25" width="8" height="3" class="guide"/><rect x="316" y="22" width="8" height="3" class="guide"/>
+
+    <!-- gland seal stack around rod -->
+    <rect x="-26" y="-21" width="6" height="5" class="seal"/><rect x="-26" y="16" width="6" height="5" class="seal"/>
+    <rect x="-17" y="-19" width="9" height="3" class="guide"/><rect x="-17" y="16" width="9" height="3" class="guide"/>
+    <rect x="-6" y="-20" width="7" height="4" class="seal"/><rect x="-6" y="16" width="7" height="4" class="seal"/>
+    <rect x="4" y="-20" width="7" height="4" class="seal"/><rect x="4" y="16" width="7" height="4" class="seal"/>
+
+    <!-- static O-rings -->
+    <circle cx="40" cy="-39" r="2.4" class="seal"/><circle cx="40" cy="39" r="2.4" class="seal"/>
+    <circle cx="300" cy="-39" r="2.4" class="seal"/><circle cx="300" cy="39" r="2.4" class="seal"/>
+
+    <!-- ports -->
+    <rect x="-12" y="-55" width="12" height="12" class="al"/>
+    <path d="M-6 -43 L-6 -22" stroke="#111" stroke-width="1.6" fill="none"/>
+    <rect x="336" y="-57" width="12" height="14" class="al"/>
+    <path d="M342 -43 L342 -25" stroke="#111" stroke-width="1.6" fill="none"/>
+
+    <line x1="-70" y1="0" x2="380" y2="0" class="cl"/>
+  </g>
+
+  <!-- dimensions -->
+  <g>
+    <line x1="148" y1="360" x2="148" y2="405" class="dim"/>
+    <line x1="721" y1="360" x2="721" y2="405" class="dim"/>
+    <line x1="148" y1="397" x2="721" y2="397" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="380" y="392" class="dimt">TUBE 310</text>
+
+    <line x1="222" y1="300" x2="222" y2="345" class="dim"/>
+    <line x1="657" y1="300" x2="657" y2="345" class="dim"/>
+    <line x1="222" y1="337" x2="657" y2="337" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="360" y="332" class="dimt">STROKE 200 (hard stop by spacer ring)</text>
+
+    <line x1="27" y1="420" x2="27" y2="450" class="dim"/>
+    <line x1="721" y1="420" x2="721" y2="450" class="dim"/>
+    <line x1="27" y1="442" x2="721" y2="442" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="330" y="437" class="dimt">ROD 375 OVERALL (Ø32)</text>
+
+    <line x1="760" y1="214" x2="800" y2="214" class="dim"/>
+    <line x1="760" y1="306" x2="800" y2="306" class="dim"/>
+    <line x1="790" y1="214" x2="790" y2="306" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="796" y="264" class="dimt">Ø50 H8</text>
+
+    <line x1="835" y1="195" x2="880" y2="195" class="dim"/>
+    <line x1="835" y1="325" x2="880" y2="325" class="dim"/>
+    <line x1="870" y1="195" x2="870" y2="325" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="876" y="264" class="dimt">Ø70 OD  (M70x2 at both ends)</text>
+  </g>
+
+  <!-- key -->
+  <g class="lbl">
+    <rect x="50" y="490" width="14" height="14" class="st"/><text x="72" y="502">Honed tube, steel E355 / ST52-3 BK+S</text>
+    <rect x="50" y="514" width="14" height="14" class="st2"/><text x="72" y="526">42CrMo4 QT — piston &amp; rod</text>
+    <rect x="50" y="538" width="14" height="14" class="al"/><text x="72" y="550">7075-T651 aluminium — gland cap &amp; crossbeam</text>
+    <rect x="400" y="490" width="14" height="14" class="seal"/><text x="422" y="502">PTFE/NBR seal, 700 bar, with anti-extrusion back-up ring</text>
+    <rect x="400" y="514" width="14" height="14" class="guide"/><text x="422" y="526">Bronze-filled PTFE guide (wear) ring</text>
+    <rect x="400" y="538" width="14" height="14" fill="#fdf3d0" stroke="#999"/><text x="422" y="550">Extend chamber (cap side) — pressurised to tension the strand</text>
+  </g>
+
+  <g class="lbl">
+    <path d="M110 165 L110 120 L430 120" class="lead"/><text x="435" y="124">Gland stack from outside in: wiper → guide ring → rod seal → buffer seal</text>
+    <path d="M110 122 L110 96 L430 96" class="lead"/><text x="435" y="100">PORT B — RETRACT (rod side) M16x1.5, 700 bar quick coupler</text>
+    <path d="M755 140 L755 112 L800 112" class="lead"/><text x="805" y="116">PORT A — EXTEND (cap side)</text>
+    <path d="M685 218 L685 168 L730 168" class="lead"/><text x="735" y="172">Piston: 1 Glyd-ring + 2 guide rings</text>
+    <path d="M60 262 L60 600 L435 600" class="lead"/><text x="440" y="604">Rod nose M24x1.5 male — screws into NOSE YOKE, locked with a set screw</text>
+    <path d="M660 300 L660 640 L435 640" class="lead"/><text x="440" y="630">Tube rear end M70x2 EXTERNAL screwed 30 mm into the crossbeam boss (O-ring + back-up)</text>
+    <path d="M160 300 L160 575 L435 575" class="lead"/><text x="440" y="570">Gland cap M70x2 INTERNAL screwed 30 mm over the tube OD (never tap into the bore)</text>
+    <path d="M85 310 L85 660 L435 660" class="lead"/><text x="440" y="664">Stop spacer ring (steel, 40 long) — mechanically limits stroke to 200 mm</text>
+  </g>
+
+  <g>
+    <rect x="60" y="680" width="1060" height="80" fill="none" stroke="#111" stroke-width="2"/>
+    <line x1="760" y1="680" x2="760" y2="760" stroke="#111" stroke-width="1"/>
+    <line x1="940" y1="680" x2="940" y2="760" stroke="#111" stroke-width="1"/>
+    <text x="72" y="706" class="ttl">CYLINDER ASSEMBLY — LONGITUDINAL SECTION</text>
+    <text x="72" y="728" class="lbl">137.5 kN per cylinder @ 700 bar · 125 kN @ 637 bar · hydrostatic proof 955 bar / 3 min.</text>
+    <text x="72" y="750" class="lbl">Bore Ø50 H8 honed Ra ≤ 0.3 µm · Rod Ø32 f7, hard chrome 25 µm, Ra ≤ 0.2 µm · cylindricity 0.02.</text>
+    <text x="772" y="706" class="lbl">DWG No.</text><text x="772" y="734" class="ttl">PT-JACK-02</text>
+    <text x="952" y="706" class="lbl">Rev. A</text><text x="952" y="734" class="lbl">Sheet 2 of 7</text>
+  </g>
+</svg>

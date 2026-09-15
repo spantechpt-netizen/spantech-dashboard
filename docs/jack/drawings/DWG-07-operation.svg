@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 700" width="1180" height="700" font-family="Arial, Helvetica, sans-serif">
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 5 L10 2 L10 8 Z" fill="#c0392b"/></marker></defs>
+  <style>
+    .conc{fill:#ddd8cd;stroke:#111;stroke-width:1.5}
+    .anch{fill:#9aa3ad;stroke:#111;stroke-width:1.5}
+    .body{fill:#e6e9ee;stroke:#111;stroke-width:1.8}
+    .cyl{fill:#c9ced6;stroke:#111;stroke-width:1.8}
+    .rod{fill:#b8bec7;stroke:#111;stroke-width:1.5}
+    .str{stroke:#6b4423;stroke-width:5;fill:none}
+    .arw{stroke:#c0392b;stroke-width:2.5;fill:none}
+    .lbl{fill:#111;font-size:12.5px}
+    .h{fill:#111;font-size:15px;font-weight:bold}
+    .ttl{fill:#111;font-size:19px;font-weight:bold}
+  </style>
+  <rect width="1180" height="700" fill="#fff"/>
+  <text x="50" y="34" class="ttl">OPERATING SEQUENCE — one stressing pull</text>
+
+  <g id="s1" transform="translate(40,70)">
+    <text x="0" y="0" class="h">STEP 1 — Set up</text>
+    <rect x="0" y="30" width="60" height="150" class="conc"/>
+    <rect x="60" y="80" width="26" height="50" class="anch"/>
+    <line x1="10" y1="105" x2="330" y2="105" class="str"/>
+    <rect x="95" y="60" width="26" height="90" class="body"/>
+    <rect x="121" y="66" width="14" height="24" class="rod"/><rect x="121" y="120" width="14" height="24" class="rod"/>
+    <rect x="135" y="62" width="120" height="32" class="cyl"/><rect x="135" y="116" width="120" height="32" class="cyl"/>
+    <rect x="248" y="55" width="28" height="100" class="body"/>
+    <rect x="276" y="92" width="34" height="26" class="cyl"/>
+    <text x="0" y="205" class="lbl">• Fit the anchorage wedges by hand and tap home.</text>
+    <text x="0" y="223" class="lbl">• Drop the jack onto the strand through the side slot.</text>
+    <text x="0" y="241" class="lbl">• Seat the nose pads flat on the anchorage casting.</text>
+    <text x="0" y="259" class="lbl">• Mark the strand at the jack rear face (datum for</text>
+    <text x="0" y="277" class="lbl">  measuring elongation). Record datum reading.</text>
+  </g>
+
+  <g id="s2" transform="translate(420,70)">
+    <text x="0" y="0" class="h">STEP 2 — Stress</text>
+    <rect x="0" y="30" width="60" height="150" class="conc"/>
+    <rect x="60" y="80" width="26" height="50" class="anch"/>
+    <line x1="10" y1="105" x2="360" y2="105" class="str"/>
+    <rect x="95" y="60" width="26" height="90" class="body"/>
+    <rect x="121" y="66" width="64" height="24" class="rod"/><rect x="121" y="120" width="64" height="24" class="rod"/>
+    <rect x="185" y="62" width="120" height="32" class="cyl"/><rect x="185" y="116" width="120" height="32" class="cyl"/>
+    <rect x="298" y="55" width="28" height="100" class="body"/>
+    <rect x="326" y="92" width="34" height="26" class="cyl"/>
+    <path d="M250 40 L310 40" class="arw" marker-end="url(#a)"/>
+    <text x="230" y="32" class="lbl" fill="#c0392b">body travels rearward</text>
+    <text x="0" y="205" class="lbl">• Pump slowly. The rods push on the yoke, the body</text>
+    <text x="0" y="223" class="lbl">  and gripper move rearward and tension the strand.</text>
+    <text x="0" y="241" class="lbl">• Stop at 20% of target, re-check alignment, then</text>
+    <text x="0" y="259" class="lbl">  continue in stages and record pressure vs elongation.</text>
+    <text x="0" y="277" class="lbl">• STOP at the calibrated target pressure — never at</text>
+    <text x="0" y="295" class="lbl">  a target elongation. Elongation is the cross-check.</text>
+  </g>
+
+  <g id="s3" transform="translate(800,70)">
+    <text x="0" y="0" class="h">STEP 3 — Seat &amp; release</text>
+    <rect x="0" y="30" width="60" height="150" class="conc"/>
+    <rect x="60" y="80" width="26" height="50" class="anch"/>
+    <line x1="10" y1="105" x2="345" y2="105" class="str"/>
+    <rect x="95" y="60" width="26" height="90" class="body"/>
+    <rect x="121" y="66" width="14" height="24" class="rod"/><rect x="121" y="120" width="14" height="24" class="rod"/>
+    <rect x="135" y="62" width="120" height="32" class="cyl"/><rect x="135" y="116" width="120" height="32" class="cyl"/>
+    <rect x="248" y="55" width="28" height="100" class="body"/>
+    <rect x="276" y="92" width="34" height="26" class="cyl"/>
+    <path d="M300 175 L250 175" class="arw" marker-end="url(#a)"/>
+    <text x="255" y="195" class="lbl" fill="#c0392b">release lever</text>
+    <text x="0" y="225" class="lbl">• Hold on the pilot check while the anchorage wedges</text>
+    <text x="0" y="243" class="lbl">  pull in. Allow for anchor set (draw-in) ≈ 6 mm.</text>
+    <text x="0" y="261" class="lbl">• Lower the pressure SLOWLY to zero, then retract.</text>
+    <text x="0" y="279" class="lbl">• Push the release lever, lift the jack off sideways.</text>
+    <text x="0" y="297" class="lbl">• Repeat if the required elongation needs a 2nd pull.</text>
+  </g>
+
+  <!-- danger zone -->
+  <g transform="translate(40,410)">
+    <rect x="0" y="0" width="1100" height="120" fill="#fff4f4" stroke="#c0392b" stroke-width="2"/>
+    <text x="16" y="26" class="h" fill="#c0392b">DANGER ZONE — NO PERSON BEHIND OR IN LINE WITH THE JACK AT ANY TIME</text>
+    <text x="16" y="50" class="lbl">If a strand fails or the wedges slip, the jack and the strand tail are launched along the tendon axis at high velocity. The exclusion zone extends at least 10 m behind the jack.</text>
+    <text x="16" y="70" class="lbl">Operators stand to the SIDE. A steel deflector/blast shield is placed behind the jack. Hoses carry whip restraints. Nobody may pass the live end while pressure is on.</text>
+    <text x="16" y="90" class="lbl">Never exceed the pressure corresponding to 0.80 × GUTS. Never re-use a wedge set on a strand of a different diameter. Never operate with a cracked or repaired nose yoke.</text>
+    <text x="16" y="110" class="lbl">Every stressing record must state: tendon ID, strand Ø, gauge serial, jack serial, target pressure, measured elongation, calculated elongation, and the operator's name.</text>
+  </g>
+
+  <g transform="translate(40,560)">
+    <text x="0" y="0" class="h">ELONGATION CROSS-CHECK</text>
+    <text x="0" y="24" class="lbl">δ = F · L / (A · E)   where F = jacking force [N], L = tendon length [mm], A = strand area [mm²], E = strand modulus (195 000 MPa, use the mill certificate value)</text>
+    <text x="0" y="46" class="lbl">Example: 0.6" strand (A = 140 mm²), L = 30 m, F = 208.3 kN (0.80 GUTS)  ⇒  δ = 208 300 × 30 000 / (140 × 195 000) = 229 mm  ⇒  two pulls of the 200 mm stroke.</text>
+    <text x="0" y="68" class="lbl">Acceptance: measured elongation must be within −5% / +5% of calculated (PTI / ACI 423). Outside that band — STOP and investigate before proceeding.</text>
+    <text x="0" y="90" class="lbl">DWG PT-JACK-07 · Rev A · Sheet 7 of 7</text>
+  </g>
+</svg>
