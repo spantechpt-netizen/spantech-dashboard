@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 780" width="1180" height="780" font-family="Arial, Helvetica, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 840" width="1180" height="840" font-family="Arial, Helvetica, sans-serif">
   <defs>
     <pattern id="h1" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
     <pattern id="h2" width="8" height="8" patternTransform="rotate(-45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
@@ -19,7 +19,7 @@
     .ttl{fill:#111;font-size:19px;font-weight:bold}
     .lead{stroke:#111;stroke-width:1;fill:none}
   </style>
-  <rect width="1180" height="780" fill="#fff"/>
+  <rect width="1180" height="840" fill="#fff"/>
   <text x="50" y="36" class="ttl">SECTION B-B — ONE HYDRAULIC CYLINDER (2 off, identical)   scale 1:2</text>
   <text x="50" y="56" class="lbl">Shown FULLY RETRACTED.  Bore Ø50 · Rod Ø32 · Stroke 200 · Double acting · 700 bar max working pressure.</text>
 
@@ -110,33 +110,33 @@
 
   <!-- key -->
   <g class="lbl">
-    <rect x="50" y="490" width="14" height="14" class="st"/><text x="72" y="502">Honed tube, steel E355 / ST52-3 BK+S</text>
-    <rect x="50" y="514" width="14" height="14" class="st2"/><text x="72" y="526">42CrMo4 QT — piston &amp; rod</text>
-    <rect x="50" y="538" width="14" height="14" class="al"/><text x="72" y="550">7075-T651 aluminium — gland cap &amp; crossbeam</text>
-    <rect x="400" y="490" width="14" height="14" class="seal"/><text x="422" y="502">PTFE/NBR seal, 700 bar, with anti-extrusion back-up ring</text>
-    <rect x="400" y="514" width="14" height="14" class="guide"/><text x="422" y="526">Bronze-filled PTFE guide (wear) ring</text>
-    <rect x="400" y="538" width="14" height="14" fill="#fdf3d0" stroke="#999"/><text x="422" y="550">Extend chamber (cap side) — pressurised to tension the strand</text>
+    <rect x="60" y="692" width="14" height="14" class="st"/><text x="82" y="704">Honed tube, steel E355 / ST52-3 BK+S</text>
+    <rect x="60" y="716" width="14" height="14" class="st2"/><text x="82" y="728">42CrMo4 QT — piston &amp; rod</text>
+    <rect x="420" y="692" width="14" height="14" class="al"/><text x="442" y="704">7075-T651 — gland cap &amp; crossbeam</text>
+    <rect x="420" y="716" width="14" height="14" class="seal"/><text x="442" y="728">PTFE/NBR seal, 700 bar + back-up ring</text>
+    <rect x="790" y="692" width="14" height="14" class="guide"/><text x="812" y="704">Bronze-filled PTFE guide (wear) ring</text>
+    <rect x="790" y="716" width="14" height="14" fill="#fdf3d0" stroke="#999"/><text x="812" y="728">Extend chamber (cap side), pressurised</text>
   </g>
 
   <g class="lbl">
     <path d="M110 165 L110 120 L430 120" class="lead"/><text x="435" y="124">Gland stack from outside in: wiper → guide ring → rod seal → buffer seal</text>
     <path d="M110 122 L110 96 L430 96" class="lead"/><text x="435" y="100">PORT B — RETRACT (rod side) M16x1.5, 700 bar quick coupler</text>
-    <path d="M755 140 L755 112 L800 112" class="lead"/><text x="805" y="116">PORT A — EXTEND (cap side)</text>
+    <path d="M755 140 L755 84 L800 84" class="lead"/><text x="805" y="88">PORT A — EXTEND (cap side)</text>
     <path d="M685 218 L685 168 L730 168" class="lead"/><text x="735" y="172">Piston: 1 Glyd-ring + 2 guide rings</text>
-    <path d="M60 262 L60 600 L435 600" class="lead"/><text x="440" y="604">Rod nose M24x1.5 male — screws into NOSE YOKE, locked with a set screw</text>
-    <path d="M660 300 L660 640 L435 640" class="lead"/><text x="440" y="630">Tube rear end M70x2 EXTERNAL screwed 30 mm into the crossbeam boss (O-ring + back-up)</text>
-    <path d="M160 300 L160 575 L435 575" class="lead"/><text x="440" y="570">Gland cap M70x2 INTERNAL screwed 30 mm over the tube OD (never tap into the bore)</text>
-    <path d="M85 310 L85 660 L435 660" class="lead"/><text x="440" y="664">Stop spacer ring (steel, 40 long) — mechanically limits stroke to 200 mm</text>
+    <path d="M60 262 L60 604 L425 604" class="lead"/><text x="440" y="608">Rod nose M24x1.5 male — screws into NOSE YOKE, locked with a set screw</text>
+    <path d="M660 300 L660 466 L410 466 L410 634 L425 634" class="lead"/><text x="440" y="638">Tube rear end M70x2 EXTERNAL screwed 30 mm into the crossbeam boss (O-ring + back-up)</text>
+    <path d="M160 300 L160 574 L425 574" class="lead"/><text x="440" y="578">Gland cap M70x2 INTERNAL screwed 30 mm over the tube OD (never tap into the bore)</text>
+    <path d="M85 310 L85 668 L425 668" class="lead"/><text x="440" y="672">Stop spacer ring (steel, 40 long) — mechanically limits stroke to 200 mm</text>
   </g>
 
   <g>
-    <rect x="60" y="680" width="1060" height="80" fill="none" stroke="#111" stroke-width="2"/>
-    <line x1="760" y1="680" x2="760" y2="760" stroke="#111" stroke-width="1"/>
-    <line x1="940" y1="680" x2="940" y2="760" stroke="#111" stroke-width="1"/>
-    <text x="72" y="706" class="ttl">CYLINDER ASSEMBLY — LONGITUDINAL SECTION</text>
-    <text x="72" y="728" class="lbl">137.5 kN per cylinder @ 700 bar · 125 kN @ 637 bar · hydrostatic proof 955 bar / 3 min.</text>
-    <text x="72" y="750" class="lbl">Bore Ø50 H8 honed Ra ≤ 0.3 µm · Rod Ø32 f7, hard chrome 25 µm, Ra ≤ 0.2 µm · cylindricity 0.02.</text>
-    <text x="772" y="706" class="lbl">DWG No.</text><text x="772" y="734" class="ttl">PT-JACK-02</text>
-    <text x="952" y="706" class="lbl">Rev. A</text><text x="952" y="734" class="lbl">Sheet 2 of 7</text>
+    <rect x="60" y="750" width="1060" height="80" fill="none" stroke="#111" stroke-width="2"/>
+    <line x1="760" y1="750" x2="760" y2="830" stroke="#111" stroke-width="1"/>
+    <line x1="940" y1="750" x2="940" y2="830" stroke="#111" stroke-width="1"/>
+    <text x="72" y="776" class="ttl">CYLINDER ASSEMBLY — LONGITUDINAL SECTION</text>
+    <text x="72" y="798" class="lbl">137.5 kN per cylinder @ 700 bar · 125 kN @ 637 bar · hydrostatic proof 955 bar / 3 min.</text>
+    <text x="72" y="820" class="lbl">Bore Ø50 H8 honed Ra ≤ 0.3 µm · Rod Ø32 f7, hard chrome 25 µm, Ra ≤ 0.2 µm · cylindricity 0.02.</text>
+    <text x="772" y="776" class="lbl">DWG No.</text><text x="772" y="804" class="ttl">PT-JACK-02</text>
+    <text x="952" y="776" class="lbl">Rev. A</text><text x="952" y="804" class="lbl">Sheet 2 of 7</text>
   </g>
 </svg>

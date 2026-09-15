@@ -60,7 +60,7 @@
     <line x1="70" y1="375" x2="70" y2="400" class="dim"/>
     <line x1="526" y1="330" x2="526" y2="400" class="dim"/>
     <line x1="70" y1="392" x2="526" y2="392" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
-    <text x="215" y="387" class="dimt">735 FULLY EXTENDED (stroke 200)</text>
+    <text x="185" y="387" class="dimt">735 FULLY EXTENDED (stroke 200)</text>
 
     <line x1="20" y1="131" x2="60" y2="131" class="dim"/>
     <line x1="20" y1="299" x2="60" y2="299" class="dim"/>
@@ -73,15 +73,29 @@
     <text x="606" y="219" class="dimt">160 C/C</text>
   </g>
 
-  <!-- callouts plan -->
+  <!-- balloons on geometry -->
+  <g>
+    <g fill="#fff" stroke="#111" stroke-width="1.4">
+      <circle cx="93" cy="215" r="9"/><circle cx="120" cy="265" r="9"/><circle cx="219" cy="265" r="9"/>
+      <circle cx="169" cy="227" r="9"/><circle cx="321" cy="153" r="9"/><circle cx="369" cy="215" r="9"/>
+      <circle cx="405" cy="215" r="9"/>
+    </g>
+    <g fill="#111" font-size="12" font-weight="bold" text-anchor="middle">
+      <text x="93" y="219">1</text><text x="120" y="269">2</text><text x="219" y="269">3</text>
+      <text x="169" y="231">4</text><text x="321" y="157">5</text><text x="369" y="219">6</text>
+      <text x="405" y="219">7</text>
+    </g>
+  </g>
+  <!-- legend -->
   <g class="lbl">
-    <path d="M105 120 L105 95 L250 95" class="lead"/><text x="255" y="99">1  NOSE YOKE (7075-T651) — reacts on anchorage face</text>
-    <path d="M120 330 L120 420 L250 420" class="lead"/><text x="255" y="424">2  PISTON ROD  Ø32  42CrMo4 QT + hard chrome 25 µm</text>
-    <path d="M230 150 L230 120 L560 120" class="lead"/><text x="565" y="124">3  CYLINDER TUBE  Ø50 H8 / Ø70  honed steel E355</text>
-    <path d="M300 300 L300 445 L250 445" class="lead"/><text x="255" y="449">4  HP FEED TUBE Ø8x2.5 (rod-side, retract line)</text>
-    <path d="M310 133 L310 108 L560 108" class="lead"/><text x="565" y="112">5  REAR CROSSBEAM / MANIFOLD (7075-T651)</text>
-    <path d="M360 240 L360 470 L250 470" class="lead"/><text x="255" y="474">6  WEDGE GRIPPER Ø65 x 75  (42CrMo4 QT, nitrided bore)</text>
-    <path d="M72 215 L40 215" class="lead"/><text x="60" y="500" class="lbl">7  STRAND Ø15.24 (0.6") or Ø12.7 (0.5") — 1860 MPa</text>
+    <text x="60" y="440" font-weight="bold">PARTS LIST</text>
+    <text x="60" y="462">1  NOSE YOKE (7075-T651) — bears on the anchorage face</text>
+    <text x="60" y="482">2  PISTON ROD Ø32 — 42CrMo4 QT + hard chrome 25 µm</text>
+    <text x="60" y="502">3  CYLINDER TUBE Ø50 H8 / Ø70 — honed steel E355</text>
+    <text x="60" y="522">4  HP FEED TUBE Ø8x2.5 — rod-side (retract) line</text>
+    <text x="60" y="542">5  REAR CROSSBEAM / MANIFOLD (7075-T651)</text>
+    <text x="60" y="562">6  WEDGE GRIPPER Ø65 x 75 — 42CrMo4 QT, nitrided bore</text>
+    <text x="60" y="582">7  STRAND Ø15.24 (0.6") or Ø12.7 (0.5") — 1860 MPa</text>
   </g>
 
   <!-- ============ VIEW B : FRONT (from anchorage) ============ -->

@@ -85,11 +85,11 @@
   </g>
 
   <g class="lbl">
-    <path d="M300 230 L300 500 L120 500" class="lead"/><text x="120" y="516">1  SIDE-ENTRY SLOT 22 +0.5/0  with R11 top — the jack drops onto the strand from below;</text>
+    <path d="M300 230 L300 496 L118 496" class="lead"/><text x="120" y="516">1  SIDE-ENTRY SLOT 22 +0.5/0  with R11 top — the jack drops onto the strand from below;</text>
     <text x="140" y="534">   the bridge above the slot carries the full bending moment (σ = 93 MPa, SF 5.0 static / 1.6 fatigue).</text>
-    <path d="M436 230 L436 556 L120 556" class="lead"/><text x="120" y="572">2  BEARING PADS 30 x 50 x 12, 16MnCr5 case-hardened HRC 55-58, 2 off, fixed by 2 x M8 12.9 each.</text>
+    <path d="M436 230 L436 300 L660 300 L660 552 L118 552" class="lead"/><text x="120" y="572">2  BEARING PADS 30 x 50 x 12, 16MnCr5 case-hardened HRC 55-58, 2 off, fixed by 2 x M8 12.9 each.</text>
     <text x="140" y="590">   Total bearing area 3000 mm² ⇒ 92 MPa on the anchorage casting at 275 kN. Replaceable wear item.</text>
-    <path d="M236 230 L236 612 L120 612" class="lead"/><text x="120" y="628">3  ROD SEATS: M24x1.5 – 6H tapped 45 deep, flat-bottomed, perpendicular to the front face within 0.05.</text>
+    <path d="M236 230 L236 608 L118 608" class="lead"/><text x="120" y="628">3  ROD SEATS: M24x1.5 – 6H tapped 45 deep, flat-bottomed, perpendicular to the front face within 0.05.</text>
     <text x="140" y="646">   Both seats must be coplanar within 0.05 mm, otherwise the two cylinders share load unequally.</text>
     <text x="120" y="676" font-weight="bold">MACHINING NOTES:</text>
     <text x="120" y="694">Machine from 80 mm 7075-T651 plate, finish 75 mm. Flatness of front face 0.05. Ra 1.6 all over, Ra 0.8 on the pad seats.</text>
