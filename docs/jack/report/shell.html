@@ -1,0 +1,290 @@
+<title>PT-JACK-250</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#eceeea; --sheet:#fff; --sheet-2:#f6f7f4;
+  --ink:#15191d; --ink2:#5b6269; --ink3:#868d92;
+  --rule:#d2d6d0; --rule2:#e3e6e0;
+  --accent:#c94a18; --accent-soft:#fbeade;
+  --dim:#1a5fb4; --dim-soft:#e6eefa;
+  --danger:#9d2119; --danger-soft:#fbe9e7;
+  --ok:#2f6b3a;
+  --ar:'IBM Plex Sans Arabic',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#131619; --sheet:#1b1f23; --sheet-2:#20252a;
+    --ink:#e7e9e6; --ink2:#a0a8ae; --ink3:#7c848a;
+    --rule:#2e3439; --rule2:#262c31;
+    --accent:#ef7340; --accent-soft:#33211a;
+    --dim:#75a9e8; --dim-soft:#18222f;
+    --danger:#e4736a; --danger-soft:#2e1b1a;
+    --ok:#6fbf82;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#131619; --sheet:#1b1f23; --sheet-2:#20252a;
+  --ink:#e7e9e6; --ink2:#a0a8ae; --ink3:#7c848a;
+  --rule:#2e3439; --rule2:#262c31;
+  --accent:#ef7340; --accent-soft:#33211a;
+  --dim:#75a9e8; --dim-soft:#18222f;
+  --danger:#e4736a; --danger-soft:#2e1b1a;
+  --ok:#6fbf82;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--ar);
+  font-size:15.5px;line-height:1.75;-webkit-text-size-adjust:100%}
+.rtl{direction:rtl}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:0 72px}
+a{color:var(--dim)}
+:where(a,button,input,select,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+/* ---------- masthead ---------- */
+.mast{border-block-end:2px solid var(--ink);padding-block:34px 20px;margin-block-end:30px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);font-weight:600;margin:0 0 14px}
+.mast h1{font-size:clamp(28px,5.2vw,46px);line-height:1.15;margin:0 0 8px;font-weight:700;
+  letter-spacing:-.01em;text-wrap:balance}
+.mast .sub{color:var(--ink2);font-size:17px;margin:0 0 24px;max-width:62ch}
+.stamp{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule);background:var(--sheet)}
+.stamp div{flex:1 1 138px;padding:11px 14px;border-inline-start:1px solid var(--rule)}
+.stamp div:first-child{border-inline-start:0}
+.stamp dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink3);margin:0 0 3px}
+.stamp dd{margin:0;font-family:var(--mono);font-weight:600;font-size:16px;font-variant-numeric:tabular-nums}
+
+/* ---------- layout ---------- */
+.cols{display:grid;grid-template-columns:230px minmax(0,1fr);gap:46px;align-items:start}
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);max-height:100vh;overflow-y:auto;
+  padding-block:10px 24px;border-inline-start:1px solid var(--rule)}
+nav.toc .th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink3);padding:0 14px 10px}
+nav.toc a{display:flex;gap:9px;padding:5px 14px;color:var(--ink2);text-decoration:none;font-size:13.5px;line-height:1.45}
+nav.toc a:hover{color:var(--ink);background:var(--sheet)}
+nav.toc .tn{font-family:var(--mono);color:var(--ink3);font-size:12px;min-width:17px}
+.mtoc{display:none}
+
+/* ---------- prose ---------- */
+main{min-width:0}
+main h2{font-size:25px;font-weight:700;margin:56px 0 18px;padding-block-end:10px;
+  border-block-end:1px solid var(--ink);display:flex;gap:12px;align-items:baseline;text-wrap:balance;scroll-margin-top:16px}
+main h2:first-child{margin-block-start:0}
+main h2 .secno{font-family:var(--mono);color:var(--accent);font-size:17px;font-weight:600}
+main h3{font-size:17.5px;font-weight:600;margin:34px 0 12px;color:var(--ink)}
+main h3.warnhead{display:none}
+main p{margin:0 0 15px;max-width:72ch}
+main ul,main ol{margin:0 0 16px;padding-inline-start:22px;max-width:72ch}
+main li{margin-block-end:6px}
+main hr{border:0;border-block-start:1px solid var(--rule2);margin:44px 0}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.9em;background:var(--sheet-2);border:1px solid var(--rule2);
+  padding:1px 5px;border-radius:3px}
+
+/* formulas */
+pre{direction:ltr;unicode-bidi:plaintext;text-align:left;font-family:var(--mono);font-size:13px;line-height:1.65;
+  background:var(--sheet);border:1px solid var(--rule);border-inline-start:3px solid var(--dim);
+  padding:16px 18px;overflow-x:auto;margin:0 0 18px}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+
+/* notes */
+blockquote{margin:0 0 20px;padding:14px 18px;background:var(--accent-soft);
+  border-inline-start:3px solid var(--accent);max-width:72ch}
+blockquote p{margin:0}
+blockquote p+p{margin-block-start:10px}
+.note{font-size:13.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--rule);background:var(--sheet)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:start;padding:8px 12px;border-block-end:1px solid var(--rule2);vertical-align:top}
+thead th{background:var(--sheet-2);font-weight:600;font-size:11.5px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--ink2);white-space:nowrap;border-block-end:1px solid var(--rule)}
+tbody tr:last-child td{border-block-end:0}
+td strong{font-family:var(--mono);font-weight:600}
+
+/* drawing sheets */
+.sheets{display:flex;flex-direction:column;gap:22px;margin-block-end:22px}
+.sheet{margin:0;border:1px solid var(--rule);background:#fff}
+.sheet img{display:block;width:100%;height:auto}
+.sheet figcaption{font-family:var(--mono);font-size:12px;color:var(--ink2);background:var(--sheet-2);
+  border-block-start:1px solid var(--rule);padding:9px 14px}
+
+/* ---------- calculator ---------- */
+.calc{border:1px solid var(--ink);background:var(--sheet);margin:0 0 30px}
+.calc .ch{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;
+  background:var(--ink);color:var(--paper);padding:9px 16px;font-family:var(--mono);
+  font-size:11.5px;letter-spacing:.1em;text-transform:uppercase}
+.calc .cb{padding:18px 16px}
+.crow{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-block-end:16px}
+.fld{flex:1 1 130px;min-width:0}
+.fld label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink3);margin-block-end:5px}
+.fld input,.fld select{width:100%;font-family:var(--mono);font-size:17px;font-weight:600;
+  padding:8px 10px;background:var(--sheet-2);color:var(--ink);border:1px solid var(--rule);border-radius:0}
+.readout{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule)}
+.readout div{flex:1 1 120px;padding:12px 14px;border-inline-start:1px solid var(--rule);background:var(--sheet-2)}
+.readout div:first-child{border-inline-start:0}
+.readout dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:0 0 4px}
+.readout dd{margin:0;font-family:var(--mono);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+.readout dd small{font-size:12px;font-weight:400;color:var(--ink2)}
+.flag{margin-block-start:14px;padding:10px 14px;font-size:13.5px;font-weight:500}
+.flag.ok{background:var(--sheet-2);color:var(--ink2);border-inline-start:3px solid var(--ok)}
+.flag.warn{background:var(--danger-soft);color:var(--danger);border-inline-start:3px solid var(--danger)}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-block-start:14px}
+.presets button{font-family:var(--mono);font-size:12px;padding:7px 12px;cursor:pointer;
+  background:var(--sheet-2);color:var(--ink);border:1px solid var(--rule)}
+.presets button:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---------- danger panel ---------- */
+.alert{border:2px solid var(--danger);background:var(--danger-soft);padding:20px 22px;margin:0 0 34px}
+.alert h2{all:unset;display:block;font-family:var(--ar);font-weight:700;font-size:19px;
+  color:var(--danger);margin-block-end:10px}
+.alert p{color:var(--ink);margin-block-end:12px}
+.alert ol{margin:0;padding-inline-start:20px;color:var(--ink)}
+.alert li{margin-block-end:7px}
+
+footer{margin-block-start:56px;padding-block-start:20px;border-block-start:1px solid var(--rule);
+  font-family:var(--mono);font-size:12px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between}
+
+@media (max-width:900px){
+  .cols{grid-template-columns:minmax(0,1fr);gap:0}
+  nav.toc{display:none}
+  .mtoc{display:block;margin-block-end:28px;border:1px solid var(--rule);background:var(--sheet)}
+  .mtoc summary{cursor:pointer;padding:12px 16px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--ink2)}
+  .mtoc .ml{padding:0 8px 12px;display:flex;flex-direction:column}
+  .mtoc a{display:flex;gap:9px;padding:6px 10px;color:var(--ink2);text-decoration:none;font-size:14px}
+  .mtoc .tn{font-family:var(--mono);color:var(--ink3);min-width:17px}
+  main h2{font-size:21px}
+  .stamp div{flex:1 1 100px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+@media print{
+  :root{--paper:#fff;--sheet:#fff;--sheet-2:#f4f5f2;--ink:#000;--ink2:#333;--ink3:#555;
+        --rule:#999;--rule2:#ccc;--accent:#a63c10;--accent-soft:#f6ece6;
+        --danger:#8b1a13;--danger-soft:#faeceb;--dim:#14457f;--ok:#2f6b3a}
+  @page{margin:14mm}
+  body{background:#fff;font-size:10.5pt;line-height:1.6}
+  .wrap{max-width:none;padding-inline:0;padding-block:0}
+  .cols{display:block}
+  nav.toc,.mtoc,.calc{display:none!important}
+  .mast{padding-block:0 14px;margin-block-end:18px}
+  .mast h1{font-size:24pt}
+  main h2{font-size:15pt;margin:20pt 0 8pt;break-after:avoid;page-break-after:avoid}
+  main h3{font-size:12pt;margin:14pt 0 6pt;break-after:avoid;page-break-after:avoid}
+  main p,main ul,main ol{max-width:none}
+  .sheet,.tw,pre,blockquote,.alert{break-inside:avoid;page-break-inside:avoid}
+  .sheet{border:1px solid #999}
+  table{font-size:9pt}
+  a{color:#000;text-decoration:none}
+  footer{margin-block-start:18pt}
+}
+
+</style>
+
+<div class="rtl">
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">PT-JACK-250 &nbsp;·&nbsp; Rev A &nbsp;·&nbsp; 2026-09-15</p>
+  <h1>جاك شد الكابلات — تصميم تفصيلي للتنفيذ</h1>
+  <p class="sub">جاك شد أحادي الشيش بسلندرين هيدروليك، double-acting، لشيش 0.5" و 0.6" حتى 0.80 GUTS. حسابات كاملة ورسومات تصنيعية وخطة اختبار ومعايرة.</p>
+  <dl class="stamp">
+    <div><dt>القوة الاسمية</dt><dd>250 kN</dd></div>
+    <div><dt>عند ضغط</dt><dd>637 bar</dd></div>
+    <div><dt>السلندرات</dt><dd>2 × Ø50/Ø32</dd></div>
+    <div><dt>الشوط</dt><dd>200 mm</dd></div>
+    <div><dt>الوزن</dt><dd>≈ 35 kg</dd></div>
+    <div><dt>ثابت القوة</dt><dd>0.3927 <small>kN/bar</small></dd></div>
+  </dl>
+</header>
+
+<div class="cols">
+  <nav class="toc" aria-label="فهرس المستند">
+    <p class="th">المحتويات</p>
+    <!--TOC-->
+  </nav>
+
+  <main>
+    <div class="alert">
+      <h2>⚠ اقرأ ده قبل أي حاجة</h2>
+      <p>ده <strong>تصميم جديد من الأول</strong> مبني على معمارية الجاك اللي في الصور — مش هندسة عكسية بمقاسات مقيسة من الجهاز الأصلي. الصور مفيش فيها قياس، فكل بُعد هنا جاي من حسبة مكتوبة مش من الصورة.</p>
+      <p>الجاك ده أداة <strong>خطرة على الحياة</strong>. لو الشيش قطع أو الودج زقّ، الجاك بيطير في اتجاه محور الكابل بسرعة قاتلة. قبل أي استخدام على منشأ حقيقي:</p>
+      <ol>
+        <li><strong>مهندس ميكانيكا مرخّص يراجع ويعتمد</strong> الحسابات والرسومات.</li>
+        <li><strong>اختبار ضغط هيدروستاتيكي واختبار حمل</strong> بالأرقام في القسم 11.</li>
+        <li><strong>معايرة</strong> الجاك مع المانومتر كوحدة واحدة على load cell معتمدة.</li>
+        <li><strong>الودجات (wedges) تتشترى جاهزة معتمدة</strong> — متتصنّعش محليًا (القسم 7.3).</li>
+        <li><strong>قبول من مورد نظام الـ PT</strong> اللي شغال بيه في المشروع.</li>
+      </ol>
+    </div>
+
+    <details class="mtoc"><summary>فهرس المستند</summary><div class="ml"><!--TOC--></div></details>
+
+    <section class="calc" aria-label="حاسبة الضغط والقوة">
+      <div class="ch"><span>Pressure ⇄ Force · حاسبة الميدان</span><span>F = η × 0.3927 × p</span></div>
+      <div class="cb">
+        <div class="crow">
+          <div class="fld"><label for="c-p">الضغط (bar)</label><input id="c-p" type="number" inputmode="decimal" value="547" min="0" max="900" step="1"></div>
+          <div class="fld"><label for="c-e">كفاءة الجاك η</label><input id="c-e" type="number" inputmode="decimal" value="0.97" min="0.9" max="1" step="0.01"></div>
+          <div class="fld"><label for="c-s">الشيش</label><select id="c-s">
+            <option value="98.7">Ø12.7 — 0.5"</option>
+            <option value="140" selected>Ø15.24 — 0.6"</option>
+          </select></div>
+        </div>
+        <dl class="readout">
+          <div><dt>القوة الفعلية</dt><dd id="r-f">—</dd></div>
+          <div><dt>نسبة GUTS</dt><dd id="r-g">—</dd></div>
+          <div><dt>ضغط 0.80 GUTS</dt><dd id="r-t">—</dd></div>
+        </dl>
+        <p class="flag ok" id="r-flag" role="status">—</p>
+        <div class="presets">
+          <button type="button" data-p="386">0.5" @ 0.80 GUTS</button>
+          <button type="button" data-p="547">0.6" @ 0.80 GUTS</button>
+          <button type="button" data-p="637">الحمل الاسمي</button>
+          <button type="button" data-p="660">سقف صمام الأمان</button>
+        </div>
+      </div>
+    </section>
+
+    <!--BODY-->
+
+    <footer>
+      <span>PT-JACK-250 · Rev A · 2026-09-15</span>
+      <span dir="ltr">mm · kN · bar</span>
+    </footer>
+  </main>
+</div>
+</div>
+</div>
+
+<script>
+(function(){
+  var K=0.3927, MAXP=660, CEIL=700;
+  var p=document.getElementById('c-p'), e=document.getElementById('c-e'), s=document.getElementById('c-s');
+  var rf=document.getElementById('r-f'), rg=document.getElementById('r-g'), rt=document.getElementById('r-t'), fl=document.getElementById('r-flag');
+  function calc(){
+    var P=parseFloat(p.value)||0, E=parseFloat(e.value)||0.97, A=parseFloat(s.value);
+    var guts=A*1860/1000, F=E*K*P, target=(0.80*guts)/(E*K);
+    rf.innerHTML=F.toFixed(1)+' <small>kN</small>';
+    rg.innerHTML=(guts?(100*F/guts).toFixed(1):'0')+' <small>%</small>';
+    rt.innerHTML=target.toFixed(0)+' <small>bar</small>';
+    var pct=guts?100*F/guts:0, msg, warn=false;
+    if(P>CEIL){msg='ممنوع — 700 bar هو السقف المطلق للجاك. أنزل الضغط فورًا.';warn=true;}
+    else if(P>MAXP){msg='فوق سقف صمام الأمان (660 bar). الصمام المضبوط لازم يفتح قبل النقطة دي.';warn=true;}
+    else if(pct>80.5){msg='فوق 0.80 GUTS — تحميل زائد على الشيش. ارجع لضغط '+target.toFixed(0)+' bar.';warn=true;}
+    else if(pct>78){msg='في نطاق الشد المستهدف (0.80 GUTS). راجع الاستطالة المقاسة ±5%.';}
+    else {msg='داخل النطاق الآمن. ضغط 0.80 GUTS لهذا المقاس = '+target.toFixed(0)+' bar.';}
+    fl.textContent=msg; fl.className='flag '+(warn?'warn':'ok');
+  }
+  [p,e,s].forEach(function(el){el.addEventListener('input',calc);el.addEventListener('change',calc);});
+  Array.prototype.forEach.call(document.querySelectorAll('.presets button'),function(b){
+    b.addEventListener('click',function(){p.value=b.getAttribute('data-p');calc();});
+  });
+  calc();
+})();
+</script>
