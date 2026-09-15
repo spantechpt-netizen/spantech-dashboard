@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 760" width="1180" height="760" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <pattern id="h3" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#8a5a00" stroke-width="1.4"/></pattern>
+    <pattern id="h1" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="8" stroke="#333" stroke-width="1"/></pattern>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 5 L10 2 L10 8 Z" fill="#1a5fb4"/></marker>
+  </defs>
+  <style>
+    .al{fill:#e6e9ee;stroke:#111;stroke-width:2}
+    .alh{fill:url(#h3);stroke:#111;stroke-width:1.8}
+    .st{fill:url(#h1);stroke:#111;stroke-width:1.8}
+    .hid{fill:none;stroke:#111;stroke-width:1;stroke-dasharray:7 4}
+    .cl{fill:none;stroke:#c0392b;stroke-width:1;stroke-dasharray:14 4 3 4}
+    .dim{stroke:#1a5fb4;stroke-width:1;fill:none}
+    .dimt{fill:#1a5fb4;font-size:13px}
+    .lbl{fill:#111;font-size:13px}
+    .ttl{fill:#111;font-size:19px;font-weight:bold}
+    .lead{stroke:#111;stroke-width:1;fill:none}
+  </style>
+  <rect width="1180" height="760" fill="#fff"/>
+  <text x="50" y="36" class="ttl">PART 1 — NOSE YOKE   material 7075-T651   1 off   scale 1:2</text>
+
+  <!-- FRONT VIEW : z (-135..135) x y (-85..85) scale 1.55, origin (360,230) -->
+  <text x="150" y="70" class="lbl" font-weight="bold">FRONT VIEW (face that bears on the anchorage)</text>
+  <g transform="translate(360,230) scale(1.55)">
+    <path d="M-135 -85 L135 -85 L135 60 L95 85 L11 85 L11 0 A11 11 0 0 0 -11 0 L-11 85 L-95 85 L-135 60 Z" class="al"/>
+    <!-- tapped holes for rods -->
+    <circle cx="-80" cy="0" r="12" fill="#fff" stroke="#111" stroke-width="2"/>
+    <circle cx="80"  cy="0" r="12" fill="#fff" stroke="#111" stroke-width="2"/>
+    <circle cx="-80" cy="0" r="13.5" class="hid"/>
+    <circle cx="80"  cy="0" r="13.5" class="hid"/>
+    <!-- bearing pads -->
+    <rect x="-41" y="-25" width="30" height="50" class="st"/>
+    <rect x="11"  y="-25" width="30" height="50" class="st"/>
+    <!-- lifting / handle bosses -->
+    <circle cx="-110" cy="-60" r="6" fill="#fff" stroke="#111" stroke-width="1.6"/>
+    <circle cx="110" cy="-60" r="6" fill="#fff" stroke="#111" stroke-width="1.6"/>
+    <line x1="-140" y1="0" x2="140" y2="0" class="cl"/>
+    <line x1="0" y1="-90" x2="0" y2="95" class="cl"/>
+    <line x1="-80" y1="-30" x2="-80" y2="30" class="cl"/>
+    <line x1="80" y1="-30" x2="80" y2="30" class="cl"/>
+  </g>
+
+  <!-- dims front -->
+  <g>
+    <line x1="151" y1="370" x2="151" y2="405" class="dim"/>
+    <line x1="569" y1="370" x2="569" y2="405" class="dim"/>
+    <line x1="151" y1="397" x2="569" y2="397" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="330" y="392" class="dimt">250</text>
+    <line x1="236" y1="230" x2="236" y2="425" class="dim"/>
+    <line x1="484" y1="230" x2="484" y2="425" class="dim"/>
+    <line x1="236" y1="419" x2="484" y2="419" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="330" y="414" class="dimt">160 C/C rod holes</text>
+    <line x1="600" y1="98" x2="640" y2="98" class="dim"/>
+    <line x1="600" y1="362" x2="640" y2="362" class="dim"/>
+    <line x1="630" y1="98" x2="630" y2="362" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="636" y="230" class="dimt">170</text>
+    <line x1="343" y1="230" x2="343" y2="455" class="dim"/>
+    <line x1="377" y1="230" x2="377" y2="455" class="dim"/>
+    <line x1="343" y1="449" x2="377" y2="449" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="300" y="470" class="dimt">22 slot + R11</text>
+  </g>
+
+  <!-- SIDE VIEW / SECTION : x (0..60) x y(-85..85) scale 1.55 origin (830,230) -->
+  <text x="760" y="70" class="lbl" font-weight="bold">SECTION A-A</text>
+  <g transform="translate(830,230) scale(1.55)">
+    <path d="M0 -85 L75 -85 L75 85 L0 85 Z" class="alh"/>
+    <rect x="0" y="-25" width="75" height="50" fill="#fff" stroke="#111" stroke-width="1.6"/>
+    <!-- bearing pad -->
+    <rect x="-12" y="-25" width="12" height="50" class="st"/>
+    <!-- tapped hole for rod, shown dashed behind -->
+    <rect x="30" y="-16" width="45" height="32" class="hid"/>
+    <line x1="-20" y1="0" x2="95" y2="0" class="cl"/>
+    <!-- strand -->
+    <rect x="-25" y="-7.6" width="125" height="15.2" fill="#6b4423"/>
+  </g>
+  <g>
+    <line x1="830" y1="370" x2="830" y2="400" class="dim"/>
+    <line x1="946" y1="370" x2="946" y2="400" class="dim"/>
+    <line x1="830" y1="392" x2="946" y2="392" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="870" y="387" class="dimt">75</text>
+    <line x1="811" y1="192" x2="770" y2="192" class="dim"/>
+    <line x1="811" y1="268" x2="770" y2="268" class="dim"/>
+    <line x1="785" y1="192" x2="785" y2="268" class="dim" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="700" y="234" class="dimt">12 pad</text>
+  </g>
+
+  <g class="lbl">
+    <path d="M300 230 L300 496 L118 496" class="lead"/><text x="120" y="516">1  SIDE-ENTRY SLOT 22 +0.5/0  with R11 top — the jack drops onto the strand from below;</text>
+    <text x="140" y="534">   the bridge above the slot carries the full bending moment (σ = 93 MPa, SF 5.0 static / 1.6 fatigue).</text>
+    <path d="M436 230 L436 300 L660 300 L660 552 L118 552" class="lead"/><text x="120" y="572">2  BEARING PADS 30 x 50 x 12, 16MnCr5 case-hardened HRC 55-58, 2 off, fixed by 2 x M8 12.9 each.</text>
+    <text x="140" y="590">   Total bearing area 3000 mm² ⇒ 92 MPa on the anchorage casting at 275 kN. Replaceable wear item.</text>
+    <path d="M236 230 L236 608 L118 608" class="lead"/><text x="120" y="628">3  ROD SEATS: M24x1.5 – 6H tapped 45 deep, flat-bottomed, perpendicular to the front face within 0.05.</text>
+    <text x="140" y="646">   Both seats must be coplanar within 0.05 mm, otherwise the two cylinders share load unequally.</text>
+    <text x="120" y="676" font-weight="bold">MACHINING NOTES:</text>
+    <text x="120" y="694">Machine from 80 x 270 x 190 mm 7075-T651 plate, finish 75 x 250 x 170. Flatness of front face 0.05. Ra 1.6 all over, Ra 0.8 on the pad seats.</text>
+    <text x="120" y="712">Break all edges R2. Hard-anodise Type II 20 µm after machining (corrosion, site use). Mass 4.77 kg (from cad/step).</text>
+  </g>
+
+  <g>
+    <rect x="740" y="640" width="380" height="100" fill="none" stroke="#111" stroke-width="2"/>
+    <line x1="740" y1="680" x2="1120" y2="680" stroke="#111" stroke-width="1"/>
+    <line x1="960" y1="680" x2="960" y2="740" stroke="#111" stroke-width="1"/>
+    <text x="752" y="666" class="ttl">PT-JACK-04  ·  NOSE YOKE</text>
+    <text x="752" y="704" class="lbl">Rev. A · Sheet 4 of 7</text>
+    <text x="752" y="726" class="lbl">ISO 2768-mK</text>
+    <text x="972" y="704" class="lbl">Mass 4.77 kg</text>
+    <text x="972" y="726" class="lbl">NOT TO SCALE</text>
+  </g>
+</svg>
