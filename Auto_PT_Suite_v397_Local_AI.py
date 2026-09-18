@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.105"
+APP_VERSION = "18.106"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -37372,9 +37372,25 @@ def osh_span_of(xy, spans, direction, tol=3.0):
 
 
 def osh_tendons_in_span(live, d, direction, half=3.0):
-    """الكابلات اللي بتعدّي القطاع العرضي عند منتصف البحر، في اتجاهه."""
-    return [t for t in _tendons_over_span(live, d, strip=half)
-            if osh_tendon_dir(t) == direction]
+    """
+    الكابلات اللي بتعدّي القطاع العرضي عند منتصف البحر، في اتجاهه.
+
+    الخط العرضي بيتاخد عند المنتصف وعند 15 سم بعده كمان: كابل عقدته
+    واقعة على المنتصف بالظبط كان بيفلت من اختبار التقاطع.
+    """
+    out = list(_tendons_over_span(live, d, strip=half))
+    ax, ay = d["a"]
+    bx, by = d["b"]
+    n = math.hypot(bx - ax, by - ay) or 1.0
+    d2 = dict(d)
+    d2["mid"] = (d["mid"][0] + 0.15 * (bx - ax) / n,
+                 d["mid"][1] + 0.15 * (by - ay) / n)
+    for t in _tendons_over_span(live, d2, strip=half):
+        if not any(t is x for x in out):
+            out.append(t)
+    out = [t for t in out if osh_tendon_dir(t) == direction]
+    out.sort(key=lambda t: osh_across_at(t, d, direction))
+    return out
 
 
 def osh_spans_of_tendon(t, spans, direction, half=3.0):
@@ -37526,7 +37542,7 @@ def osh_budget_left(tendons, params, total):
 # ---------------------------------------------------------------------------
 
 def osh_need_strands(rows, tendons_in, live, params, face, direction,
-                     n_start=None):
+                     n_start=None, hist=None):
     """
     (المطلوب زيادة, الموجود, أعلى استغلال). بالنسبة والتناسب افتراضياً:
     n المطلوب = n اللي اللوحة اتقرت عليه × (الإجهاد ÷ الحد)؛ أو بالقياس:
@@ -37559,6 +37575,19 @@ def osh_need_strands(rows, tendons_in, live, params, face, direction,
             need = int(math.ceil(n_base * u_max - 1e-9)) - n_now
         else:
             need = n_min
+    #  18.106: من الجولة التانية الحساب بالقياس - كام الاستغلال نزل لكل
+    #  استرند اتزاد على البحر ده الجولة اللي فاتت. النسبة الخطية بتفترض
+    #  إن الإجهاد كله من الاسترندات، وهو مش كده: بحر 2-8 خد 21 استرند
+    #  على ست جولات ونزل من 1.37 لـ 1.10 بس، لأن كل جولة كانت بتقول
+    #  "محتاج 3". القياس بيقول محتاج 12 من أول جولة.
+    if (hist and hist.get("n") is not None and hist.get("u") is not None
+            and n_now > int(hist["n"])):
+        dn = n_now - int(hist["n"])
+        relief = (float(hist["u"]) - u_max) / dn
+        if relief <= 0.002:
+            return -1, n_now, u_max
+        need_m = int(math.ceil((u_max - 0.95) / relief - 1e-9))
+        need = max(1, min(need_m, max(2, 2 * n_now)))
     return max(0, need), n_now, u_max
 
 
@@ -37604,7 +37633,11 @@ def osh_slots(d, live, direction, params):
         out += [xs[-1] + side, xs[0] - side]
     else:
         out.append(osh_across_pt(d["mid"], direction))
-    return out
+    #  18.106: جوّه الشريحة بس - كابل على بُعد 3.75 م من محور البحر
+    #  مابيعملش حاجة للقطاع اللي في نصه.
+    centre = osh_across_pt(d["mid"], direction)
+    inside = [c for c in out if abs(c - centre) <= half]
+    return inside or out[:1]
 
 
 def osh_route_is_clear(pts, site, clear=0.25, step=0.25):
@@ -37953,6 +37986,24 @@ def osh_shift_lows(t, d, toward_xy, frac, params):
     s_to, _ = _station_of(prof, toward_xy)
     sign = 1.0 if s_to >= (lo + hi) / 2.0 else -1.0
     gap = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+    #  18.106: الغطسة ماتقرّبش من القمة أكتر من اللي نصف القطر الأدنى
+    #  يسمح بيه: R = (r/2)·L²/Δ (نفس معادلة enforce_min_radius)، يعني
+    #  L ≥ √(2·R·Δ/r). من غير كده الزحزحة 20-30% كانت بتعمل كوع أحدّ من
+    #  الدكت، وقاعدة نصف القطر بتردّ عليه برفع الغطسة - فالغطس بيقل
+    #  والقطاع بيبقى أسوأ مش أحسن.
+    try:
+        rmin = float(effective_min_radius(params) or 0.0)
+    except Exception:
+        rmin = 0.0
+    r_inf = float(getattr(params, "ram_inflection_ratio", 0.2) or 0.2)
+    r_inf = max(0.02, min(r_inf, 0.5))
+
+    def keep_from(q, nb):
+        dz = abs(float(q.get("depth") or 0.0) - float(nb.get("depth") or 0.0)) / 1000.0
+        if rmin <= 0 or dz <= 0:
+            return gap
+        return max(gap, math.sqrt(2.0 * rmin * dz / r_inf))
+
     moved = 0
     for i in range(1, len(prof) - 1):
         q = prof[i]
@@ -37965,7 +38016,10 @@ def osh_shift_lows(t, d, toward_xy, frac, params):
         if not (lo < base < hi):
             continue
         new = base + sign * float(frac) * L
-        new = max(st[i - 1] + gap, min(st[i + 1] - gap, new))
+        new = max(st[i - 1] + keep_from(q, prof[i - 1]),
+                  min(st[i + 1] - keep_from(q, prof[i + 1]), new))
+        if abs(new - st[i]) < 0.05:
+            continue
         q["pos"] = _profile_point_at(prof, new)
         q["manual"] = True
         q.pop("_s", None)
@@ -38002,7 +38056,8 @@ def osh_restore(tendons, snap):
 #  المرحلة 1 - القطاعات السفلية
 # ---------------------------------------------------------------------------
 
-def osh_bottom_round(state, tendons, params, site, job, direction, budget):
+def osh_bottom_round(state, tendons, params, site, job, direction, budget,
+                     hist=None):
     """
     كل بحر راسب على الوش السفلي في الاتجاه ده بياخد علاجه في الجولة دي.
     بترجّع (اتزوّد استرندات, اتضاف كابلات, بحور اتعالجت, اللي مافيش له علاج).
@@ -38034,13 +38089,26 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget):
         d = rec["d"]
         rows = rec["rows"]["bottom"]
         t_in = osh_tendons_in_span(live, d, direction, half)
+        prev = (hist or {}).get(key)
         need, n_now, u_max = osh_need_strands(rows, t_in, live, params,
                                               "bottom", direction,
-                                              n_start=n_start)
+                                              n_start=n_start, hist=prev)
+        if hist is not None:
+            hist[key] = {"u": u_max, "n": n_now}
         label = d.get("name") or str(key)
+        if need < 0:
+            job.warn(f"    span {label} ({direction}, bottom): worst {u_max:.2f} "
+                     f"- the strands added here last round did not move it "
+                     f"({prev['u']:.2f} -> {u_max:.2f}), so nothing more is "
+                     f"put here. That section wants depth, a drop or "
+                     f"reinforcement.")
+            stuck.append((label, "unresponsive"))
+            continue
         job.info(f"    span {label} ({direction}, bottom): worst {u_max:.2f} of "
                  f"the limit, {len(t_in)} tendon(s) with {n_now} strands - "
-                 f"needs about {need} more.")
+                 f"needs about {need} more"
+                 + (" (measured on last round's response)" if prev and
+                    n_now > int(prev.get("n") or 0) else "") + ".")
         if need <= 0:
             job.info("        already covered by what this round put on the "
                      "same tendons for a neighbouring span.")
@@ -38097,10 +38165,24 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget):
                        f"widest gap, extended {extend:.0f} m past each end "
                        f"({why}).")
             if rest > 0 and made == 0:
-                stuck.append((label, "no room" if donor is not None else "no tendon"))
-                job.warn(f"        nothing could be placed here: {why}, and "
-                         f"no gap wide enough for a new tendon that stays "
-                         f"inside the slab and clear of the openings.")
+                #  18.106: مافيش مكان لكابل جديد - الاسترندات تروح على
+                #  الكابلات المارّة في البحر مهما كانت نسبتها، بدل ما
+                #  القطاع يتساب راسب.
+                room = [t for t in t_in if int(t.get("strands") or 0) < n_max]
+                extra = osh_raise_strands(room, rest, params) if room else 0
+                if extra:
+                    strands_added += extra
+                    rest -= extra
+                    job.ok(f"        no gap wide enough for a new tendon that "
+                           f"stays inside the slab and clear of the openings, "
+                           f"so +{extra} strand(s) went onto the "
+                           f"{len(room)} tendon(s) through the span instead.")
+                else:
+                    stuck.append((label, "no room" if donor is not None else "no tendon"))
+                    job.warn(f"        nothing could be placed here: {why}, "
+                             f"no gap wide enough for a new tendon that stays "
+                             f"inside the slab and clear of the openings, and "
+                             f"the tendons through it are at the strand limit.")
         if got or rest <= 0 or need - got < need:
             treated += 1
     return strands_added, tendons_added, treated, stuck
@@ -38110,7 +38192,8 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget):
 #  المرحلة 2 - القطاعات العلوية
 # ---------------------------------------------------------------------------
 
-def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
+def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
+                  hist=None):
     """
     كل بحر راسب على الوش العلوي في الاتجاه ده بيتقدّم خطوة واحدة في
     الجولة دي حسب مرحلته: حافة الدروب → القمة على الوش → النهايتين ولا
@@ -38135,17 +38218,25 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
     actions, exhausted = 0, []
     n_start = {id(t): int(t.get("strands") or 0) for t in live}
 
-    def add_over(d, rows, t_in, label, tag):
+    def add_over(d, rows, t_in, label, tag, key=None):
         nonlocal live
         worst = max(rows, key=lambda r: r["u"])
-        wkey = (round(worst["x"], 1), round(worst["y"], 1), "top")
+        wkey = (round(worst["x"], 1), round(worst["y"], 1), "top",
+                stages.get("_round", 0))
         done = stages.setdefault("_cloned", set())
         if wkey in done:
             job.info(f"        a tendon was already added for this section "
                      f"from the span on the other side of the support.")
             return 0
+        prev = (hist or {}).get(key) if key is not None else None
         need, n_now, u_max = osh_need_strands(rows, t_in, live, params, "top",
-                                              direction, n_start=n_start)
+                                              direction, n_start=n_start,
+                                              hist=prev)
+        if need < 0:
+            job.warn(f"        the strands added here last round did not move "
+                     f"this section ({prev['u']:.2f} -> {u_max:.2f}); nothing "
+                     f"more is put here.")
+            return 0
         if need <= 0:
             need = max(1, int(getattr(params, "min_strands", 2) or 2))
         left = osh_budget_left(tendons, params, budget)
@@ -38155,6 +38246,10 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
         donor = (max(t_in, key=lambda t: (int(t.get("strands") or 0),
                                           tendon_plan_length(t)))
                  if t_in else None)
+        if donor is None:
+            cand = [t for t in live if osh_tendon_dir(t) == direction]
+            if cand:
+                donor = min(cand, key=lambda t: _station_of(t["profile"], d["mid"])[1])
         made, rest = 0, need
         while rest > 0 and donor is not None and made < 3:
             n = min(n_max, max(n_min, rest))
@@ -38171,7 +38266,15 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
                    f"strand(s), offset {new['offset']:+.2f} m, extended "
                    f"{extend:.0f} m past the supports.")
         if made == 0:
-            job.warn(f"        no gap wide enough for a new tendon over {label}.")
+            room = [t for t in t_in if int(t.get("strands") or 0) < n_max]
+            extra = osh_raise_strands(room, rest, params) if room else 0
+            if extra:
+                job.ok(f"        no gap wide enough for a new tendon over "
+                       f"{label}, so +{extra} strand(s) went onto the "
+                       f"{len(room)} tendon(s) through the span instead.")
+                return extra
+            job.warn(f"        no gap wide enough for a new tendon over {label}"
+                     f"{', and the tendons through it are at the strand limit' if t_in else ''}.")
         return made
 
     for key in sorted(fail_keys, key=lambda k: -state["spans"][k]["top"]):
@@ -38183,8 +38286,14 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
             continue
         label = d.get("name") or str(key)
         t_in = osh_tendons_in_span(live, d, direction, half)
-        st = stages.setdefault(key, {"step": "drop", "shift": 0})
+        st = stages.setdefault(key, {"step": "drop", "shift": 0, "adds": 0})
         worst = max(rows, key=lambda r: r["u"])
+        if hist is not None:
+            _n_now = sum(int(t.get("strands") or 0) for t in t_in)
+            _prev = hist.get(key)
+            hist[key] = {"u": worst["u"], "n": _n_now}
+            if _prev is not None:
+                hist[key]["_prev"] = _prev
         wxy = (worst["x"], worst["y"])
         near_a = dist(wxy, d["a"]) <= dist(wxy, d["b"])
         end_xy = d["a"] if near_a else d["b"]
@@ -38198,9 +38307,13 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
                  f"{' - both ends' if len(ends_failing) == 2 else ''}, "
                  f"mid-span bottom at {bottom_u:.2f}, {len(t_in)} tendon(s).")
         if not t_in:
-            job.warn("        no tendon passes through this span.")
-            exhausted.append((label, "no tendon"))
-            st["step"] = "done"
+            job.info("        no tendon passes through this span: one is "
+                     "copied from the nearest tendon in this direction.")
+            made = add_over(d, rows, t_in, label, "t", key=key)
+            actions += made
+            if not made:
+                exhausted.append((label, "no tendon"))
+                st["step"] = "done"
             continue
 
         step = st["step"]
@@ -38220,9 +38333,11 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
                     job.info("        at a drop-panel edge and a high point "
                              "already sits between the edge and the column: "
                              "tendons are added here.")
-                    made = add_over(d, rows, t_in, label, "t")
+                    made = add_over(d, rows, t_in, label, "t", key=key)
                     actions += made
-                    st["step"] = "done" if made else "ends"
+                    st["adds"] += 1 if made else 0
+                    #  18.106: لو لسه راسب الجولة الجاية السلّم بيكمل -
+                    #  القمة على الوش، الغطسة، وإضافة تانية.
                     continue
             step = "peaks"
         if step == "peaks":
@@ -38252,11 +38367,13 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
             if len(ends_failing) == 2:
                 job.info("        both ends of the strip are over: a tendon is "
                          "added over the span.")
-                made = add_over(d, rows, t_in, label, "t")
+                made = add_over(d, rows, t_in, label, "t", key=key)
                 actions += made
-                st["step"] = "done"
+                st["step"] = "add"
+                st["adds"] += 1 if made else 0
                 if not made:
                     exhausted.append((label, "no room"))
+                    st["step"] = "done"
                 continue
             st["step"] = "shift"
             step = "shift"
@@ -38276,13 +38393,20 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
             st["step"] = "add"
             step = "add"
         if step == "add":
-            job.info("        still over after the low points were moved: a "
-                     "tendon is added over the span.")
-            made = add_over(d, rows, t_in, label, "t")
+            if int(st.get("adds", 0)) >= 3:
+                st["step"] = "done"
+                exhausted.append((label, "three additions"))
+                continue
+            job.info("        still over: a tendon is added over the span"
+                     + (" (sized on what the last one did)" if st.get("adds")
+                        else "") + ".")
+            made = add_over(d, rows, t_in, label, "t", key=key)
             actions += made
-            st["step"] = "done"
             if not made:
                 exhausted.append((label, "no room"))
+                st["step"] = "done"
+            else:
+                st["adds"] += 1
             continue
         if step == "done":
             exhausted.append((label, "everything tried"))
@@ -38668,6 +38792,7 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
         return sum(1 for r in st["readings"] if r["face"] == face and r["u"] > 1.0)
 
     # ---------------- المرحلة 1
+    hist_b, hist_t = {}, {}
     if over_count(state, "bottom") == 0:
         job.ok("Stage 1: no bottom section is over the limit.")
     for rnd in range(1, rounds_max + 1):
@@ -38677,7 +38802,8 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
         did = 0
         for direction in order:
             s_add, t_add, treated, stuck = osh_bottom_round(
-                state, tendons, params, site, job, direction, budget)
+                state, tendons, params, site, job, direction, budget,
+                hist=hist_b)
             did += s_add + t_add
         if did == 0:
             job.warn("Nothing more can be added for the bottom sections "
@@ -38698,9 +38824,11 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
             break
         job.log(f"Stage 2 - top sections, round {rnd}", "head")
         did = 0
+        stages["_round"] = rnd
         for direction in order:
             acts, exhausted = osh_top_round(state, tendons, params, site, job,
-                                            direction, budget, stages)
+                                            direction, budget, stages,
+                                            hist=hist_t)
             did += acts
         if did == 0:
             job.warn("Every top section still over the limit has had every "
