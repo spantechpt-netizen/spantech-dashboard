@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.116"
+APP_VERSION = "18.117"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2928,7 +2928,7 @@ class TendonDesignParams:
         # مقفولة افتراضيًا: الشرائح بتحكم التصميم كله في RAM، ورسمها
         # أوتوماتيك على بلاطة شبكتها مش منتظمة بيدي نتيجة تبان صح وهي غلط.
         # تتفتح عن قصد وتتراجع في RAM قبل الحساب.
-        self.write_design_strips = bool(kw.get("write_design_strips", False))
+        self.write_design_strips = bool(kw.get("write_design_strips", True))
         self.strip_replace_existing = bool(kw.get("strip_replace_existing", False))
         #  17.9: فحص الشرايح اللي رام ولّدها، وقفل الفجوات بالقياس
         self.strip_check = bool(kw.get("strip_check", True))
@@ -55677,7 +55677,7 @@ class AutoPTApp:
             "efm_price_rebar": V(value="0.9"),
             "rebar_fy": V(value="460"),
             "write_area_loads": B(value=False),
-            "write_design_strips": B(value=False),
+            "write_design_strips": B(value=True),
             "strip_replace_existing": B(value=False),
             "strip_check": B(value=True),
             "strip_check_show": B(value=False),
@@ -57980,7 +57980,11 @@ class AutoPTApp:
                 "Draws the latitude and longitude support lines through the "
                 "columns and walls. RAM builds the strips themselves from "
                 "them when you run Calc All. Always look at them before you "
-                "calculate - the design comes out of these lines.")
+                "calculate - the design comes out of these lines. A model "
+                "built from the drawing (structure only, structure and "
+                "tendons, the full run) always gets them; this box also "
+                "switches on the strip check after a run and the command "
+                "line's strips.")
         c.check("Replace the support lines already in the model",
                 self.v["strip_replace_existing"],
                 "Off means an existing set is left alone. On deletes every "
@@ -63992,9 +63996,16 @@ class AutoPTApp:
                     #  الأحمال المساحية، مش مربوطة بخانة الحوائط.
                     if site.get("line_loads") and params.write_area_loads:
                         write_adm_line_loads_to_ram(session, site, params, job)
-                    if params.write_design_strips:
-                        write_design_strips_to_ram(session, site, params,
-                                                   job, cpt)
+                    #  **18.117: الموديل الجديد بياخد شرايحه دايماً.** في
+                    #  «المنشأ فقط» و«المنشأ والكابلات» والرن الكامل الشرايح
+                    #  جزء من الفريمنج - كانت مربوطة بخانة في الإعدادات
+                    #  افتراضيها مقفول، فالمهندس لقى موديل من غير شرايح.
+                    if not params.write_design_strips:
+                        job.info("Design strips: drawn although 'Draw the design "
+                                 "strips from the grid' is off - a model built "
+                                 "from the drawing always gets its strips; the "
+                                 "box governs the strip check after a run.")
+                    write_design_strips_to_ram(session, site, params, job, cpt)
                 else:
                     job.info("Tendons-only mode - the existing structure in the model is left untouched.")
 
@@ -64934,6 +64945,9 @@ DEFAULT_MOVES_18_27 = (
     ("osh_span_ratio", "50", "70",
      "the axis rule counts the failing length of a tendon, and the "
      "agreed threshold is 70%"),
+    #  **18.117.** الموديل الجديد بياخد شرايحه دايماً، والخانة مفتوحة.
+    ("write_design_strips", False, True,
+     "a model built from the drawing always gets its design strips"),
 )
 
 
