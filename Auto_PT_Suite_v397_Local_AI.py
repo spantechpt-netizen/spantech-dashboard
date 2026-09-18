@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.120"
+APP_VERSION = "18.121"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2929,6 +2929,11 @@ class TendonDesignParams:
         # أوتوماتيك على بلاطة شبكتها مش منتظمة بيدي نتيجة تبان صح وهي غلط.
         # تتفتح عن قصد وتتراجع في RAM قبل الحساب.
         self.write_design_strips = bool(kw.get("write_design_strips", True))
+        #  18.121: فحص الثقب بعد رسم الكابلات
+        self.punch_check = bool(kw.get("punch_check", True))
+        self.punch_code = str(kw.get("punch_code", list(PUNCH_CODES)[0]) or list(PUNCH_CODES)[0])
+        self.punch_fc = float(kw.get("punch_fc", 30.0) or 30.0)
+        self.punch_cover = float(kw.get("punch_cover", 30.0) or 30.0)
         self.strip_replace_existing = bool(kw.get("strip_replace_existing", False))
         #  17.9: فحص الشرايح اللي رام ولّدها، وقفل الفجوات بالقياس
         self.strip_check = bool(kw.get("strip_check", True))
@@ -28022,6 +28027,297 @@ def punching_capacity(code, fc, b0, d, beta=1.0, alpha_s=40.0, fpc=0.0,
     return base * b0 * d + float(vp or 0.0)
 
 
+# ==============================================================================
+#  فحص الثقب بعد رسم الكابلات (18.121)
+#
+#  ACI 318-19 §22.6 (والكود السعودي SBC 304 بيتبعه حرفياً): إجهاد القص
+#  على القطاع الحرج على d/2 من وش العمود
+#      vu = Vu/(b0·d) + γv·Mu·c/Jc        (§8.4.4.2.3)
+#  من رد فعل العمود اللي رام حسبه للتوليفة المضاعفة - القوة الرأسية
+#  والعزم غير المتوازن في الاتجاهين - مقابل
+#      φ·vc ، vc من §22.6.5.2 (عادي) أو §22.6.5.5 (مسبق الإجهاد:
+#      0.29√f'c + 0.3·fpc، بشرط fpc ≥ 0.9 MPa في الاتجاهين والعمود
+#      الداخلي مش أقرب من 4h لحرف حر).
+#  القطاع الحرج بيتبني كأضلاع، والضلع اللي بيقع برّه البلاطة بيتشال -
+#  فعمود الحرف والركن بياخدوا قطاعهم الحقيقي ومركزه الحقيقي، وJc بتتحسب
+#  على الأضلاع اللي فضلت. والعمود اللي في دروب بيتفحص مرتين: عند وشه
+#  بعمق الدروب، وعند حرف الدروب بعمق البلاطة.
+# ==============================================================================
+
+PUNCH_CODES = {
+    "ACI 318-19 / SBC 304": "ACI",
+    "EC2 (EN 1992-1-1)": "EC2",
+    "ECP 203": "ECP",
+}
+
+
+def punch_section_segments(cx, cy, c1_mm, c2_mm, d_mm, boundary, openings=None):
+    """
+    أضلاع القطاع الحرج (بالمتر) حوالين عمود مركزه (cx, cy) ومقاسه c1×c2
+    مم، على d/2 من الوش. الضلع اللي نصه برّه البلاطة (أو جوّه فتحة)
+    بيتشال - ده عمود حرف أو ركن.
+    """
+    hx = (float(c1_mm) + float(d_mm)) / 2000.0
+    hy = (float(c2_mm) + float(d_mm)) / 2000.0
+    corners = [(cx - hx, cy - hy), (cx + hx, cy - hy), (cx + hx, cy + hy), (cx - hx, cy + hy)]
+    segs = []
+    for i in range(4):
+        a, b = corners[i], corners[(i + 1) % 4]
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        if boundary and len(boundary) >= 3 and not point_in_polygon(mid[0], mid[1], boundary):
+            continue
+        if any(len(o) >= 3 and point_in_polygon(mid[0], mid[1], o) for o in (openings or [])):
+            continue
+        segs.append((a, b))
+    return segs
+
+
+def punch_section_props(segs, d_mm):
+    """
+    خواص القطاع الحرج من أضلاعه (الأطوال بالمليمتر): المحيط b0،
+    المركز، وJc حول المحورين (§8.4.4.2.3، R8.4.4.2.3) والمسافة من
+    المركز لأبعد ليفة في كل اتجاه. Jc حول X بتستخدم مسافات y.
+    """
+    d = float(d_mm)
+    if not segs:
+        return None
+    L = [math.hypot((b[0] - a[0]) * 1000.0, (b[1] - a[1]) * 1000.0) for a, b in segs]
+    b0 = sum(L)
+    if b0 <= 0:
+        return None
+    mx = sum(l * (a[0] + b[0]) / 2.0 for l, (a, b) in zip(L, segs)) / b0
+    my = sum(l * (a[1] + b[1]) / 2.0 for l, (a, b) in zip(L, segs)) / b0
+    jx = jy = 0.0          # jx: حول محور X (مسافات y)، jy: حول Y (مسافات x)
+    for l, (a, b) in zip(L, segs):
+        along_x = abs(b[0] - a[0]) >= abs(b[1] - a[1])
+        ymid = ((a[1] + b[1]) / 2.0 - my) * 1000.0
+        xmid = ((a[0] + b[0]) / 2.0 - mx) * 1000.0
+        if along_x:
+            jy += d * l ** 3 / 12.0 + l * d ** 3 / 12.0 + d * l * xmid ** 2
+            jx += d * l * ymid ** 2
+        else:
+            jx += d * l ** 3 / 12.0 + l * d ** 3 / 12.0 + d * l * ymid ** 2
+            jy += d * l * xmid ** 2
+    xs = [p[0] for a, b in segs for p in (a, b)]
+    ys = [p[1] for a, b in segs for p in (a, b)]
+    return {"b0": b0, "cx": mx, "cy": my, "Jx": jx, "Jy": jy,
+            "cx_max": max(abs(x - mx) for x in xs) * 1000.0,
+            "cy_max": max(abs(y - my) for y in ys) * 1000.0,
+            "bx": (max(xs) - min(xs)) * 1000.0, "by": (max(ys) - min(ys)) * 1000.0}
+
+
+def punch_gamma_v(b1, b2):
+    """نصيب العزم غير المتوازن اللي بيتنقل بالقص (§8.4.4.2.2): γv = 1 − γf."""
+    return 1.0 - 1.0 / (1.0 + (2.0 / 3.0) * math.sqrt(max(b1, 1.0) / max(b2, 1.0)))
+
+
+def punch_fpc_at(tendons, cx, cy, h_mm, params, half=3.0):
+    """
+    متوسط الضغط المسبق (MPa) في كل اتجاه عند العمود: الكابلات اللي بتعدّي
+    على العمود في حدود ±half م عرضياً، قوتها الفعّالة على مساحة
+    (2·half) × h. بترجّع (fpc_x, fpc_y).
+    """
+    out = {}
+    try:
+        pe = float(params.force_per_strand)
+    except Exception:
+        pe = float(getattr(params, "strand_force_kn", 0.0) or 100.0)
+    for direction in ("X", "Y"):
+        force = 0.0
+        for t in (tendons or []):
+            if t.get("_deleted") or osh_tendon_dir(t) != direction:
+                continue
+            prof = t.get("profile") or []
+            if len(prof) < 2:
+                continue
+            ax = 0 if direction == "X" else 1
+            lo = min(q["pos"][ax] for q in prof)
+            hi = max(q["pos"][ax] for q in prof)
+            at = cx if direction == "X" else cy
+            if not (lo - 0.3 <= at <= hi + 0.3):
+                continue
+            if abs(osh_across(t, direction) - (cy if direction == "X" else cx)) > half:
+                continue
+            force += int(t.get("strands") or 0) * pe
+        out[direction] = force * 1000.0 / max(2.0 * half * 1000.0 * float(h_mm), 1.0)
+    return out["X"], out["Y"]
+
+
+def punch_one(cx, cy, c1, c2, d_mm, boundary, openings, Vu_kN, Mx_kNm, My_kNm,
+              fc, code, fpc=0.0, phi=None):
+    """
+    فحص واحد على قطاع حرج واحد. بيرجّع dict فيه vu وφvc والاستغلال،
+    أو None لو القطاع مافيهوش ضلع جوّه البلاطة.
+    """
+    segs = punch_section_segments(cx, cy, c1, c2, d_mm, boundary, openings)
+    pr = punch_section_props(segs, d_mm)
+    if pr is None:
+        return None
+    d = float(d_mm)
+    Vu = abs(float(Vu_kN)) * 1000.0
+    Mx = abs(float(Mx_kNm)) * 1.0e6
+    My = abs(float(My_kNm)) * 1.0e6
+    v_dir = Vu / (pr["b0"] * d)
+    gvx = punch_gamma_v(pr["by"], pr["bx"])      # عزم حول X: البحر في اتجاه y
+    gvy = punch_gamma_v(pr["bx"], pr["by"])
+    v_mx = gvx * Mx * pr["cy_max"] / max(pr["Jx"], 1.0)
+    v_my = gvy * My * pr["cx_max"] / max(pr["Jy"], 1.0)
+    vu = v_dir + v_mx + v_my
+    n_sides = len(segs)
+    pos = "interior" if n_sides == 4 else ("edge" if n_sides == 3 else "corner")
+    beta = max(c1, c2) / max(min(c1, c2), 1.0)
+    cap = punching_capacity(code, fc, pr["b0"], d, beta=beta,
+                            alpha_s=POSITION[pos]["alpha_s"], fpc=fpc)
+    vc = cap / (pr["b0"] * d)
+    if phi is None:
+        phi = 1.0 if code == "EC2" else 0.75
+    return {"vu": vu, "v_dir": v_dir, "v_mx": v_mx, "v_my": v_my, "vc": vc,
+            "phi": phi, "phi_vc": phi * vc, "u": vu / max(phi * vc, 1e-9),
+            "b0": pr["b0"], "d": d, "sides": n_sides, "position": pos,
+            "fpc": fpc, "gamma_vx": gvx, "gamma_vy": gvy}
+
+
+def punching_check_columns(site, reactions_by_combo, params, tendons=None, job=None):
+    """
+    كل أعمدة الموديل على كل توليفة مضاعفة، والأسوأ لكل عمود.
+    `reactions_by_combo`: {اسم التوليفة: نتيجة read_reactions_from_ram}.
+    بيرجّع {"code", "fc", "h", "rows": [...], "failed": [...], "combos": [...]}.
+    """
+    code = PUNCH_CODES.get(str(getattr(params, "punch_code", "") or ""), None) or (
+        "EC2" if "EC" in str(getattr(params, "design_code", "")).upper() else "ACI")
+    fc = float(getattr(params, "punch_fc", 0.0) or 0.0) or 30.0
+    h = float(getattr(params, "slab_thickness", 250.0) or 250.0)
+    h_drop = float(getattr(params, "drop_thickness", 0.0) or 0.0)
+    cover = float(getattr(params, "punch_cover", 30.0) or 30.0)
+    d_slab = max(h - cover - 16.0, 50.0)
+    boundary = site.get("boundary") or []
+    openings = [o for o in (site.get("openings") or []) if o and len(o) >= 3]
+    drops = [dp for dp in (site.get("drops") or []) if dp and len(dp) >= 3]
+    cols = list(site.get("columns") or [])
+    order = sorted(range(len(cols)), key=lambda i: (-round(cols[i]["center"][1], 1),
+                                                    round(cols[i]["center"][0], 1)))
+    ids = {i: f"C{k + 1}" for k, i in enumerate(order)}
+    rows = []
+    for i, col in enumerate(cols):
+        cx, cy = float(col["center"][0]), float(col["center"][1])
+        c1 = float(col.get("b", 400.0) or 400.0)
+        c2 = float(col.get("d", 400.0) or 400.0)
+        pos = column_position((cx, cy), boundary)
+        fpc_x, fpc_y = punch_fpc_at(tendons, cx, cy, h, params) if tendons else (0.0, 0.0)
+        fpc = 0.0
+        if code == "ACI" and pos == "interior" and min(fpc_x, fpc_y) >= 0.9 and fc <= 70.0:
+            fpc = min(fpc_x, fpc_y)
+        elif code != "ACI":
+            fpc = min(fpc_x, fpc_y)
+        in_drop = next((dp for dp in drops if point_in_polygon(cx, cy, dp)), None)
+        row = {"id": ids[i], "at": (cx, cy), "c1": c1, "c2": c2, "position": pos,
+               "fpc_x": fpc_x, "fpc_y": fpc_y, "fpc": fpc, "drop": in_drop is not None,
+               "u": 0.0, "combo": "", "Vu": 0.0, "Mx": 0.0, "My": 0.0,
+               "col": None, "drop_face": None, "notes": []}
+        near_open = min((min(math.hypot(px - cx, py - cy) for px, py in o) for o in openings),
+                        default=1e9)
+        if near_open <= 4.0 * h / 1000.0:
+            row["notes"].append(f"an opening within 4h ({near_open:.1f} m): the perimeter "
+                                f"facing it is not reduced here (ACI 22.6.4.3)")
+        found = False
+        for combo, rx in (reactions_by_combo or {}).items():
+            best = None
+            for rc in (rx or {}).get("columns", []):
+                dd = math.hypot(rc["pos"][0] - cx, rc["pos"][1] - cy)
+                if dd <= 0.6 and (best is None or dd < best[0]):
+                    best = (dd, rc)
+            if best is None:
+                continue
+            found = True
+            F = best[1]["F"]
+            Vu, Mx, My = F.get("Fz", 0.0), F.get("Mx", 0.0), F.get("My", 0.0)
+            if in_drop and h_drop > h:
+                r_col = punch_one(cx, cy, c1, c2, max(h_drop - cover - 16.0, 50.0),
+                                  boundary, openings, Vu, Mx, My, fc, code, fpc)
+                x0, y0, x1, y1 = bbox_of(in_drop)
+                r_dp = punch_one((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) * 1000.0,
+                                 (y1 - y0) * 1000.0, d_slab, boundary, openings,
+                                 Vu, Mx, My, fc, code, fpc)
+            else:
+                r_col = punch_one(cx, cy, c1, c2, d_slab, boundary, openings,
+                                  Vu, Mx, My, fc, code, fpc)
+                r_dp = None
+            if r_col is None:
+                continue
+            u = max(r_col["u"], r_dp["u"] if r_dp else 0.0)
+            if u > row["u"] or not row["combo"]:
+                row.update({"u": u, "combo": combo, "Vu": abs(Vu), "Mx": abs(Mx),
+                            "My": abs(My), "col": r_col, "drop_face": r_dp})
+        if not found:
+            row["notes"].append("no reaction found for this column in the model")
+        rows.append(row)
+    failed = [r for r in rows if r["u"] > 1.0]
+    return {"code": code, "fc": fc, "h": h, "h_drop": h_drop, "rows": rows,
+            "failed": failed, "combos": list((reactions_by_combo or {}).keys()),
+            "n": len(rows)}
+
+
+def punching_check_in_session(session, site, params, job, tendons=None):
+    """
+    يقرا ردود أفعال الأعمدة من التوليفات المضاعفة في الموديل المفتوح
+    (لازم يكون متحلّل) ويفحص الثقب. بيرجّع النتيجة أو None.
+    """
+    try:
+        cases = ram_load_cases(session, None)
+    except Exception as e:
+        if job:
+            job.warn(f"Punching check: the load combinations could not be listed ({e}).")
+        return None
+    combos = [c for c in cases if c.get("kind") == "combo"]
+    picked = [c for c in combos if "factored" in c["name"].lower()
+              or "ultimate" in c["name"].lower() or "uls" in c["name"].lower()]
+    if not picked:
+        picked = [c for c in combos if "1.2" in c["name"] or "1.4" in c["name"]]
+    if not picked:
+        if job:
+            job.warn("Punching check: no factored load combination was found in the "
+                     "model (a name with 'Factored'), so the check did not run.")
+        return None
+    by = {}
+    for c in picked:
+        try:
+            by[c["name"]] = read_reactions_from_ram(session, [c["name"]], None)
+        except Exception as e:
+            if job:
+                job.warn(f"Punching check: reactions for '{c['name']}' could not be read ({e}).")
+    if not by:
+        return None
+    res = punching_check_columns(site, by, params, tendons=tendons, job=job)
+    if job:
+        job.log("Punching shear check", "head")
+        job.info(f"{PUNCH_CODES_NAMES.get(res['code'], res['code'])}: f'c {res['fc']:.0f} MPa, "
+                 f"slab {res['h']:.0f} mm" + (f", drops {res['h_drop']:.0f} mm" if res['h_drop'] > res['h'] else "")
+                 + f"; {res['n']} column(s) checked on {len(by)} factored combination(s): "
+                 + ", ".join(by.keys()) + ".")
+        for r in res["rows"]:
+            c = r.get("col") or {}
+            line = (f"    {r['id']} ({r['at'][0]:.1f}, {r['at'][1]:.1f}) {r['position']}"
+                    f"{' + drop' if r['drop'] else ''}: Vu {r['Vu']:.0f} kN, Mu "
+                    f"{r['Mx']:.0f}/{r['My']:.0f} kNm, vu {c.get('vu', 0):.2f} vs φvc "
+                    f"{c.get('phi_vc', 0):.2f} MPa"
+                    + (f" (at the drop edge {r['drop_face']['vu']:.2f} vs {r['drop_face']['phi_vc']:.2f})"
+                       if r.get("drop_face") else "")
+                    + f" -> {r['u']:.2f}" + (f" [{r['combo']}]" if r['combo'] else ""))
+            if r["notes"]:
+                line += " · " + "; ".join(r["notes"])
+            (job.warn if r["u"] > 1.0 else job.info)(line)
+        if res["failed"]:
+            job.flag(f"PUNCHING: {len(res['failed'])} of {res['n']} column(s) fail - "
+                     + ", ".join(f"{r['id']} ({r['u']:.2f})" for r in res["failed"]) + ".")
+        else:
+            job.ok(f"Punching: all {res['n']} column(s) are safe (worst "
+                   f"{max((r['u'] for r in res['rows']), default=0.0):.2f} of the limit).")
+    return res
+
+
+PUNCH_CODES_NAMES = {v: k for k, v in PUNCH_CODES.items()}
+
+
 def column_position(pt, boundary, near=1.2):
     """داخلي / طرفي / ركن - من قرب العمود لحدود البلاطة."""
     if not boundary:
@@ -50013,6 +50309,100 @@ class DoneDialog(ModalDialog):
             pass
 
 
+class PunchingCanvas(PlanCanvas):
+    """المسقط وعليه الأعمدة بلون حالتها في الثقب ورقمها واستغلالها."""
+
+    def __init__(self, master, **kw):
+        super().__init__(master, **kw)
+        self.rows = []
+
+    def redraw(self):
+        super().redraw()
+        if not self.site:
+            return
+        for r in self.rows:
+            sx, sy = self.t(r["at"])
+            bad = r["u"] > 1.0
+            rad = max(min(12 * self.scale_f / 10.0, 16), 7)
+            self.create_oval(sx - rad, sy - rad, sx + rad, sy + rad,
+                             fill="#d9534f" if bad else "#3c9d5d",
+                             outline="white", width=2)
+            self.create_text(sx, sy - rad - 9, text=f"{r['id']}  {r['u']:.2f}",
+                             fill="#ffd6d6" if bad else "#cfe3f2",
+                             font=F(8, "bold"))
+
+
+class PunchingWindow(tk.Toplevel):
+    """
+    شاشة الثقب (18.121): المسقط والأعمدة الراسبة بالأحمر، وجدول بالأرقام.
+    مش modal - الرن بيكمل وهي مفتوحة.
+    """
+
+    def __init__(self, parent, site, result, tendons=None):
+        super().__init__(parent)
+        failed = result.get("failed") or []
+        n = result.get("n", 0)
+        self.title("Punching shear - " + (f"{len(failed)} of {n} column(s) fail"
+                                          if failed else f"all {n} column(s) safe"))
+        self.configure(bg=PALETTE["bg"])
+        try:
+            sw, sh = int(self.winfo_screenwidth()), int(self.winfo_screenheight())
+        except Exception:
+            sw, sh = SCREEN_W, SCREEN_H
+        w, h = min(1100, sw - 60), min(720, sh - 90)
+        self.geometry(f"{w}x{h}+{max(0, (sw - w) // 2)}+{max(0, (sh - h) // 2)}")
+        head = tk.Frame(self, bg="#a23b36" if failed else "#2f7a48", height=S(62))
+        head.pack(fill="x")
+        head.pack_propagate(False)
+        tk.Label(head, text=("Punching: " + (", ".join(f"{r['id']} ({r['u']:.2f})" for r in failed[:12])
+                                             + (" ..." if len(failed) > 12 else ""))
+                             if failed else f"All {n} columns are safe in punching"),
+                 bg=head["bg"], fg="white", font=F(13, "bold")).pack(anchor="w", padx=18, pady=(9, 0))
+        tk.Label(head, text=f"{PUNCH_CODES_NAMES.get(result.get('code'), result.get('code'))} · "
+                            f"f'c {result.get('fc', 0):.0f} MPa · slab {result.get('h', 0):.0f} mm · "
+                            f"combinations: {', '.join(result.get('combos') or [])}",
+                 bg=head["bg"], fg="#f3e3e2" if failed else "#d6efdc", font=F(9)).pack(anchor="w", padx=18)
+        main = tk.Frame(self, bg=PALETTE["bg"])
+        main.pack(fill="both", expand=True, padx=14, pady=10)
+        side = tk.Frame(main, bg=PALETTE["bg"], width=S(400))
+        side.pack(side="right", fill="y", padx=(10, 0))
+        side.pack_propagate(False)
+        cols = ("id", "pos", "Vu", "vu", "phivc", "u")
+        tv = ttk.Treeview(side, columns=cols, show="headings", height=24)
+        for key, title, wd in (("id", "Col", 44), ("pos", "Position", 74), ("Vu", "Vu kN", 62),
+                               ("vu", "vu MPa", 62), ("phivc", "φvc MPa", 66), ("u", "Ratio", 54)):
+            tv.heading(key, text=title)
+            tv.column(key, width=S(wd), anchor="center")
+        rows = sorted(result.get("rows") or [], key=lambda r: -r["u"])
+        for r in rows:
+            c = r.get("col") or {}
+            tv.insert("", "end", values=(r["id"], r["position"] + (" +drop" if r["drop"] else ""),
+                                         f"{r['Vu']:.0f}", f"{c.get('vu', 0):.2f}",
+                                         f"{c.get('phi_vc', 0):.2f}", f"{r['u']:.2f}"),
+                      tags=("bad",) if r["u"] > 1.0 else ())
+        tv.tag_configure("bad", background="#f8e0e0")
+        tv.pack(fill="both", expand=True)
+        tk.Label(side, text="Red = over the limit. The log has Vu, Mu, b0, d, fpc "
+                            "and the combination for every column.",
+                 bg=PALETTE["bg"], fg=PALETTE["muted"], font=F(8), wraplength=S(380),
+                 justify="left").pack(anchor="w", pady=(6, 0))
+        view = tk.Frame(main, bg=PALETTE["bg"])
+        view.pack(side="right", fill="both", expand=True)
+        self.canvas = PunchingCanvas(view)
+        self.canvas.rows = result.get("rows") or []
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.show["tendon_x"] = self.canvas.show["tendon_y"] = False
+        self.canvas.set_data(site, tendons or [])
+        bar = tk.Frame(view, bg=PALETTE["bg"])
+        bar.pack(fill="x", pady=(6, 0))
+        ttk.Button(bar, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(bar, text="Zoom to fit", command=self.canvas.fit).pack(side="right", padx=(0, 8))
+        for key, label in (("tendon_x", "X tendons"), ("tendon_y", "Y tendons"), ("drop", "Drops")):
+            var = tk.BooleanVar(value=self.canvas.show[key])
+            ttk.Checkbutton(bar, text=label, variable=var,
+                            command=lambda k=key, v=var: self.canvas.toggle(k, v.get())).pack(side="right", padx=4)
+
+
 class ReviewCanvas(PlanCanvas):
     """المسقط في شاشة المراجعة: القطاعات بألوان حالتها، والمختار بكابلاته."""
 
@@ -54288,6 +54678,7 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "band_beam_min_length", "band_run_profile", "band_run_share",
     "band_tendon_count", "band_tendon_spacing", "band_tendon_edge",
     "band_moment_face",
+    "punch_check", "punch_code", "punch_fc", "punch_cover",
     "osh_start", "osh_sizing", "osh_dir_order", "osh_margin_big",
     "osh_margin_near", "osh_span_ratio", "osh_extend_m",
     "osh_low_shift", "osh_low_shift_steps", "osh_drop_edge_tol", "osh_strip_half",
@@ -55911,6 +56302,10 @@ class AutoPTApp:
             "rebar_fy": V(value="460"),
             "write_area_loads": B(value=False),
             "write_design_strips": B(value=True),
+            "punch_check": B(value=True),
+            "punch_code": V(value=list(PUNCH_CODES)[0]),
+            "punch_fc": V(value="30"),
+            "punch_cover": V(value="30"),
             "strip_replace_existing": B(value=False),
             "strip_check": B(value=True),
             "strip_check_show": B(value=False),
@@ -58636,6 +59031,30 @@ class AutoPTApp:
         c.check("Export the layout to a DXF for review", self.v["export_dxf"],
                 "Separate layers for tendons and support lines, with profile "
                 "depths.")
+
+        c = Card(left, "Punching shear", "Checked after the tendons are drawn",
+                 icon="⊗")
+        c.pack(fill="x", pady=(0, 14))
+        c.text("After the tendons are drawn and the model analysed, every "
+               "column is checked for punching from RAM's own column "
+               "reactions on the factored combinations: vu = Vu/(b0·d) + "
+               "γv·Mu·c/Jc on the critical section at d/2 from the column "
+               "face, against φ·vc. The critical section drops the sides "
+               "that fall outside the slab, so edge and corner columns get "
+               "their real section; a column inside a drop panel is checked "
+               "at its face with the drop depth and at the drop edge with the "
+               "slab depth. The prestressed capacity (0.29√f'c + 0.3 fpc) is "
+               "used only where the code allows it: interior columns with at "
+               "least 0.9 MPa in both directions. A pop-up names the columns "
+               "that fail, and a screen shows them on the plan.")
+        c.check("Check punching after the tendons are drawn", self.v["punch_check"],
+                "The analysis is run for it even when 'Run the analysis in "
+                "RAM after saving' is off.")
+        c.combo("Code", self.v["punch_code"], list(PUNCH_CODES),
+                "SBC 304 follows ACI 318 clause by clause.")
+        c.entry("Concrete cylinder strength f'c (MPa)", self.v["punch_fc"])
+        c.entry("Cover to the top rebar (mm)", self.v["punch_cover"],
+                "d = slab thickness - this cover - 16 mm.")
 
         return outer
 
@@ -61764,6 +62183,10 @@ class AutoPTApp:
             arch_wall_thickness=self._num("arch_wall_thickness", 0.0),
             write_area_loads=v["write_area_loads"].get(),
             write_design_strips=v["write_design_strips"].get(),
+            punch_check=v["punch_check"].get(),
+            punch_code=v["punch_code"].get(),
+            punch_fc=self._num("punch_fc", 30.0),
+            punch_cover=self._num("punch_cover", 30.0),
             efm_objective=v["efm_objective"].get(),
             efm_rounds=int(self._num("efm_rounds", 4)),
             efm_min_close=int(self._num("efm_min_close", 1)),
@@ -63063,6 +63486,51 @@ class AutoPTApp:
         except Exception:
             return True
 
+    def _punching_after(self, session, site, params, job, tendons=None):
+        """
+        18.121: فحص الثقب على الموديل المفتوح والمتحلّل، والنتيجة تروح
+        للشاشة (رسالة + شاشة المسقط) من الخيط الرئيسي. مابيوقفش الرن.
+        """
+        if not bool(getattr(params, "punch_check", True)):
+            return None
+        try:
+            res = punching_check_in_session(session, site, params, job, tendons=tendons)
+        except CancelledError:
+            raise
+        except Exception as e:
+            job.warn(f"Punching check did not run: {e}")
+            return None
+        if res is None:
+            return None
+        self._last_punching = (res, site, list(tendons or []))
+        self.root.after(0, lambda: self._show_punching(res, site, tendons))
+        return res
+
+    def _show_punching(self, res, site, tendons=None):
+        failed = res.get("failed") or []
+        try:
+            if failed:
+                lines = [f"{r['id']} at ({r['at'][0]:.1f}, {r['at'][1]:.1f}) - "
+                         f"{r['position']}{' with drop' if r['drop'] else ''}: "
+                         f"{r['u']:.2f} of the limit" for r in failed[:20]]
+                if len(failed) > 20:
+                    lines.append(f"... and {len(failed) - 20} more")
+                messagebox.showwarning(
+                    "Punching shear",
+                    f"{len(failed)} of {res.get('n', 0)} column(s) fail in punching "
+                    f"({PUNCH_CODES_NAMES.get(res.get('code'), res.get('code'))}):\n\n"
+                    + "\n".join(lines) + "\n\nThe plan shows them in red.",
+                    parent=self.root)
+            else:
+                messagebox.showinfo(
+                    "Punching shear",
+                    f"All {res.get('n', 0)} columns are safe in punching "
+                    f"({PUNCH_CODES_NAMES.get(res.get('code'), res.get('code'))}).",
+                    parent=self.root)
+            PunchingWindow(self.root, site, res, tendons)
+        except Exception as e:
+            self.log(f"The punching screen could not be opened: {e}", "warn")
+
     def _osh_pipeline(self, cpt, out_dir, params: TendonDesignParams):
         """
         **18.103: Optimum solution H على موديل موجود.** بيقرا كابلاته،
@@ -63108,6 +63576,13 @@ class AutoPTApp:
                 res = run_optimum_h(session, tendons, params, job, out_dir,
                                     stem, site=site, mesh_size=mesh,
                                     base_kg=base_kg)
+                #  18.121: فحص الثقب على آخر حالة اتحلّلت في الجلسة.
+                if res.get("best"):
+                    if res.get("put_back"):
+                        job.info("Punching check: measured on the last analysed "
+                                 "state in the session (the optimised one); the "
+                                 "file handed back is the safe copy.")
+                    self._punching_after(session, site, params, job, tendons)
             if res.get("best"):
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
@@ -63502,6 +63977,15 @@ class AutoPTApp:
                                 f"for no measured gain. Those sections are "
                                 f"where prestress is not what is short: "
                                 f"depth, a drop, or reinforcement.")
+                #  18.121: فحص الثقب على الموديل النهائي وهو لسه مفتوح.
+                if res.get("best"):
+                    _pt = tendons
+                    try:
+                        if os.path.isfile(res["best"]):
+                            _pt = tendons_from_cpt(res["best"], params, job) or tendons
+                    except Exception:
+                        _pt = tendons
+                    self._punching_after(session, site, params, job, _pt)
             if res.get("best"):
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
@@ -64932,6 +65416,7 @@ class AutoPTApp:
                     job.ok(f"Finished. File: {out_file}")
                     return
 
+                analysis = None
                 if self.v["run_analysis"].get():
                     audit_before_analysis(tendons, params, job, site)
                     analysis = run_model_analysis(
@@ -64943,6 +65428,17 @@ class AutoPTApp:
                             self._strip_check_after_run(
                                 session, out_file, site, params,
                                 self._num("mesh_size", 0.0) or None)
+                #  18.121: فحص الثقب دايماً بعد رسم الكابلات - لو التحليل
+                #  مش مطلوب أصلاً بيتعمل عشانه.
+                if bool(getattr(params, "punch_check", True)):
+                    if analysis is None:
+                        job.info("Punching check: the model is analysed for it "
+                                 "although 'Run the analysis in RAM after saving' "
+                                 "is off.")
+                        analysis = run_model_analysis(
+                            session, job, mesh_size=self._num("mesh_size", 0.0) or None)
+                    if analysis.get("ok"):
+                        self._punching_after(session, site, params, job, tendons)
 
                 if not saved:
                     job.error("NOTHING WAS SAVED - every save attempt failed. "
