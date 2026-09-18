@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.119"
+APP_VERSION = "18.120"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3814,8 +3814,9 @@ class TendonDesignParams:
         if not (0.0 <= self.strip_search_angle <= 60.0):
             errs.append("The support line search angle must be between 0 and "
                         "60 degrees.")
-        if not (2 <= self.strip_min_supports <= 10):
-            errs.append("A support line needs at least 2 supports.")
+        if not (1 <= self.strip_min_supports <= 10):
+            errs.append("Minimum supports on a line must be between 1 and 10 "
+                        "(1 lets a lone support with a cantilever get its strip).")
         if not (5.0 <= self.arch_wall_density <= 30.0):
             errs.append("Architectural wall density must be between 5 and "
                         "30 kN/m³ (hollow block is about 12-14, brick 18).")
@@ -22673,7 +22674,9 @@ def build_support_lines(site, params, job):
     band = max(float(getattr(params, "strip_band_width", 4.0)), 0.5)
     tilt_max = min(max(float(getattr(params, "strip_search_angle", 15.0)),
                        0.0), 60.0)
-    min_sup = max(int(getattr(params, "strip_min_supports", 2)), 2)
+    #  18.120: 1 مسموح - الركيزة الوحيدة اللي وراها كابولي (حيطة أو عمود
+    #  على طرف الدور) كانت مابتاخدش شريحة خالص، فالكابولي مابيتصمّمش.
+    min_sup = max(int(getattr(params, "strip_min_supports", 2)), 1)
     extend = bool(getattr(params, "strip_edge_extend", True))
     skew_on = bool(getattr(params, "strip_skew_sections", True))
     base_ang = float(getattr(params, "strip_base_angle", 0.0))
@@ -22734,6 +22737,33 @@ def build_support_lines(site, params, job):
             #  الامتداد للحرف بيمشي في اتجاه الكابلات عند الطرف نفسه،
             #  مش في اتجاه الدور كله - عشان الناتئ ما ياخدش ميل مش بتاعه.
             ex, ey = ux, uy
+            if len(posts) == 1:
+                #  18.120: ركيزة وحيدة - الشريحة هي الكابولي نفسه: من
+                #  الركيزة لحرف البلاطة من الناحيتين، لحد 60% من البحر
+                #  النموذجي للدور (أو عرض الشريط لو الدور كله صف واحد).
+                #  الامتداد الأطول من كده مش كابولي، ده بحر بلاطة بتتسند
+                #  على حاجة تانية.
+                cant_max = 0.6 * floor_med if floor_med > 0 else max(band, 4.0)
+                end = posts[0]
+                ea = math.radians(guide_angle_at_point(
+                    end, guides, tendon_ang, max(band, 4.0))
+                    if guides else tendon_ang)
+                ex, ey = math.cos(ea), math.sin(ea)
+                span = _slab_extent_on_line(boundary, end, (ex, ey))
+                grown = [end]
+                if span:
+                    if 0.25 < -span[0] <= cant_max:
+                        grown.insert(0, (end[0] + ex * span[0], end[1] + ey * span[0]))
+                    if 0.25 < span[1] <= cant_max:
+                        grown.append((end[0] + ex * span[1], end[1] + ey * span[1]))
+                if len(grown) < 2:
+                    huge[0] += 1
+                    return
+                job.info(f"Support line ({direction}) from a single support at "
+                         f"({end[0]:.1f}, {end[1]:.1f}): a cantilever strip of "
+                         f"{dist(grown[0], grown[-1]):.1f} m to the slab edge.")
+                _add_candidate(candidates, grown, piece, ux, uy)
+                return
             if extend and len(posts) >= 2:
                 ends = []
                 for end, way in ((posts[0], -1.0), (posts[-1], 1.0)):
@@ -58285,7 +58315,12 @@ class AutoPTApp:
                 "this is left out of the line and the line carries on "
                 "straight. 0 allows nothing but square spans.")
         c.entry("Minimum supports on a line", self.v["strip_min_supports"],
-                "A single support is not a line.")
+                "2 needs two supports in a row before a line is drawn. 1 also "
+                "gives a lone wall or column at the edge of a cantilever its "
+                "own strip, from the support to the slab edge - the cantilever "
+                "may be up to 60% of the floor's typical span, longer is not a "
+                "cantilever. Without it a cantilever behind a single support "
+                "is designed nowhere.")
         c.check("Give every column a line in both directions",
                 self.v["strip_cover_columns"],
                 hint="The lines are built by sweeping bands of supports, and "
