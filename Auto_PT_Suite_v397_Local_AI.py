@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.109"
+APP_VERSION = "18.110"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -38110,13 +38110,13 @@ def osh_shift_lows(t, d, toward_xy, frac, params):
     r_inf = float(getattr(params, "ram_inflection_ratio", 0.2) or 0.2)
     r_inf = max(0.02, min(r_inf, 0.5))
 
-    def keep_from(q, nb):
-        dz = abs(float(q.get("depth") or 0.0) - float(nb.get("depth") or 0.0)) / 1000.0
-        if rmin <= 0 or dz <= 0:
-            return gap
-        return max(gap, math.sqrt(2.0 * rmin * dz / r_inf))
-
-    moved = 0
+    #  **18.110: الغطسة بتتحرك زي ما القاعدة بتقول، ولو القرب من القمة
+    #  كسر نصف القطر بتترفع بالقدر اللي يرجّعه.** النسخة اللي فاتت كانت
+    #  بتمنع الحركة خالص لو البحر أصلاً على حد نصف القطر - وده حال أغلب
+    #  البحور القصيرة بين الدروبات - فالمهندس شاف قطاع علوي راسب
+    #  والغطسة مكانها. الرفع بيتحسب من نفس معادلة enforce_min_radius:
+    #  Δ المسموح = (r/2)·L²/R على كل جهة، والغطسة بتاخد الأعمق المسموح.
+    moved, lifted = 0, 0.0
     for i in range(1, len(prof) - 1):
         q = prof[i]
         if not q.get("sag"):
@@ -38128,14 +38128,33 @@ def osh_shift_lows(t, d, toward_xy, frac, params):
         if not (lo < base < hi):
             continue
         new = base + sign * float(frac) * L
-        new = max(st[i - 1] + keep_from(q, prof[i - 1]),
-                  min(st[i + 1] - keep_from(q, prof[i + 1]), new))
+        new = max(st[i - 1] + gap, min(st[i + 1] - gap, new))
         if abs(new - st[i]) < 0.05:
+            continue
+        depth = float(q.get("depth") or 0.0)
+        cap = depth
+        if rmin > 0:
+            for nb, s_nb in ((prof[i - 1], st[i - 1]), (prof[i + 1], st[i + 1])):
+                if nb.get("sag"):
+                    continue
+                L_side = abs(new - s_nb)
+                d_nb = float(nb.get("depth") or 0.0)
+                dz_max = (r_inf / 2.0) * L_side * L_side / rmin * 1000.0
+                cap = min(cap, d_nb + dz_max)
+        shallowest = max(float(prof[i - 1].get("depth") or 0.0),
+                         float(prof[i + 1].get("depth") or 0.0)) + 10.0
+        if cap < shallowest:
+            #  الحركة دي تخلّي الغطسة فوق القمة اللي جنبها - مش غطسة خلاص
             continue
         q["pos"] = _profile_point_at(prof, new)
         q["manual"] = True
         q.pop("_s", None)
+        if cap < depth - 0.5:
+            q["depth"] = round_to(cap, float(getattr(params, "elevation_rounding", 5.0) or 5.0))
+            q["_osh_lifted_mm"] = depth - q["depth"]
+            lifted = max(lifted, depth - q["depth"])
         moved += 1
+    t["_osh_lift_mm"] = lifted
     return moved
 
 
@@ -38632,14 +38651,19 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
             if i < len(shifts):
                 frac = shifts[i]
                 n_mv = sum(osh_shift_lows(t, d, end_xy, frac, params) for t in t_in)
+                lift = max([float(t.get("_osh_lift_mm") or 0.0) for t in t_in] or [0.0])
                 st["shift"] = i + 1
                 if n_mv:
                     actions += n_mv
                     job.ok(f"        one end over: {n_mv} low point(s) moved "
-                           f"{100 * frac:.0f}% of the span toward it; "
-                           f"re-analysing.")
+                           f"{100 * frac:.0f}% of the span toward it"
+                           + (f", raised up to {lift:.0f} mm to keep the "
+                              f"minimum radius" if lift > 0 else "")
+                           + "; re-analysing.")
                     continue
-                job.info("        no low point inside the span to move.")
+                job.info("        no low point could move: none inside the "
+                         "span, or the move would put it above the peak "
+                         "beside it.")
             st["step"] = "add"
             step = "add"
         if step == "add":
