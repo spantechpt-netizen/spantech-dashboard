@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.103"
+APP_VERSION = "18.104"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -12874,6 +12874,13 @@ def limit_sag_offset(tendons, p, job=None, drops=None):
                 if off > worst:
                     worst, at = off, q
             if at is None or worst <= tol:
+                continue
+            #  18.104: الغطسة اللي اتحطت عن قصد (manual) - حلقة EFM بتحرّكها
+            #  لأعلى شد، وOptimum solution H بتزحلقها 10/20/30% ناحية
+            #  القطاع الراسب - مش بتترجع للنص. القاعدة دي كانت بترجّعها
+            #  في كل رسم، فرن كامل قال "اتحركت 30%" وهي عمرها ما اتحركت
+            #  أكتر من 15%.
+            if at.get("manual"):
                 continue
             if len(sags) != 1 or run < 2.0 * gap:
                 left.append((worst, at["pos"], t.get("dir")))
@@ -38445,7 +38452,22 @@ def osh_remove_short_runs(tendons, params, site, job, direction):
         shorts = [t for t in axis if tendon_plan_length(t) < 0.6 * axis_len]
         if not shorts:
             continue
-        cover = sum(tendon_plan_length(t) for t in shorts)
+        #  التغطية = اتحاد الامتدادات على المحور، مش مجموع الأطوال - قطعتين
+        #  فوق بعض كانوا بيطلعوا "117% من المحور".
+        spans_along = sorted(
+            (min(osh_along(q["pos"], direction) for q in t["profile"]),
+             max(osh_along(q["pos"], direction) for q in t["profile"]))
+            for t in shorts if len(t.get("profile") or []) >= 2)
+        cover, cur = 0.0, None
+        for lo, hi in spans_along:
+            if cur is None or lo > cur[1]:
+                if cur is not None:
+                    cover += cur[1] - cur[0]
+                cur = [lo, hi]
+            else:
+                cur[1] = max(cur[1], hi)
+        if cur is not None:
+            cover += cur[1] - cur[0]
         if cover <= pct * axis_len:
             continue
         total = sum(int(t.get("strands") or 0) for t in shorts)
@@ -38689,10 +38711,15 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
                 state = osh_cycle(session, tendons, params, site, mesh_size, job,
                                   out_dir, stem, f"opt_{direction}_fix")
                 new_bad = osh_new_failures(ref, state)
-        if new_bad or state["n_over"] > ref["n_over"]:
-            job.warn(f"    the optimisation in {direction} left "
-                     f"{state['n_over']} reading(s) over the limit against "
-                     f"{ref['n_over']} before it, so it is undone.")
+        heavier = state["kg"] > ref["kg"] * 1.005
+        if new_bad or state["n_over"] > ref["n_over"] or (
+                heavier and state["n_over"] >= ref["n_over"]):
+            why = (f"left {state['n_over']} reading(s) over the limit against "
+                   f"{ref['n_over']} before it" if (new_bad or state["n_over"] > ref["n_over"])
+                   else f"made the floor heavier ({ref['kg']:,.0f} -> "
+                        f"{state['kg']:,.0f} kg) without closing a section")
+            job.warn(f"    the optimisation in {direction} {why}, so it is "
+                     f"undone.")
             osh_restore(tendons, snap)
             state = osh_cycle(session, tendons, params, site, mesh_size, job,
                               out_dir, stem, f"opt_{direction}_undone")
