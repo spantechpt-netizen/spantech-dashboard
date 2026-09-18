@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.118"
+APP_VERSION = "18.119"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -39602,6 +39602,7 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
                       stem, "start")
     before = state
     result["before"] = state["summary"]
+    result["before_state"] = state
     budget = osh_budget_total(params, site, base_kg if base_kg is not None
                               else state["kg"])
     if budget is not None:
@@ -39808,6 +39809,7 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
     if safe_save(session, final_path, job):
         result["best"] = final_path
     result["after"] = state["summary"]
+    result["after_state"] = state
     if state["n_over"] > safe_state["n_over"]:
         job.flag(f"The optimised model has {state['n_over']} reading(s) over "
                  f"the limit against {safe_state['n_over']} at the end of "
@@ -40193,8 +40195,38 @@ def shave_after_loop(session, best_path, params, job, out_dir, stem, site=None,
     return None
 
 
+REVIEW_METHODS = {
+    "Optimum solution H": "osh",
+    "EFM loop, then the shave loop": "efm",
+}
+
+
+def _hm(seconds):
+    seconds = max(0, int(round(seconds)))
+    h, m = divmod(seconds // 60, 60)
+    return f"{h}h {m:02d}m" if h else f"{m} min"
+
+
+def review_eta_text(i, n, stem, durations, elapsed_current=0.0, now=None):
+    """
+    سطر الحالة للمراجعة (18.119): الموديل الحالي وترتيبه، ومتوسط زمن
+    الموديل من اللي خلصوا فعلاً في الرن ده، والوقت المتبقي المتوقع
+    وساعة الانتهاء. قبل أول موديل يخلص مافيش تقدير - بيتقال كده.
+    """
+    done = len(durations or [])
+    head = f"Model {i} of {n}: {stem}"
+    if not done:
+        return head + " · the estimate comes after the first model finishes"
+    avg = sum(durations) / done
+    left = max(0.0, avg * (n - done) - float(elapsed_current or 0.0))
+    now = now if now is not None else time.time()
+    end = time.strftime("%H:%M", time.localtime(now + left))
+    return (f"{head} · {done} done, {_hm(avg)} each · about {_hm(left)} "
+            f"left, ends ~{end}")
+
+
 def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
-                   do_shave=True):
+                   do_shave=True, method="efm", on_model=None):
     """
     **مراجعة مشروع كامل (18.11):** كل ملف بالترتيب - يتفتح زي ما هو،
     يتحلّل، فحص القطاعات يتقرا، ولو فيه قطاعات راسبة حلقة الـ EFM
@@ -40205,18 +40237,29 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
     import copy as _cp
     rows = []
     n_all = len(files)
+    durations = []
+    method = str(method or "efm").lower()
     for i, cpt in enumerate(files):
         job.check()
         stem = os.path.splitext(os.path.basename(cpt))[0]
         row = {"file": os.path.basename(cpt), "path": cpt, "status": "failed",
                "before": None, "after": None, "fails_before": [], "fails_after": [],
                "efm_rounds": 0, "shave_rounds": 0, "output": None, "error": "",
-               "kg_before": None, "kg_after": None, "minutes": 0.0}
+               "kg_before": None, "kg_after": None, "minutes": 0.0,
+               "method": method}
         t0 = time.time()
-        job.step(i / max(n_all, 1), f"{i + 1}/{n_all}  {stem}")
+        eta = review_eta_text(i + 1, n_all, stem, durations)
+        job.step(i / max(n_all, 1), eta)
+        if on_model:
+            try:
+                on_model({"i": i + 1, "n": n_all, "stem": stem, "t0": t0,
+                          "durations": list(durations)})
+            except Exception:
+                pass
         try:
             job.log("=" * 62, "head")
             job.log(f"[{i + 1}/{n_all}]  {stem}", "head")
+            job.info(eta)
             src = cpt
             if not cpt_is_current_format(cpt):
                 src = ensure_current_model_format(cpt, out_dir, job, api_path=api_path)
@@ -40227,6 +40270,61 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
                 site.setdefault(k, [])
             p = _cp.copy(params)
             sync_slab_thickness(p, site, job)
+            if method == "osh":
+                #  18.119: المراجعة بنظام Optimum solution H - نفس مسار
+                #  الموديل الواحد، كل موديل في فولدر باسمه جوّه فولدر
+                #  المراجعة، والصف بياخد قبل/بعد من تقرير المسار.
+                tendons = tendons_from_cpt(src, p, job)
+                if not tendons:
+                    raise RuntimeError("the model has no tendons to work with")
+                for t in tendons:
+                    t["as_drawn"] = True
+                if not float(getattr(p, "strand_force_kn", 0.0) or 0.0):
+                    _f, _n = strand_force_from_model(src, tendons, job)
+                    if _f and _n >= 5:
+                        p.strand_force_kn = _f
+                enforce_min_radius(tendons, p, job)
+                model_dir = os.path.join(out_dir, stem)
+                os.makedirs(model_dir, exist_ok=True)
+                base_kg = floor_strand_kg(tendons, p)
+                with RamSession(job, api_path=api_path) as session:
+                    session.open(src)
+                    try:
+                        _sync_min_radius_from_model(session, p, job)
+                    except Exception:
+                        pass
+                    res = run_optimum_h(session, tendons, p, job, model_dir,
+                                        stem, site=site, mesh_size=None,
+                                        base_kg=base_kg)
+                if not res.get("best"):
+                    raise RuntimeError(f"Optimum solution H stopped: "
+                                       f"{res.get('stopped') or 'no result'}")
+                b_state, a_state = res.get("before_state"), res.get("after_state")
+                row["before"] = res.get("before")
+                row["after"] = res.get("after")
+                row["kg_before"] = base_kg
+                row["kg_after"] = (a_state or {}).get("kg")
+                row["fails_before"] = [(f"{r['face']}_{str(r['dir']).lower()}", r["x"], r["y"],
+                                        r["v"] - r["lim"])
+                                       for r in (b_state or {}).get("readings", [])
+                                       if r["u"] > 1.0]
+                row["fails_after"] = [(f"{r['face']}_{str(r['dir']).lower()}", r["x"], r["y"],
+                                       r["v"] - r["lim"])
+                                      for r in (a_state or {}).get("readings", [])
+                                      if r["u"] > 1.0]
+                row["output"] = res["best"]
+                row["osh_put_back"] = bool(res.get("put_back"))
+                row["status"] = "ok"
+                row["minutes"] = round((time.time() - t0) / 60.0, 1)
+                durations.append(time.time() - t0)
+                rows.append(row)
+                b, a = row.get("before"), row.get("after")
+                if b and a:
+                    sv = (1.0 - a["strand_m"] / b["strand_m"]) * 100.0 if b["strand_m"] else 0.0
+                    job.ok(f"RESULT {stem}: {b['strands']} -> {a['strands']} strands, "
+                           f"{b['strand_m']:,.0f} -> {a['strand_m']:,.0f} strand-m ({sv:+.1f}%), "
+                           f"sections over {b['reach']}+{b['unreach']} -> {a['reach']}+{a['unreach']}")
+                continue
             pe = MdParams(p, efm_face="both", efm_objective="section_only",
                           efm_read_ram=True, stress_plot="",
                           efm_profile_mode="safe", efm_rebalance=True)
@@ -40298,6 +40396,7 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
             row["error"] = f"{type(e).__name__}: {e}"
             job.error(f"{stem}: {e}")
         row["minutes"] = round((time.time() - t0) / 60.0, 1)
+        durations.append(time.time() - t0)
         rows.append(row)
         b, a = row.get("before"), row.get("after")
         if b and a:
@@ -40305,6 +40404,9 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
             job.ok(f"RESULT {stem}: {b['strands']} -> {a['strands']} strands, "
                    f"{b['strand_m']:,.0f} -> {a['strand_m']:,.0f} strand-m ({sv:+.1f}%), "
                    f"sections over {b['reach']}+{b['unreach']} -> {a['reach']}+{a['unreach']}")
+    if durations:
+        job.info(f"Review timing: {len(durations)} model(s) in "
+                 f"{_hm(sum(durations))}, {_hm(sum(durations) / len(durations))} each.")
     job.step(1.0, "Review done")
     return rows
 
@@ -40351,7 +40453,10 @@ def write_review_xlsx(rows, path, params=None, job=None):
                 b.get("reach"), a.get("reach"), b.get("unreach"), a.get("unreach"),
                 r.get("efm_rounds"), r.get("shave_rounds"), r.get("minutes"),
                 os.path.basename(r.get("output") or "") if r.get("output") else "",
-                r.get("error") or r.get("shave_stopped") or ""]
+                " · ".join(x for x in (
+                    "Optimum solution H" if r.get("method") == "osh" else "",
+                    "safe copy handed back" if r.get("osh_put_back") else "",
+                    r.get("error") or r.get("shave_stopped") or "") if x)]
         ws.append(line)
         i = ws.max_row
         if sv is not None:
@@ -55674,6 +55779,7 @@ class AutoPTApp:
             "xfer_mx": B(value=False), "xfer_my": B(value=False), "xfer_mz": B(value=False),
             "review_folder": V(),
             "review_out": V(),
+            "review_method": V(value=list(REVIEW_METHODS)[0]),
             "review_efm": B(value=True),
             "review_shave": B(value=True),
             #  ملف الـ template اللي الشوب درويينج بياخد منه المراسي
@@ -60207,13 +60313,22 @@ class AutoPTApp:
                  icon="✓")
         c.pack(fill="x", pady=(0, 14))
         c.text("Each model is opened as it is and analysed; RAM's section "
-               "check is read. Where sections are over the limit the EFM "
-               "loop (section_only) closes them; then the shave loop takes "
-               "the surplus strands out where the sections have room. The "
-               "original files are never touched - every step is saved in the "
-               "output folder, and the Excel report lists strands, "
-               "strand-metres, kilograms, the sections over the limit before "
-               "and after, and the saving, model by model with totals.")
+               "check is read. With Optimum solution H the three stages run "
+               "on it (bottom sections, top sections, optimise) exactly as "
+               "on a single model, each model in its own folder inside the "
+               "output folder. With the EFM choice the EFM loop "
+               "(section_only) closes the failing sections and the shave "
+               "loop takes the surplus out. The original files are never "
+               "touched, and the Excel report lists strands, strand-metres, "
+               "kilograms, the sections over the limit before and after, "
+               "and the saving, model by model with totals. While it runs, "
+               "the status line on the Run page shows the model in hand, its "
+               "place in the list, the average time per finished model and "
+               "the expected finishing time.")
+        c.combo("Method", self.v["review_method"], list(REVIEW_METHODS),
+                "Optimum solution H uses its own settings page; the EFM "
+                "choice uses the EFM page's rounds and steps and the two "
+                "boxes below.")
         c.entry("Folder with the models (.cpt)", self.v["review_folder"], width=40,
                 hint="Sub-folders are not searched. Old-format files are "
                      "converted by RAM into a copy first.")
@@ -60287,6 +60402,7 @@ class AutoPTApp:
         self.lbl_elapsed.configure(text="00:00")
         self._run_marker = self._last_output
         self._review_report = None
+        self._review_live = None
         self.job = Job(log_cb=self._log_async, progress_cb=self._progress_async)
         self._run_params = params
         self.worker = threading.Thread(target=self._review_pipeline,
@@ -60296,11 +60412,17 @@ class AutoPTApp:
     def _review_pipeline(self, files, out_dir, params):
         job = self.job
         rows = []
+        method = REVIEW_METHODS.get(self.v["review_method"].get(), "osh")
+
+        def on_model(info):
+            self._review_live = info
+
         try:
             rows = review_project(files, params, job, out_dir,
                                   api_path=self.v["api_path"].get() or None,
                                   do_efm=bool(self.v["review_efm"].get()),
-                                  do_shave=bool(self.v["review_shave"].get()))
+                                  do_shave=bool(self.v["review_shave"].get()),
+                                  method=method, on_model=on_model)
         except CancelledError:
             job.warn("Stopped.")
             job.step(0.0, "Stopped")
@@ -60321,6 +60443,7 @@ class AutoPTApp:
                     job.ok(f"Review done: {sum(1 for r in rows if r.get('status') == 'ok')} "
                            f"of {len(rows)} model(s) went through. Report: {path}")
                     job.step(1.0, "Done")
+            self._review_live = None
             self.root.after(0, self._finish)
 
     def _page_run(self, parent):
@@ -61205,7 +61328,22 @@ class AutoPTApp:
             if prog is not None:
                 self.progress["value"] = prog[0]
                 if prog[1]:
+                    self._stage_inner = prog[1]
                     self.lbl_stage.configure(text=prog[1])
+            #  18.119: أثناء المراجعة سطر الحالة بيتحدّث كل ثانية: الموديل
+            #  الحالي وترتيبه، والخطوة الجارية جوّاه، والمتبقي المتوقع من
+            #  متوسط اللي خلصوا.
+            live = getattr(self, "_review_live", None)
+            if live and self.worker and self.worker.is_alive():
+                inner = getattr(self, "_stage_inner", "") or ""
+                if inner.startswith("Model "):
+                    inner = ""
+                txt = review_eta_text(live["i"], live["n"], live["stem"],
+                                      live.get("durations") or [],
+                                      elapsed_current=time.time() - live["t0"])
+                if inner:
+                    txt = f"{txt} · {inner}"
+                self.lbl_stage.configure(text=txt)
             if self._run_t0 is not None:
                 el = int(time.time() - self._run_t0)
                 txt = (f"{el // 3600:d}:{el % 3600 // 60:02d}:{el % 60:02d}"
