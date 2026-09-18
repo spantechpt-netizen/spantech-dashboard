@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.104"
+APP_VERSION = "18.105"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -37607,6 +37607,52 @@ def osh_slots(d, live, direction, params):
     return out
 
 
+def osh_route_is_clear(pts, site, clear=0.25, step=0.25):
+    """
+    المسار ده جوّه الخرسانة وبعيد عن كل فتحة؟ (18.105)
+
+    أكبر فجوة بين الكابلات كتير بتبقى فتحة أصلاً - التوزيع الأصلي
+    اتجنّبها - فالكابل المنسوخ كان بيتحط فيها وبيتشوّه عند الرسم.
+    العيّنات كل ربع متر لازم تقع جوّه إحدى قطع البلاطة (أو حدودها)
+    وبرّه كل فتحة بسماحية `clear`.
+    """
+    site = site or {}
+    pieces = [p for p in (site.get("pieces") or []) if p and len(p) >= 3]
+    if not pieces:
+        b = site.get("boundary") or []
+        pieces = [b] if len(b) >= 3 else []
+    holes = [o for o in (site.get("openings") or []) if o and len(o) >= 3]
+    if not pieces and not holes:
+        return True
+    if len(pts) < 2:
+        return True
+
+    def near_edge(pt, poly):
+        n = len(poly)
+        for i in range(n):
+            a, b = poly[i], poly[(i + 1) % n]
+            if point_to_segment_dist(pt[0], pt[1], a[0], a[1], b[0], b[1]) <= clear:
+                return True
+        return False
+
+    samples = []
+    for a, b in zip(pts, pts[1:]):
+        pa, pb = a["pos"], b["pos"]
+        seg = dist(pa, pb)
+        n = max(1, int(seg / step))
+        for i in range(n + 1):
+            u = i / n
+            samples.append((pa[0] + (pb[0] - pa[0]) * u,
+                            pa[1] + (pb[1] - pa[1]) * u))
+    for q in samples:
+        if pieces and not any(point_in_polygon(q[0], q[1], p) for p in pieces):
+            return False
+        for o in holes:
+            if point_in_polygon(q[0], q[1], o) or near_edge(q, o):
+                return False
+    return True
+
+
 def osh_clone_over_span(donor, d, live, params, site, strands, extend,
                         direction, tag=""):
     """
@@ -37681,13 +37727,18 @@ def osh_clone_over_span(donor, d, live, params, site, strands, extend,
             "osh_span": d.get("name"), "offset": off,
         })
         dmin, _near = nearest_parallel(new, live)
-        if dmin >= gap - 1e-6:
-            return new
+        if dmin < gap - 1e-6:
+            continue
+        if not osh_route_is_clear(moved, site,
+                                  float(getattr(params, "efm_added_clear", 0.25)
+                                        or 0.25)):
+            continue
+        return new
     return None
 
 
 def osh_clone_full(donor, across_target, direction, strands, params, live,
-                   name=""):
+                   name="", site=None):
     """نسخة كاملة الطول من كابل، مزحلقة عرضياً لإحداثي معيّن."""
     prof = donor.get("profile") or []
     if len(prof) < 2:
@@ -37711,6 +37762,10 @@ def osh_clone_full(donor, across_target, direction, strands, params, live,
            "name": name or "OSH long", "offset": off}
     dmin, _near = nearest_parallel(new, live)
     if dmin < osh_min_gap(params) - 1e-6:
+        return None
+    if not osh_route_is_clear(pts, site,
+                              float(getattr(params, "efm_added_clear", 0.25)
+                                    or 0.25)):
         return None
     return new
 
@@ -38044,7 +38099,8 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget):
             if rest > 0 and made == 0:
                 stuck.append((label, "no room" if donor is not None else "no tendon"))
                 job.warn(f"        nothing could be placed here: {why}, and "
-                         f"no gap wide enough for a new tendon.")
+                         f"no gap wide enough for a new tendon that stays "
+                         f"inside the slab and clear of the openings.")
         if got or rest <= 0 or need - got < need:
             treated += 1
     return strands_added, tendons_added, treated, stuck
@@ -38406,6 +38462,12 @@ def osh_join_inline(tendons, params, site, job, direction):
                                            else h - float(params.covers_for(direction)[1])),
                                  "src": "osh_join"})
                 new_prof = p1[:-1] + fill + p2[1:]
+                if not osh_route_is_clear([p1[-2] if len(p1) > 1 else p1[-1]]
+                                          + fill + [p2[1] if len(p2) > 1 else p2[0]],
+                                          site,
+                                          float(getattr(params, "efm_added_clear",
+                                                        0.25) or 0.25)):
+                    continue
                 t1["profile"] = new_prof
                 t1["strands"] = max(int(t1.get("strands") or 0),
                                     int(t2.get("strands") or 0))
@@ -38506,7 +38568,7 @@ def osh_remove_short_runs(tendons, params, site, job, direction):
             t["_osh_removed"] = True
         new = osh_clone_full(donor, osh_across(axis[0], direction), direction,
                              min(n_max, total), params, osh_live(tendons),
-                             name=f"OSH long {direction}")
+                             name=f"OSH long {direction}", site=site)
         if new is None:
             for t in shorts:
                 t["_deleted"] = False
