@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.102"
+APP_VERSION = "18.103"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3535,6 +3535,24 @@ class TendonDesignParams:
         #  تخلّص الفائض لو فجأة بقي في مكان لا يحتاجه. ظاهرياً نفس
         #  حلقة EFM، لكن الهدف والحذر هنا مختلفان.
         self.hopt_after_draw = bool(kw.get("hopt_after_draw", False))
+        #  **18.103: Optimum solution H** - صفحة إعدادات لوحده، والأرقام
+        #  دي هي اللي اتفقنا عليها في مخطط سير العمل.
+        self.osh_start = str(kw.get("osh_start", "keep") or "keep")
+        self.osh_sizing = str(kw.get("osh_sizing", "ratio") or "ratio")
+        self.osh_dir_order = str(kw.get("osh_dir_order", "longer") or "longer")
+        self.osh_margin_big = float(kw.get("osh_margin_big", 0.70) or 0.70)
+        self.osh_margin_near = float(kw.get("osh_margin_near", 0.90) or 0.90)
+        self.osh_span_ratio = float(kw.get("osh_span_ratio", 50.0) or 50.0)
+        self.osh_extend_m = float(kw.get("osh_extend_m", 3.0) or 3.0)
+        self.osh_low_shift_steps = str(kw.get("osh_low_shift_steps", "10, 20, 30")
+                                       or "10, 20, 30")
+        self.osh_drop_edge_tol = float(kw.get("osh_drop_edge_tol", 0.60) or 0.60)
+        self.osh_strip_half = float(kw.get("osh_strip_half", 3.0) or 3.0)
+        self.osh_optimise = bool(kw.get("osh_optimise", True))
+        self.osh_axis_short_pct = float(kw.get("osh_axis_short_pct", 70.0) or 70.0)
+        self.osh_merge_gap_m = float(kw.get("osh_merge_gap_m", 3.0) or 3.0)
+        self.osh_merge_across = float(kw.get("osh_merge_across", 0.25) or 0.25)
+        self.osh_rounds = int(kw.get("osh_rounds", 6) or 6)
         #  الفحص المقطعي بيتقرا من رام نفسه بعد تحليل كل دورة، بدل
         #  التصدير بالإيد والوقفة. لو القراية فشلت الدورة بترجع للوقفة.
         self.efm_read_ram = bool(kw.get("efm_read_ram", True))
@@ -37234,6 +37252,1488 @@ def run_h_optimization_pass(session, tendons, params, job, plot, site=None,
             "stopped": "some readings could not be reached"}
 
 
+# ==============================================================================
+#  Optimum solution H  (18.103)
+# ==============================================================================
+#  المسار ده بيشتغل على موديل فيه كابلات مرسومة فعلاً - سواء اترسمت
+#  دلوقتي من الـ DXF أو الموديل جاهز - وبيمشي على تلات مراحل، كل
+#  مرحلة بتتحفظ في ملفها:
+#
+#    1. القطاعات السفلية: الكابل اللي أكتر من نص بحوره راسبة بياخد
+#       استرندات؛ وإلا نسخة من الكابل على البحر ده بس (+3 م من الجهتين)
+#       في أكبر فجوة بين الكابلات المارّة فيه.
+#    2. القطاعات العلوية (بعد ما السفلية تخلص): حافة الدروب والنقطة
+#       العالية، ثم القمة على وش الركيزة لو البحر عنده احتياطي، ثم
+#       تحريك الغطسة 10/20/30% ناحية القطاع الراسب، ثم الإضافة.
+#    3. التحسين: المجموعة اللي معظم شرايحها عندها احتياطي بتتخفف وبحرها
+#       اللي على الحد بياخد كابل بنفس اللي اتخفف، الكابلات المتتالية على
+#       نفس المحور بتتوصل، والقصيرة اللي بتغطي أكتر من 70% من محورها
+#       بتتلغي واسترنداتها بتروح للجيران أو لكابل طويل واحد.
+#
+#  النسخة اللي بتترجّع عمرها ما تبقى أسوأ من اللي اتحفظت في نهاية
+#  المرحلة 2 - التحسين لو كسر قطاع بيتراجع.
+
+OSH_STARTS = {
+    "Keep the tendons as they are": "keep",
+    "Reduce every tendon to the minimum strands, then build up": "reduce",
+}
+OSH_SIZINGS = {
+    "Ratio: strands x (stress / limit)": "ratio",
+    "Measured: what a strand relieves at that section": "measured",
+}
+OSH_ORDERS = {
+    "The direction with the longer spans first": "longer",
+    "X first": "x",
+    "Y first": "y",
+}
+
+
+def osh_live(tendons):
+    return [t for t in (tendons or []) if not t.get("_deleted")]
+
+
+def osh_dir_of_plot(plot):
+    d = str(getattr(plot, "direction", "x") or "x").lower()
+    return "X" if d.startswith("x") else "Y"
+
+
+def osh_tendon_dir(t):
+    d = str(t.get("dir") or "").upper()
+    if d in ("X", "Y"):
+        return d
+    pr = t.get("profile") or []
+    if len(pr) < 2:
+        return "X"
+    dx = abs(pr[-1]["pos"][0] - pr[0]["pos"][0])
+    dy = abs(pr[-1]["pos"][1] - pr[0]["pos"][1])
+    return "X" if dx >= dy else "Y"
+
+
+def osh_stations(prof):
+    st = [0.0]
+    for a, b in zip(prof, prof[1:]):
+        st.append(st[-1] + dist(a["pos"], b["pos"]))
+    return st
+
+
+def osh_along(pt, direction):
+    return pt[0] if direction == "X" else pt[1]
+
+
+def osh_across_pt(pt, direction):
+    return pt[1] if direction == "X" else pt[0]
+
+
+def osh_across(t, direction):
+    """الإحداثي العرضي لمنتصف الكابل."""
+    pr = t.get("profile") or []
+    if not pr:
+        return 0.0
+    mid = _profile_point_at(pr, osh_stations(pr)[-1] / 2.0)
+    return osh_across_pt(mid, direction)
+
+
+def osh_across_at(t, d, direction):
+    """الإحداثي العرضي للكابل عند منتصف البحر ده."""
+    pr = t.get("profile") or []
+    if not pr:
+        return 0.0
+    s, _ = _station_of(pr, d["mid"])
+    return osh_across_pt(_profile_point_at(pr, s), direction)
+
+
+def osh_min_gap(params):
+    g = float(getattr(params, "min_clear_spacing", 0.0) or 0.0)
+    if g <= 0:
+        g = float(getattr(params, "efm_added_min_gap", 0.40) or 0.40)
+    return max(g, 0.25)
+
+
+def osh_span_of(xy, spans, direction, tol=3.0):
+    """أقرب بحر تصميم (من رام) في الاتجاه ده للنقطة - (المفتاح, البحر) أو None."""
+    best, bd = None, 1e18
+    for key, d in (spans or {}).items():
+        a, b = d["a"], d["b"]
+        if not _span_in_direction(a, b, direction.lower()):
+            continue
+        dd = point_to_segment_dist(xy[0], xy[1], a[0], a[1], b[0], b[1])
+        if dd < bd:
+            bd, best = dd, (key, d)
+    if best is None or bd > tol:
+        return None
+    return best
+
+
+def osh_tendons_in_span(live, d, direction, half=3.0):
+    """الكابلات اللي بتعدّي القطاع العرضي عند منتصف البحر، في اتجاهه."""
+    return [t for t in _tendons_over_span(live, d, strip=half)
+            if osh_tendon_dir(t) == direction]
+
+
+def osh_spans_of_tendon(t, spans, direction, half=3.0):
+    out = []
+    for key, d in (spans or {}).items():
+        if not _span_in_direction(d["a"], d["b"], direction.lower()):
+            continue
+        if _tendons_over_span([t], d, strip=half):
+            out.append(key)
+    return out
+
+
+def osh_read_state(plots, spans, live, params):
+    """
+    القراءات كلها مع نسبة الاستغلال لكل واحدة، وبحرها، وملخص لكل بحر:
+    أعلى استغلال على كل وش، والقراءات نفسها.
+    """
+    state = {"readings": [], "spans": {}, "fail": set(), "n_over": 0}
+    for pl in plots or []:
+        lim = getattr(pl, "limit", None)
+        if lim is None or abs(float(lim)) < 1e-9:
+            continue
+        lim = float(lim)
+        face = str(getattr(pl, "face", "bottom") or "bottom").lower()
+        face = "top" if face.startswith("t") else "bottom"
+        direction = osh_dir_of_plot(pl)
+        for x, y, v in (getattr(pl, "demand", None) or []):
+            u = float(v) / lim
+            hits = []
+            if face == "top":
+                #  القراءة العلوية فوق ركيزة مشتركة بتخص البحرين اللي
+                #  على جنبيها: كل واحد بيشوفها عند طرفه.
+                for key, d in (spans or {}).items():
+                    if not _span_in_direction(d["a"], d["b"], direction.lower()):
+                        continue
+                    if (dist((x, y), d["a"]) <= 1.0
+                            or dist((x, y), d["b"]) <= 1.0):
+                        hits.append((key, d))
+            if not hits:
+                one = osh_span_of((x, y), spans, direction)
+                if one:
+                    hits.append(one)
+            rec = {"x": float(x), "y": float(y), "v": float(v), "lim": lim,
+                   "u": u, "face": face, "dir": direction,
+                   "span_key": hits[0][0] if hits else None,
+                   "span": hits[0][1] if hits else None}
+            state["readings"].append(rec)
+            if u > 1.0:
+                state["n_over"] += 1
+            for key, d in hits:
+                s = state["spans"].setdefault(
+                    key, {"d": d, "dir": direction, "bottom": 0.0,
+                          "top": 0.0, "rows": {"bottom": [], "top": []}})
+                s[face] = max(s[face], u)
+                s["rows"][face].append(rec)
+                if u > 1.0:
+                    state["fail"].add((key, face))
+    return state
+
+
+def osh_path(out_dir, stem, label):
+    base = os.path.join(out_dir or ".", f"{stem}_OSH_{label}.cpt")
+    path, k = base, 2
+    while os.path.isfile(path):
+        path = base[:-4] + f"-{k}.cpt"
+        k += 1
+    return path
+
+
+def osh_cycle(session, tendons, params, site, mesh, job, out_dir, stem, label):
+    """
+    ارسم الكابلات الحية، حلّل، احفظ، اقرا القطاعات من رام والبحور من
+    الملف المحفوظ - وارجع الحالة كلها.
+    """
+    live = osh_live(tendons)
+    job.check()
+    clear_tendons_in_ram(session, job)
+    write_tendons_to_ram(session, live, job, params,
+                         drops=(site or {}).get("drops"), site=site)
+    if bool(getattr(params, "place_jacks", True)):
+        try:
+            write_jacks_to_ram(session, live, job, params)
+        except Exception as e:
+            job.warn(f"Jacks were not placed: {e}")
+    res = run_model_analysis(session, job, mesh)
+    if not res.get("ok"):
+        raise RuntimeError("RAM did not finish the analysis"
+                           + (f": {res.get('error')}" if res.get("error") else ""))
+    path = osh_path(out_dir, stem, label)
+    if not safe_save(session, path, job):
+        raise RuntimeError("the model could not be saved")
+    plots = read_section_plots_from_ram(session, MdParams(params, efm_face="both"),
+                                        job)
+    spans = {}
+    try:
+        spans = (read_designed_steel(path) or {}).get("spans") or {}
+    except Exception as e:
+        job.warn(f"The design-strip spans could not be read from "
+                 f"{os.path.basename(path)} ({e}); readings are matched to "
+                 f"tendons by position only.")
+    state = osh_read_state(plots, spans, live, params)
+    state["path"] = path
+    state["plots"] = plots
+    state["ram_spans"] = spans
+    state["summary"] = md_summary(label, live, plots, params)
+    state["kg"] = floor_strand_kg(live, params)
+    sm = state["summary"]
+    job.info(f"    {label}: {len(live)} tendons, {sm['strands']} strands, "
+             f"{state['kg']:,.0f} kg, {state['n_over']} reading(s) over the "
+             f"limit ({sm['reach']} reachable, {sm['unreach']} out of reach).")
+    return state
+
+
+def osh_faces_over(state):
+    """{ (dir, face): count } للقراءات فوق الحد."""
+    out = {}
+    for r in state["readings"]:
+        if r["u"] > 1.0:
+            k = (r["dir"], r["face"])
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
+# ---------------------------------------------------------------------------
+#  الميزانية
+# ---------------------------------------------------------------------------
+
+def osh_budget_total(params, site, base_kg):
+    total = None
+    rate = float(getattr(params, "budget_kg_m2", 0.0) or 0.0)
+    area = slab_area_m2(site) if site else None
+    if rate > 0 and area:
+        total = rate * float(area)
+    cap = float(getattr(params, "add_cap_pct", 0.0) or 0.0)
+    if cap > 0 and base_kg:
+        c = float(base_kg) * (1.0 + cap / 100.0)
+        total = c if total is None else min(total, c)
+    return total
+
+
+def osh_budget_left(tendons, params, total):
+    if total is None:
+        return None
+    return float(total) - floor_strand_kg(osh_live(tendons), params)
+
+
+# ---------------------------------------------------------------------------
+#  الاسترندات المطلوبة والإضافة
+# ---------------------------------------------------------------------------
+
+def osh_need_strands(rows, tendons_in, live, params, face, direction,
+                     n_start=None):
+    """
+    (المطلوب زيادة, الموجود, أعلى استغلال). بالنسبة والتناسب افتراضياً:
+    n المطلوب = n اللي اللوحة اتقرت عليه × (الإجهاد ÷ الحد)؛ أو بالقياس:
+    الزيادة فوق الحد ÷ اللي الاسترند الواحد بيخففه عند القطاع ده.
+
+    `n_start` = استرندات كل كابل أول الجولة: اللوحة بتوصف الموديل قبل
+    أي زيادة في الجولة دي، فالنسبة بتتحسب على الرقم ده - واللي اتزاد
+    خلاص على نفس الكابلات من بحر جاره بيتخصم من المطلوب مش بيتضاعف.
+    """
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    n_now = sum(int(t.get("strands") or 0) for t in tendons_in)
+    n_base = sum(int((n_start or {}).get(id(t), t.get("strands") or 0))
+                 for t in tendons_in)
+    u_max = max((float(r["u"]) for r in rows), default=1.0)
+    need = None
+    if str(getattr(params, "osh_sizing", "ratio") or "ratio") == "measured":
+        worst = max(rows, key=lambda r: r["u"])
+        try:
+            rel, _n = strand_relief_mpa((worst["x"], worst["y"]), live, params,
+                                        face=face, direction=direction)
+        except Exception:
+            rel = 0.0
+        if rel and rel > 1e-6:
+            acr = [osh_across_at(t, worst["span"], direction)
+                   for t in tendons_in] if worst.get("span") else []
+            width = max(1.0, (max(acr) - min(acr)) if len(acr) > 1 else 1.0)
+            need = int(math.ceil((worst["v"] - worst["lim"]) / rel * width))
+    if need is None:
+        if n_base > 0:
+            need = int(math.ceil(n_base * u_max - 1e-9)) - n_now
+        else:
+            need = n_min
+    return max(0, need), n_now, u_max
+
+
+def osh_raise_strands(cands, need, params):
+    """+1 بالدور على الكابلات المرشحة لحد ما المطلوب يتحقق أو الكل يوصل للحد."""
+    n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
+    added = 0
+    while added < need:
+        progressed = False
+        for t in cands:
+            if added >= need:
+                break
+            n = int(t.get("strands") or 0)
+            if n >= n_max:
+                continue
+            t["strands"] = n + 1
+            t.setdefault("governing", {})["osh"] = True
+            added += 1
+            progressed = True
+        if not progressed:
+            break
+    return added
+
+
+def osh_slots(d, live, direction, params):
+    """
+    أماكن مرشحة للكابل الجديد عبر البحر: منتصف أكبر فجوة بين الكابلات
+    المارّة فيه (الأكبر الأول)، ثم برّه آخر كابل من الجهتين.
+    """
+    half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
+    xs = sorted(osh_across_at(t, d, direction)
+                for t in osh_tendons_in_span(live, d, direction, half))
+    gap = osh_min_gap(params)
+    side = max(gap, 0.5 * float(getattr(params, "spacing", 1.0) or 1.0))
+    gaps = []
+    for a, b in zip(xs, xs[1:]):
+        w = b - a
+        if w >= 2.0 * gap:
+            gaps.append((w, (a + b) / 2.0))
+    gaps.sort(key=lambda g: -g[0])
+    out = [c for _w, c in gaps]
+    if xs:
+        out += [xs[-1] + side, xs[0] - side]
+    else:
+        out.append(osh_across_pt(d["mid"], direction))
+    return out
+
+
+def osh_clone_over_span(donor, d, live, params, site, strands, extend,
+                        direction, tag=""):
+    """
+    نسخة من جزء الكابل المانح اللي بيغطي البحر (نفس النقاط والمناسيب)
+    من بداية البحر لنهايته زائد `extend` من الجهتين، مزحلقة عرضياً
+    لأكبر فجوة بين الكابلات الحالية. بترجّع الكابل أو None لو مافيش مكان.
+    """
+    prof = donor.get("profile") or []
+    if len(prof) < 2:
+        return None
+    st = osh_stations(prof)
+    total = st[-1]
+    sa, _ = _station_of(prof, d["a"])
+    sb, _ = _station_of(prof, d["b"])
+    lo = max(0.0, min(sa, sb) - float(extend))
+    hi = min(total, max(sa, sb) + float(extend))
+    if hi - lo < 3.0:
+        return None
+    h = float(getattr(params, "slab_thickness", 260.0) or 260.0)
+    anchor = h / 2.0
+
+    def clean(q):
+        c = {k: v for k, v in q.items() if not str(k).startswith("_")}
+        c["pos"] = (float(q["pos"][0]), float(q["pos"][1]))
+        c["manual"] = True
+        return c
+
+    pts = []
+    if lo <= 1e-6:
+        pts.append(clean(prof[0]))
+    else:
+        pts.append({"pos": _profile_point_at(prof, lo), "depth": anchor,
+                    "high": True, "sag": False, "manual": True,
+                    "src": "osh_anchor"})
+    for q, s in zip(prof, st):
+        if lo + 0.05 < s < hi - 0.05 and not q.get("inflection"):
+            pts.append(clean(q))
+    if hi >= total - 1e-6:
+        pts.append(clean(prof[-1]))
+    else:
+        pts.append({"pos": _profile_point_at(prof, hi), "depth": anchor,
+                    "high": True, "sag": False, "manual": True,
+                    "src": "osh_anchor"})
+    if len(pts) < 2:
+        return None
+    here = osh_across_at(donor, d, direction)
+    nx, ny = (0.0, 1.0) if direction == "X" else (1.0, 0.0)
+    gap = osh_min_gap(params)
+    keep = ("profile", "path", "_deleted", "jacks", "nodes", "live_at_start",
+            "live_at_end", "governing", "name", "spans", "span_keys",
+            "from_deficit", "snapped", "offset", "added_nodes",
+            "strands_manual", "_topped", "_thinned", "_shave_was",
+            "_merged_into", "_gave", "from_model", "as_drawn", "inflection",
+            "losses", "radius_free")
+    for slot in osh_slots(d, live, direction, params):
+        off = slot - here
+        moved = []
+        for c in pts:
+            c2 = dict(c)
+            c2["pos"] = (c["pos"][0] + nx * off, c["pos"][1] + ny * off)
+            moved.append(c2)
+        new = {k: v for k, v in donor.items() if k not in keep}
+        new.update({
+            "profile": moved, "dir": direction,
+            "strands": _clamp_strands(int(strands), params),
+            "added": True, "as_drawn": False, "from_model": False,
+            "governing": {"osh_added": True, "span": d.get("name")},
+            "length": tendon_plan_length({"profile": moved}),
+            "full_length": False,
+            "coord": osh_across_pt(moved[0]["pos"], direction),
+            "name": f"OSH{tag} {d.get('name') or ''}".strip(),
+            "osh_span": d.get("name"), "offset": off,
+        })
+        dmin, _near = nearest_parallel(new, live)
+        if dmin >= gap - 1e-6:
+            return new
+    return None
+
+
+def osh_clone_full(donor, across_target, direction, strands, params, live,
+                   name=""):
+    """نسخة كاملة الطول من كابل، مزحلقة عرضياً لإحداثي معيّن."""
+    prof = donor.get("profile") or []
+    if len(prof) < 2:
+        return None
+    here = osh_across(donor, direction)
+    off = float(across_target) - here
+    nx, ny = (0.0, 1.0) if direction == "X" else (1.0, 0.0)
+    pts = []
+    for q in prof:
+        c = {k: v for k, v in q.items() if not str(k).startswith("_")}
+        c["pos"] = (float(q["pos"][0]) + nx * off, float(q["pos"][1]) + ny * off)
+        c["manual"] = True
+        pts.append(c)
+    new = {"profile": pts, "dir": direction,
+           "strands": _clamp_strands(int(strands), params),
+           "added": True, "as_drawn": False, "from_model": False,
+           "governing": {"osh_added": True, "long": True},
+           "length": tendon_plan_length({"profile": pts}),
+           "full_length": True,
+           "coord": osh_across_pt(pts[0]["pos"], direction),
+           "name": name or "OSH long", "offset": off}
+    dmin, _near = nearest_parallel(new, live)
+    if dmin < osh_min_gap(params) - 1e-6:
+        return None
+    return new
+
+
+# ---------------------------------------------------------------------------
+#  هندسة الركائز والدروب على مسار الكابل
+# ---------------------------------------------------------------------------
+
+def osh_support_polys(site):
+    return [corners for _k, corners, _bb, _dv in _support_shapes(site or {})
+            if corners]
+
+
+def osh_walk_first_inside(prof, s_from, s_to, polys, step=0.05):
+    """أول محطة من s_from لـ s_to النقطة عندها جوّه أي بوليجون - أو None."""
+    if not polys:
+        return None
+    n = max(1, int(abs(s_to - s_from) / step))
+    for i in range(n + 1):
+        s = s_from + (s_to - s_from) * i / n
+        p = _profile_point_at(prof, s)
+        for poly in polys:
+            if poly and len(poly) >= 3 and point_in_polygon(p[0], p[1], poly):
+                return s
+    return None
+
+
+def osh_end_geometry(t, d, end_xy, site, reach=3.0):
+    """
+    للكابل عند طرف البحر ده: (محطة الطرف, إشارة الاتجاه من الداخل للخارج,
+    محطة وش الركيزة أو None, محطة حافة الدروب أو None).
+    """
+    prof = t.get("profile") or []
+    st = osh_stations(prof)
+    s_end, _ = _station_of(prof, end_xy)
+    s_mid, _ = _station_of(prof, d["mid"])
+    sign = 1.0 if s_end >= s_mid else -1.0
+    total = st[-1]
+    inner = max(0.0, min(total, s_end - sign * reach))
+    outer = max(0.0, min(total, s_end + sign * reach))
+    polys = osh_support_polys(site)
+    face = osh_walk_first_inside(prof, inner, outer, polys)
+    if face is None:
+        #  الكابل مش ماشي فوق الركيزة نفسها (جنب العامود بنص متر مثلاً):
+        #  وش الركيزة هو إسقاط بصمتها على مسار الكابل، لو هي في المتناول.
+        across = 1.5
+        best = None
+        w_lo, w_hi = sorted((inner, outer))
+        for poly in polys:
+            pts = [_station_of(prof, c) for c in poly]
+            if min(o for _s, o in pts) > across:
+                continue
+            lo = min(s for s, _o in pts)
+            hi = max(s for s, _o in pts)
+            if hi < w_lo or lo > w_hi:
+                continue
+            cand = lo if sign > 0 else hi
+            if best is None or abs(cand - s_end) < abs(best - s_end):
+                best = cand
+        face = best
+    edge = osh_walk_first_inside(prof, inner, outer,
+                                 [p for p in ((site or {}).get("drops") or [])
+                                  if p and len(p) >= 3])
+    return s_end, sign, face, edge
+
+
+def osh_near_drop_edge(xy, drops, tol):
+    for poly in drops or []:
+        n = len(poly)
+        if n < 3:
+            continue
+        for i in range(n):
+            a, b = poly[i], poly[(i + 1) % n]
+            if point_to_segment_dist(xy[0], xy[1], a[0], a[1], b[0], b[1]) <= tol:
+                return poly
+    return None
+
+
+def osh_insert_point(prof, station, point, min_gap):
+    """يحط نقطة عند محطة، لو مافيش نقطة تانية أقرب من min_gap. بيرجّع True/False."""
+    st = osh_stations(prof)
+    for s in st:
+        if abs(s - station) < min_gap:
+            return False
+    idx = len(prof) - 1
+    for i, s in enumerate(st):
+        if s > station:
+            idx = i
+            break
+    point = dict(point)
+    point["pos"] = _profile_point_at(prof, station)
+    point["manual"] = True
+    prof.insert(idx, point)
+    return True
+
+
+def osh_top_depth(t, params, direction):
+    highs = [float(q["depth"]) for q in (t.get("profile") or [])[1:-1]
+             if q.get("high") and q.get("depth") is not None]
+    if highs:
+        return min(highs)
+    try:
+        return float(params.covers_for(direction)[0])
+    except Exception:
+        return float(getattr(params, "top_cover", 40.0) or 40.0)
+
+
+def osh_add_drop_high(t, d, end_xy, site, params, direction):
+    """
+    نقطة عالية بين حافة الدروب والعامود لو مافيش. بترجّع
+    "added" / "exists" / "no drop" / "no room".
+    """
+    s_end, sign, face, edge = osh_end_geometry(t, d, end_xy, site)
+    if edge is None:
+        return "no drop"
+    stop = face if face is not None else s_end
+    lo, hi = sorted((edge, stop))
+    prof = t["profile"]
+    st = osh_stations(prof)
+    for q, s in zip(prof[1:-1], st[1:-1]):
+        if q.get("high") and lo + 1e-6 < s < hi - 1e-6:
+            return "exists"
+    inset = float(getattr(params, "drop_node_inset", 0.30) or 0.30)
+    station = edge + sign * inset
+    if not (lo <= station <= hi):
+        station = (lo + hi) / 2.0
+    gap = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+    ok = osh_insert_point(prof, station, {"depth": osh_top_depth(t, params, direction),
+                                          "high": True, "sag": False,
+                                          "src": "osh_drop"}, gap)
+    return "added" if ok else "no room"
+
+
+def osh_peak_to_face(t, d, end_xy, site, params, direction, tol=0.30):
+    """
+    القمم اللي في جهة الطرف ده وبعيدة عن وش الركيزة بتتشال، وقمة واحدة
+    بتتحط على الوش بالظبط. بترجّع عدد اللي اتغيّر (0 = مافيش ركيزة أو
+    القمة على الوش خلاص).
+    """
+    s_end, sign, face, _edge = osh_end_geometry(t, d, end_xy, site)
+    if face is None:
+        return 0
+    prof = t["profile"]
+    st = osh_stations(prof)
+    s_mid, _ = _station_of(prof, d["mid"])
+    lo, hi = sorted((s_mid, s_end + sign * 2.5))
+    changed = 0
+    keep = []
+    on_face = False
+    for i, (q, s) in enumerate(zip(prof, st)):
+        if 0 < i < len(prof) - 1 and q.get("high") and lo < s < hi:
+            if abs(s - face) <= tol:
+                on_face = True
+                keep.append(q)
+                continue
+            changed += 1
+            continue
+        keep.append(q)
+    prof[:] = keep
+    if not on_face:
+        gap = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+        if osh_insert_point(prof, face, {"depth": osh_top_depth(t, params, direction),
+                                         "high": True, "sag": False,
+                                         "src": "osh_face"}, gap):
+            changed += 1
+    return changed
+
+
+def osh_shift_lows(t, d, toward_xy, frac, params):
+    """
+    الغطسات اللي جوّه البحر ده بتتحرك ناحية الطرف الراسب بنسبة `frac`
+    من طول البحر - مقيسة من مكانها الأصلي، فـ 10 ثم 20 ثم 30 تراكمياً
+    من نفس المركز. بترجّع عدد النقاط اللي اتحركت.
+    """
+    prof = t.get("profile") or []
+    if len(prof) < 3:
+        return 0
+    st = osh_stations(prof)
+    sa, _ = _station_of(prof, d["a"])
+    sb, _ = _station_of(prof, d["b"])
+    lo, hi = sorted((sa, sb))
+    L = hi - lo
+    if L < 1.0:
+        return 0
+    s_to, _ = _station_of(prof, toward_xy)
+    sign = 1.0 if s_to >= (lo + hi) / 2.0 else -1.0
+    gap = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+    moved = 0
+    for i in range(1, len(prof) - 1):
+        q = prof[i]
+        if not q.get("sag"):
+            continue
+        base = q.get("_osh_base_s")
+        if base is None:
+            base = st[i]
+            q["_osh_base_s"] = base
+        if not (lo < base < hi):
+            continue
+        new = base + sign * float(frac) * L
+        new = max(st[i - 1] + gap, min(st[i + 1] - gap, new))
+        q["pos"] = _profile_point_at(prof, new)
+        q["manual"] = True
+        q.pop("_s", None)
+        moved += 1
+    return moved
+
+
+# ---------------------------------------------------------------------------
+#  صور للتراجع
+# ---------------------------------------------------------------------------
+
+def osh_snapshot(tendons):
+    import copy
+    return [(t, copy.deepcopy({k: v for k, v in t.items() if k != "path"}))
+            for t in (tendons or [])]
+
+
+def osh_restore(tendons, snap):
+    """بيرجّع كل كابل لصورته، وبيشيل اللي اتضاف بعدها."""
+    known = set()
+    for t, saved in snap:
+        known.add(id(t))
+        path = t.get("path")
+        t.clear()
+        t.update(saved)
+        if path is not None:
+            t["path"] = path
+    for t in tendons or []:
+        if id(t) not in known:
+            t["_deleted"] = True
+
+
+# ---------------------------------------------------------------------------
+#  المرحلة 1 - القطاعات السفلية
+# ---------------------------------------------------------------------------
+
+def osh_bottom_round(state, tendons, params, site, job, direction, budget):
+    """
+    كل بحر راسب على الوش السفلي في الاتجاه ده بياخد علاجه في الجولة دي.
+    بترجّع (اتزوّد استرندات, اتضاف كابلات, بحور اتعالجت, اللي مافيش له علاج).
+    """
+    live = osh_live(tendons)
+    half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
+    ratio_min = float(getattr(params, "osh_span_ratio", 50.0) or 50.0) / 100.0
+    extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
+    n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    spans = state["ram_spans"]
+    fail_keys = [k for (k, f) in state["fail"]
+                 if f == "bottom" and state["spans"][k]["dir"] == direction]
+    fail_set = set(fail_keys)
+    strands_added, tendons_added, treated, stuck = 0, 0, 0, []
+    n_start = {id(t): int(t.get("strands") or 0) for t in live}
+    _ratio_cache = {}
+
+    def ratio_of(t):
+        if id(t) not in _ratio_cache:
+            crossed = osh_spans_of_tendon(t, spans, direction, half)
+            bad = [k for k in crossed if k in fail_set]
+            _ratio_cache[id(t)] = (len(bad) / len(crossed)) if crossed else 0.0
+        return _ratio_cache[id(t)]
+
+    for key in sorted(fail_keys, key=lambda k: -state["spans"][k]["bottom"]):
+        job.check()
+        rec = state["spans"][key]
+        d = rec["d"]
+        rows = rec["rows"]["bottom"]
+        t_in = osh_tendons_in_span(live, d, direction, half)
+        need, n_now, u_max = osh_need_strands(rows, t_in, live, params,
+                                              "bottom", direction,
+                                              n_start=n_start)
+        label = d.get("name") or str(key)
+        job.info(f"    span {label} ({direction}, bottom): worst {u_max:.2f} of "
+                 f"the limit, {len(t_in)} tendon(s) with {n_now} strands - "
+                 f"needs about {need} more.")
+        if need <= 0:
+            job.info("        already covered by what this round put on the "
+                     "same tendons for a neighbouring span.")
+            treated += 1
+            continue
+        left = osh_budget_left(tendons, params, budget)
+        if left is not None and left <= 0:
+            stuck.append((label, "budget"))
+            job.warn(f"        the strand budget is used up - nothing added.")
+            continue
+        got = 0
+        cands = [t for t in t_in if ratio_of(t) > ratio_min
+                 and int(t.get("strands") or 0) < n_max]
+        if cands:
+            cands.sort(key=lambda t: (-ratio_of(t), -int(t.get("strands") or 0)))
+            got = osh_raise_strands(cands, need, params)
+            if got:
+                strands_added += got
+                job.ok(f"        +{got} strand(s) on {len(cands)} tendon(s) "
+                       f"whose spans are mostly failing "
+                       f"({', '.join(f'{100 * ratio_of(t):.0f}%' for t in cands[:4])}).")
+        rest = need - got
+        if rest > 0:
+            why = ("no tendon through it has more than "
+                   f"{100 * ratio_min:.0f}% of its spans failing"
+                   if not cands else "the tendons through it are at the "
+                                     "strand limit")
+            if not t_in:
+                why = "no tendon passes through it"
+            donor = (max(t_in, key=lambda t: (int(t.get("strands") or 0),
+                                              tendon_plan_length(t)))
+                     if t_in else None)
+            if donor is None:
+                # أقرب كابل في نفس الاتجاه للبحر ده
+                cand = [t for t in live if osh_tendon_dir(t) == direction]
+                if cand:
+                    donor = min(cand, key=lambda t: _station_of(
+                        t["profile"], d["mid"])[1])
+            made = 0
+            while rest > 0 and donor is not None and made < 3:
+                n = min(n_max, max(n_min, rest))
+                new = osh_clone_over_span(donor, d, osh_live(tendons), params,
+                                          site, n, extend, direction,
+                                          tag=f"-b{made + 1}")
+                if new is None:
+                    break
+                tendons.append(new)
+                live = osh_live(tendons)
+                made += 1
+                tendons_added += 1
+                rest -= int(new["strands"])
+                job.ok(f"        new tendon over the span only, {new['strands']} "
+                       f"strand(s), offset {new['offset']:+.2f} m into the "
+                       f"widest gap, extended {extend:.0f} m past each end "
+                       f"({why}).")
+            if rest > 0 and made == 0:
+                stuck.append((label, "no room" if donor is not None else "no tendon"))
+                job.warn(f"        nothing could be placed here: {why}, and "
+                         f"no gap wide enough for a new tendon.")
+        if got or rest <= 0 or need - got < need:
+            treated += 1
+    return strands_added, tendons_added, treated, stuck
+
+
+# ---------------------------------------------------------------------------
+#  المرحلة 2 - القطاعات العلوية
+# ---------------------------------------------------------------------------
+
+def osh_top_round(state, tendons, params, site, job, direction, budget, stages):
+    """
+    كل بحر راسب على الوش العلوي في الاتجاه ده بيتقدّم خطوة واحدة في
+    الجولة دي حسب مرحلته: حافة الدروب → القمة على الوش → النهايتين ولا
+    نهاية → زحزحة الغطسة 10/20/30 → إضافة. `stages` بتفضل بين الجولات.
+    بترجّع (عدد الأفعال, بحور استنفدت علاجها).
+    """
+    live = osh_live(tendons)
+    half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
+    extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
+    big = float(getattr(params, "osh_margin_big", 0.70) or 0.70)
+    edge_tol = float(getattr(params, "osh_drop_edge_tol", 0.60) or 0.60)
+    shifts = [float(x) / 100.0 for x in
+              str(getattr(params, "osh_low_shift_steps", "10, 20, 30")
+                  or "10, 20, 30").replace(";", ",").split(",") if x.strip()]
+    if not shifts:
+        shifts = [0.10, 0.20, 0.30]
+    n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    drops = (site or {}).get("drops") or []
+    fail_keys = [k for (k, f) in state["fail"]
+                 if f == "top" and state["spans"][k]["dir"] == direction]
+    actions, exhausted = 0, []
+    n_start = {id(t): int(t.get("strands") or 0) for t in live}
+
+    def add_over(d, rows, t_in, label, tag):
+        nonlocal live
+        worst = max(rows, key=lambda r: r["u"])
+        wkey = (round(worst["x"], 1), round(worst["y"], 1), "top")
+        done = stages.setdefault("_cloned", set())
+        if wkey in done:
+            job.info(f"        a tendon was already added for this section "
+                     f"from the span on the other side of the support.")
+            return 0
+        need, n_now, u_max = osh_need_strands(rows, t_in, live, params, "top",
+                                              direction, n_start=n_start)
+        if need <= 0:
+            need = max(1, int(getattr(params, "min_strands", 2) or 2))
+        left = osh_budget_left(tendons, params, budget)
+        if left is not None and left <= 0:
+            job.warn("        the strand budget is used up - nothing added.")
+            return 0
+        donor = (max(t_in, key=lambda t: (int(t.get("strands") or 0),
+                                          tendon_plan_length(t)))
+                 if t_in else None)
+        made, rest = 0, need
+        while rest > 0 and donor is not None and made < 3:
+            n = min(n_max, max(n_min, rest))
+            new = osh_clone_over_span(donor, d, osh_live(tendons), params, site,
+                                      n, extend, direction, tag=f"-{tag}{made + 1}")
+            if new is None:
+                break
+            tendons.append(new)
+            live = osh_live(tendons)
+            made += 1
+            done.add(wkey)
+            rest -= int(new["strands"])
+            job.ok(f"        new tendon over span {label}, {new['strands']} "
+                   f"strand(s), offset {new['offset']:+.2f} m, extended "
+                   f"{extend:.0f} m past the supports.")
+        if made == 0:
+            job.warn(f"        no gap wide enough for a new tendon over {label}.")
+        return made
+
+    for key in sorted(fail_keys, key=lambda k: -state["spans"][k]["top"]):
+        job.check()
+        rec = state["spans"][key]
+        d = rec["d"]
+        rows = rec["rows"]["top"]
+        if not rows:
+            continue
+        label = d.get("name") or str(key)
+        t_in = osh_tendons_in_span(live, d, direction, half)
+        st = stages.setdefault(key, {"step": "drop", "shift": 0})
+        worst = max(rows, key=lambda r: r["u"])
+        wxy = (worst["x"], worst["y"])
+        near_a = dist(wxy, d["a"]) <= dist(wxy, d["b"])
+        end_xy = d["a"] if near_a else d["b"]
+        other_xy = d["b"] if near_a else d["a"]
+        ends_failing = {("a" if dist((r["x"], r["y"]), d["a"])
+                         <= dist((r["x"], r["y"]), d["b"]) else "b")
+                        for r in rows if r["u"] > 1.0}
+        bottom_u = rec["bottom"]
+        job.info(f"    span {label} ({direction}, top): worst {worst['u']:.2f} "
+                 f"of the limit at the {'a' if near_a else 'b'} end"
+                 f"{' - both ends' if len(ends_failing) == 2 else ''}, "
+                 f"mid-span bottom at {bottom_u:.2f}, {len(t_in)} tendon(s).")
+        if not t_in:
+            job.warn("        no tendon passes through this span.")
+            exhausted.append((label, "no tendon"))
+            st["step"] = "done"
+            continue
+
+        step = st["step"]
+        if step == "drop":
+            st["step"] = "peaks"
+            if osh_near_drop_edge(wxy, drops, edge_tol) is not None:
+                res = [osh_add_drop_high(t, d, end_xy, site, params, direction)
+                       for t in t_in]
+                n_add = res.count("added")
+                if n_add:
+                    actions += n_add
+                    job.ok(f"        the section sits at a drop-panel edge and "
+                           f"no high point sat between the edge and the column: "
+                           f"one added on {n_add} tendon(s), {'' if n_add == len(t_in) else f'{len(res) - n_add} had no room; '}re-analysing.")
+                    continue
+                if "exists" in res:
+                    job.info("        at a drop-panel edge and a high point "
+                             "already sits between the edge and the column: "
+                             "tendons are added here.")
+                    made = add_over(d, rows, t_in, label, "t")
+                    actions += made
+                    st["step"] = "done" if made else "ends"
+                    continue
+            step = "peaks"
+        if step == "peaks":
+            st["step"] = "ends"
+            in_drop = (osh_near_drop_edge(wxy, drops, edge_tol) is not None
+                       or any(point_in_polygon(end_xy[0], end_xy[1], p)
+                              for p in drops if p and len(p) >= 3))
+            if bottom_u <= big and in_drop:
+                n_mv = 0
+                sides = [end_xy] + ([other_xy] if len(ends_failing) == 2 else [])
+                for t in t_in:
+                    for exy in sides:
+                        n_mv += osh_peak_to_face(t, d, exy, site, params, direction)
+                if n_mv:
+                    actions += n_mv
+                    job.ok(f"        mid-span bottom has room ({bottom_u:.2f}) "
+                           f"and the high points sat off the column: {n_mv} "
+                           f"point(s) moved onto the support face; re-analysing.")
+                    continue
+                job.info("        the high points already sit on the support "
+                         "face.")
+            elif bottom_u > big:
+                job.info(f"        mid-span bottom is near its limit "
+                         f"({bottom_u:.2f}), so the high points stay.")
+            step = "ends"
+        if step == "ends":
+            if len(ends_failing) == 2:
+                job.info("        both ends of the strip are over: a tendon is "
+                         "added over the span.")
+                made = add_over(d, rows, t_in, label, "t")
+                actions += made
+                st["step"] = "done"
+                if not made:
+                    exhausted.append((label, "no room"))
+                continue
+            st["step"] = "shift"
+            step = "shift"
+        if step == "shift":
+            i = int(st.get("shift", 0))
+            if i < len(shifts):
+                frac = shifts[i]
+                n_mv = sum(osh_shift_lows(t, d, end_xy, frac, params) for t in t_in)
+                st["shift"] = i + 1
+                if n_mv:
+                    actions += n_mv
+                    job.ok(f"        one end over: {n_mv} low point(s) moved "
+                           f"{100 * frac:.0f}% of the span toward it; "
+                           f"re-analysing.")
+                    continue
+                job.info("        no low point inside the span to move.")
+            st["step"] = "add"
+            step = "add"
+        if step == "add":
+            job.info("        still over after the low points were moved: a "
+                     "tendon is added over the span.")
+            made = add_over(d, rows, t_in, label, "t")
+            actions += made
+            st["step"] = "done"
+            if not made:
+                exhausted.append((label, "no room"))
+            continue
+        if step == "done":
+            exhausted.append((label, "everything tried"))
+    return actions, exhausted
+
+
+# ---------------------------------------------------------------------------
+#  المرحلة 3 - التحسين
+# ---------------------------------------------------------------------------
+
+def osh_lanes(live, direction, tol):
+    ts = sorted([t for t in live if osh_tendon_dir(t) == direction],
+                key=lambda t: osh_across(t, direction))
+    lanes, cur = [], []
+    for t in ts:
+        if cur and osh_across(t, direction) - osh_across(cur[0], direction) > tol:
+            lanes.append(cur)
+            cur = []
+        cur.append(t)
+    if cur:
+        lanes.append(cur)
+    return lanes
+
+
+def osh_reduce_groups(state, tendons, params, site, job, direction, budget):
+    """
+    المجموعة اللي معظم شرايحها عندها احتياطي كبير وبحر واحد (أو اتنين)
+    على الحد: استرنداتها بتتخفف لقد ما الشرايح الآمنة محتاجة، والبحر
+    اللي على الحد بياخد كابل بعدد اللي اتخفف. بترجّع (اتخفف, اتضاف).
+    """
+    live = osh_live(tendons)
+    half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
+    big = float(getattr(params, "osh_margin_big", 0.70) or 0.70)
+    near = float(getattr(params, "osh_margin_near", 0.90) or 0.90)
+    extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
+    tol = max(float(getattr(params, "max_spacing", 1.5) or 1.5), 1.0)
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
+    spans = state["ram_spans"]
+    removed_all, added_all = 0, 0
+    for lane in osh_lanes(live, direction, tol):
+        if len(lane) < 2:
+            continue
+        job.check()
+        keys = set()
+        for t in lane:
+            keys.update(osh_spans_of_tendon(t, spans, direction, half))
+        keys = [k for k in keys if k in state["spans"]]
+        if len(keys) < 3:
+            continue
+        u_of = {k: max(state["spans"][k]["top"], state["spans"][k]["bottom"])
+                for k in keys}
+        big_k = [k for k in keys if u_of[k] <= big]
+        near_k = [k for k in keys if u_of[k] >= near]
+        if len(big_k) * 3 < len(keys) * 2 or not (1 <= len(near_k) <= 2):
+            continue
+        u_ref = max([u_of[k] for k in keys if k not in near_k] or [big])
+        removed = 0
+        plan = []
+        for t in lane:
+            n = int(t.get("strands") or 0)
+            new_n = max(n_min, int(math.ceil(n * u_ref / near - 1e-9)))
+            if new_n < n:
+                plan.append((t, n, new_n))
+                removed += n - new_n
+        if removed <= 0:
+            continue
+        names = ", ".join(state["spans"][k]["d"].get("name") or "?" for k in near_k)
+        job.info(f"    group of {len(lane)} tendons ({direction}, across "
+                 f"{osh_across(lane[0], direction):.1f}..{osh_across(lane[-1], direction):.1f} m): "
+                 f"{len(big_k)} of {len(keys)} strips under {big:.2f}, "
+                 f"{len(near_k)} at or near the limit ({names}).")
+        for t, n, new_n in plan:
+            t["strands"] = new_n
+            t.setdefault("governing", {})["osh_reduced"] = n - new_n
+        job.ok(f"        {removed} strand(s) taken off the group (to what the "
+               f"safest strips need at {u_ref:.2f} -> {near:.2f}).")
+        removed_all += removed
+        share = int(math.ceil(removed / len(near_k)))
+        for k in near_k:
+            d = state["spans"][k]["d"]
+            t_in = osh_tendons_in_span(osh_live(tendons), d, direction, half)
+            donor = (max(t_in, key=lambda t: tendon_plan_length(t)) if t_in
+                     else lane[0])
+            rest, made = share, 0
+            while rest > 0 and made < 3:
+                n = min(n_max, max(n_min, rest))
+                new = osh_clone_over_span(donor, d, osh_live(tendons), params,
+                                          site, n, extend, direction,
+                                          tag=f"-o{made + 1}")
+                if new is None:
+                    break
+                tendons.append(new)
+                made += 1
+                rest -= int(new["strands"])
+                added_all += int(new["strands"])
+                job.ok(f"        new tendon over {d.get('name') or '?'} with "
+                       f"{new['strands']} strand(s) - the strands the group "
+                       f"gave up, put where the limit is.")
+            if made == 0:
+                job.warn(f"        no room for a tendon over "
+                         f"{d.get('name') or '?'}; the reduction there is "
+                         f"undone.")
+                for t, n, new_n in plan:
+                    t["strands"] = n
+                removed_all -= removed
+                break
+    return removed_all, added_all
+
+
+def osh_join_inline(tendons, params, site, job, direction):
+    """
+    كابلان وراء بعض على نفس المحور وبينهم فجوة لحد `osh_merge_gap_m`
+    بيتوصلوا: الفجوة بتاخد نقاط الكابل الموازي المجاور (نفس البروفايل)،
+    وإلا قمة لو فيه ركيزة في الفجوة وإلا غطسة. بترجّع عدد الوصلات.
+    """
+    live = osh_live(tendons)
+    across_tol = float(getattr(params, "osh_merge_across", 0.25) or 0.25)
+    gap_max = float(getattr(params, "osh_merge_gap_m", 3.0) or 3.0)
+    gap_pt = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+    h = float(getattr(params, "slab_thickness", 260.0) or 260.0)
+    polys = osh_support_polys(site)
+    joined = 0
+
+    def ordered(t):
+        pr = list(t.get("profile") or [])
+        if len(pr) >= 2 and osh_along(pr[-1]["pos"], direction) < osh_along(
+                pr[0]["pos"], direction):
+            pr.reverse()
+        return pr
+
+    changed = True
+    while changed:
+        changed = False
+        live = osh_live(tendons)
+        ts = [t for t in live if osh_tendon_dir(t) == direction]
+        ts.sort(key=lambda t: osh_along(ordered(t)[0]["pos"], direction))
+        for i, t1 in enumerate(ts):
+            p1 = ordered(t1)
+            if len(p1) < 2:
+                continue
+            e1 = osh_along(p1[-1]["pos"], direction)
+            for t2 in ts[i + 1:]:
+                if t2 is t1 or t2.get("_deleted") or t1.get("_deleted"):
+                    continue
+                p2 = ordered(t2)
+                if len(p2) < 2:
+                    continue
+                if abs(osh_across(t1, direction) - osh_across(t2, direction)) > across_tol:
+                    continue
+                s2 = osh_along(p2[0]["pos"], direction)
+                g = s2 - e1
+                if g < 0.0 or g > gap_max:
+                    continue
+                here = osh_across(t1, direction)
+                nx, ny = (0.0, 1.0) if direction == "X" else (1.0, 0.0)
+                fill = []
+                others = [x for x in live if x is not t1 and x is not t2
+                          and osh_tendon_dir(x) == direction]
+                dmin, nb = nearest_parallel(t1, others)
+                if nb is not None:
+                    for q in (nb.get("profile") or [])[1:-1]:
+                        a = osh_along(q["pos"], direction)
+                        if e1 + gap_pt < a < s2 - gap_pt and (q.get("high") or q.get("sag")):
+                            c = {k: v for k, v in q.items() if not str(k).startswith("_")}
+                            off = here - osh_across_pt(q["pos"], direction)
+                            c["pos"] = (q["pos"][0] + nx * off, q["pos"][1] + ny * off)
+                            c["manual"] = True
+                            fill.append(c)
+                if not fill and g > 2.0 * gap_pt:
+                    mx = ((p1[-1]["pos"][0] + p2[0]["pos"][0]) / 2.0,
+                          (p1[-1]["pos"][1] + p2[0]["pos"][1]) / 2.0)
+                    on = any(point_in_polygon(mx[0], mx[1], p) for p in polys)
+                    fill.append({"pos": mx, "manual": True,
+                                 "high": on, "sag": not on,
+                                 "depth": (osh_top_depth(t1, params, direction) if on
+                                           else h - float(params.covers_for(direction)[1])),
+                                 "src": "osh_join"})
+                new_prof = p1[:-1] + fill + p2[1:]
+                t1["profile"] = new_prof
+                t1["strands"] = max(int(t1.get("strands") or 0),
+                                    int(t2.get("strands") or 0))
+                t1["length"] = tendon_plan_length(t1)
+                t1.setdefault("governing", {})["osh_joined"] = True
+                t1["manual"] = True
+                t2["_deleted"] = True
+                t2["_merged_into"] = t1
+                joined += 1
+                changed = True
+                job.ok(f"    joined two tendons in line ({direction}, across "
+                       f"{here:.1f} m, gap {g:.1f} m) with "
+                       f"{len(fill)} point(s) copied from the neighbour.")
+                break
+            if changed:
+                break
+    return joined
+
+
+def osh_remove_short_runs(tendons, params, site, job, direction):
+    """
+    محور فيه كابلات قصيرة مجموع طولها أكتر من `osh_axis_short_pct` من
+    طوله: بتتلغي واسترنداتها بتروح للكابلات المجاورة، ولو الجيران عند
+    الحد بتتجمع في كابل طويل واحد. بترجّع (اتلغى, اتضاف).
+    """
+    live = osh_live(tendons)
+    pct = float(getattr(params, "osh_axis_short_pct", 70.0) or 70.0) / 100.0
+    across_tol = float(getattr(params, "osh_merge_across", 0.25) or 0.25)
+    n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
+    gone, made = 0, 0
+    for axis in osh_lanes(live, direction, across_tol):
+        job.check()
+        others = [t for t in osh_live(tendons)
+                  if t not in axis and osh_tendon_dir(t) == direction]
+        neigh = []
+        for t in axis:
+            _d, nb = nearest_parallel(t, others)
+            if nb is not None and nb not in neigh:
+                neigh.append(nb)
+        axis_len = max([tendon_plan_length(t) for t in axis]
+                       + [tendon_plan_length(n) for n in neigh])
+        if axis_len <= 0:
+            continue
+        shorts = [t for t in axis if tendon_plan_length(t) < 0.6 * axis_len]
+        if not shorts:
+            continue
+        cover = sum(tendon_plan_length(t) for t in shorts)
+        if cover <= pct * axis_len:
+            continue
+        total = sum(int(t.get("strands") or 0) for t in shorts)
+        room = [(n, n_max - int(n.get("strands") or 0)) for n in neigh
+                if int(n.get("strands") or 0) < n_max]
+        have = sum(r for _n, r in room)
+        job.info(f"    axis at {osh_across(axis[0], direction):.1f} m "
+                 f"({direction}): {len(shorts)} short tendon(s) cover "
+                 f"{100 * cover / axis_len:.0f}% of its {axis_len:.0f} m, "
+                 f"{total} strand(s) between them.")
+        if have >= total:
+            left = total
+            for n, r in sorted(room, key=lambda x: -x[1]):
+                take = min(r, left)
+                if take <= 0:
+                    continue
+                n["strands"] = int(n.get("strands") or 0) + take
+                n.setdefault("governing", {})["osh_gift"] = take
+                left -= take
+                if left <= 0:
+                    break
+            for t in shorts:
+                t["_deleted"] = True
+                t["_osh_removed"] = True
+                gone += 1
+            job.ok(f"        removed; their {total} strand(s) went onto "
+                   f"{len([1 for _n, r in room if r > 0])} neighbouring tendon(s).")
+            continue
+        donor = max(neigh, key=lambda n: tendon_plan_length(n)) if neigh else None
+        if donor is None:
+            job.info("        no neighbour to take the strands and none to copy "
+                     "- left as is.")
+            continue
+        for t in shorts:
+            t["_deleted"] = True
+            t["_osh_removed"] = True
+        new = osh_clone_full(donor, osh_across(axis[0], direction), direction,
+                             min(n_max, total), params, osh_live(tendons),
+                             name=f"OSH long {direction}")
+        if new is None:
+            for t in shorts:
+                t["_deleted"] = False
+                t.pop("_osh_removed", None)
+            job.warn("        no room for one long tendon in their place - "
+                     "left as is.")
+            continue
+        tendons.append(new)
+        gone += len(shorts)
+        made += 1
+        left = total - int(new["strands"])
+        for n, r in sorted(room, key=lambda x: -x[1]):
+            take = min(r, left)
+            if take <= 0:
+                break
+            n["strands"] = int(n.get("strands") or 0) + take
+            left -= take
+        job.ok(f"        the neighbours are at the strand limit: one long "
+               f"tendon from end to end with {new['strands']} strand(s) "
+               f"replaces them.")
+    return gone, made
+
+
+# ---------------------------------------------------------------------------
+#  المسار كله
+# ---------------------------------------------------------------------------
+
+def osh_direction_order(params, state, site):
+    want = str(getattr(params, "osh_dir_order", "longer") or "longer").lower()
+    if want in ("x", "y"):
+        first = want.upper()
+        return [first, "Y" if first == "X" else "X"]
+    lens = {"X": [], "Y": []}
+    for _k, d in (state.get("ram_spans") or {}).items():
+        dd = "X" if _span_in_direction(d["a"], d["b"], "x") else "Y"
+        lens[dd].append(float(d.get("length") or dist(d["a"], d["b"])))
+    if not lens["X"] and not lens["Y"]:
+        try:
+            g = grid_spans(site)
+            lens = {"X": list(g.get("x") or []), "Y": list(g.get("y") or [])}
+        except Exception:
+            pass
+    mx = (sum(lens["X"]) / len(lens["X"])) if lens["X"] else 0.0
+    my = (sum(lens["Y"]) / len(lens["Y"])) if lens["Y"] else 0.0
+    return ["X", "Y"] if mx >= my else ["Y", "X"]
+
+
+def osh_new_failures(before, after):
+    """(البحر, الوش) اللي كان مسيف قبل وبقى راسب بعد."""
+    return sorted(k for k in after["fail"] if k not in before["fail"])
+
+
+def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
+                  mesh_size=None, base_kg=None):
+    """
+    Optimum solution H على موديل مفتوح في الجلسة وكابلاته في `tendons`.
+
+    بترجّع {"best": المسار, "safe": مسار نسخة نهاية المرحلة 2,
+    "before"/"after": ملخصات, "put_back": bool, "stopped": str}.
+    """
+    rounds_max = max(1, int(getattr(params, "osh_rounds", 6) or 6))
+    extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    result = {"best": None, "safe": None, "put_back": False, "stopped": ""}
+
+    job.log("Optimum solution H", "head")
+    job.info(f"Three stages: bottom sections, then top sections, then the "
+             f"optimisation. Up to {rounds_max} analyses per stage. New "
+             f"tendons cover one span and run {extend:.0f} m past its "
+             f"supports; strands are sized by "
+             f"{'what a strand measured to relieve' if getattr(params, 'osh_sizing', 'ratio') == 'measured' else 'the stress-to-limit ratio'}.")
+
+    # ---------------- المرحلة 0
+    start = str(getattr(params, "osh_start", "keep") or "keep")
+    if start == "reduce":
+        n_before = sum(int(t.get("strands") or 0) for t in osh_live(tendons))
+        for t in osh_live(tendons):
+            if int(t.get("strands") or 0) > n_min:
+                t["strands"] = n_min
+                t.setdefault("governing", {})["osh_reduced_start"] = True
+        n_after = sum(int(t.get("strands") or 0) for t in osh_live(tendons))
+        job.ok(f"Every tendon reduced to {n_min} strand(s) to start from "
+               f"({n_before} -> {n_after} strands, hand-drawn ones included).")
+    state = osh_cycle(session, tendons, params, site, mesh_size, job, out_dir,
+                      stem, "start")
+    before = state
+    result["before"] = state["summary"]
+    budget = osh_budget_total(params, site, base_kg if base_kg is not None
+                              else state["kg"])
+    if budget is not None:
+        job.info(f"    strand budget: {budget:,.0f} kg in all "
+                 f"({osh_budget_left(tendons, params, budget):,.0f} kg left).")
+    order = osh_direction_order(params, state, site)
+    job.info(f"    direction order: {order[0]} then {order[1]}.")
+
+    def over_count(st, face):
+        return sum(1 for r in st["readings"] if r["face"] == face and r["u"] > 1.0)
+
+    # ---------------- المرحلة 1
+    if over_count(state, "bottom") == 0:
+        job.ok("Stage 1: no bottom section is over the limit.")
+    for rnd in range(1, rounds_max + 1):
+        if over_count(state, "bottom") == 0:
+            break
+        job.log(f"Stage 1 - bottom sections, round {rnd}", "head")
+        did = 0
+        for direction in order:
+            s_add, t_add, treated, stuck = osh_bottom_round(
+                state, tendons, params, site, job, direction, budget)
+            did += s_add + t_add
+        if did == 0:
+            job.warn("Nothing more can be added for the bottom sections "
+                     "(strand limit, no room, or budget). Moving on.")
+            break
+        state = osh_cycle(session, tendons, params, site, mesh_size, job,
+                          out_dir, stem, f"bottom_r{rnd}")
+        job.info(f"    bottom readings over the limit: "
+                 f"{over_count(before, 'bottom')} at the start -> "
+                 f"{over_count(state, 'bottom')} now.")
+
+    # ---------------- المرحلة 2
+    stages = {}
+    if over_count(state, "top") == 0:
+        job.ok("Stage 2: no top section is over the limit.")
+    for rnd in range(1, rounds_max + 1):
+        if over_count(state, "top") == 0:
+            break
+        job.log(f"Stage 2 - top sections, round {rnd}", "head")
+        did = 0
+        for direction in order:
+            acts, exhausted = osh_top_round(state, tendons, params, site, job,
+                                            direction, budget, stages)
+            did += acts
+        if did == 0:
+            job.warn("Every top section still over the limit has had every "
+                     "step tried (drop-edge high point, peak on the support "
+                     "face, low points moved, tendon added). Moving on.")
+            break
+        state = osh_cycle(session, tendons, params, site, mesh_size, job,
+                          out_dir, stem, f"top_r{rnd}")
+        job.info(f"    top readings over the limit: {over_count(before, 'top')} "
+                 f"at the start -> {over_count(state, 'top')} now.")
+
+    safe_path = osh_path(out_dir, stem, "safe")
+    if safe_save(session, safe_path, job):
+        result["safe"] = safe_path
+    result["best"] = result["safe"] or state.get("path")
+    safe_state = state
+    job.ok(f"End of the making-safe stages: {state['n_over']} reading(s) over "
+           f"the limit, {state['summary']['strands']} strands, "
+           f"{state['kg']:,.0f} kg. Saved as {os.path.basename(safe_path)}.")
+
+    # ---------------- المرحلة 3
+    if not bool(getattr(params, "osh_optimise", True)):
+        result["stopped"] = "optimisation off"
+        result["after"] = state["summary"]
+        return result
+    job.log("Stage 3 - optimisation", "head")
+    for direction in order:
+        job.check()
+        job.info(f"Direction {direction}:")
+        snap = osh_snapshot(tendons)
+        ref = state
+        removed, added = osh_reduce_groups(state, tendons, params, site, job,
+                                           direction, budget)
+        joined = osh_join_inline(tendons, params, site, job, direction)
+        gone, made = osh_remove_short_runs(tendons, params, site, job, direction)
+        if removed == 0 and added == 0 and joined == 0 and gone == 0 and made == 0:
+            job.info(f"    nothing to optimise in {direction}.")
+            continue
+        state = osh_cycle(session, tendons, params, site, mesh_size, job,
+                          out_dir, stem, f"opt_{direction}")
+        new_bad = osh_new_failures(ref, state)
+        if new_bad:
+            names = ", ".join(f"{state['spans'][k]['d'].get('name') or '?'}/{f}"
+                              for k, f in new_bad if k in state["spans"])
+            job.warn(f"    {len(new_bad)} section(s) that were safe are over "
+                     f"the limit now ({names}); a tendon is added over each "
+                     f"of those spans.")
+            fixed = 0
+            for k, f in new_bad:
+                if k not in state["spans"]:
+                    continue
+                rec = state["spans"][k]
+                d = rec["d"]
+                dd = rec["dir"]
+                t_in = osh_tendons_in_span(osh_live(tendons), d, dd,
+                                           float(getattr(params, "osh_strip_half", 3.0) or 3.0))
+                donor = (max(t_in, key=lambda t: tendon_plan_length(t)) if t_in
+                         else None)
+                if donor is None:
+                    continue
+                need, _n, _u = osh_need_strands(rec["rows"][f], t_in, osh_live(tendons),
+                                                params, f, dd)
+                need = max(need, int(getattr(params, "min_strands", 2) or 2))
+                new = osh_clone_over_span(donor, d, osh_live(tendons), params, site,
+                                          need, extend, dd, tag="-fix")
+                if new is not None:
+                    tendons.append(new)
+                    fixed += 1
+            if fixed:
+                state = osh_cycle(session, tendons, params, site, mesh_size, job,
+                                  out_dir, stem, f"opt_{direction}_fix")
+                new_bad = osh_new_failures(ref, state)
+        if new_bad or state["n_over"] > ref["n_over"]:
+            job.warn(f"    the optimisation in {direction} left "
+                     f"{state['n_over']} reading(s) over the limit against "
+                     f"{ref['n_over']} before it, so it is undone.")
+            osh_restore(tendons, snap)
+            state = osh_cycle(session, tendons, params, site, mesh_size, job,
+                              out_dir, stem, f"opt_{direction}_undone")
+        else:
+            job.ok(f"    {direction} optimised: {ref['summary']['strands']} -> "
+                   f"{state['summary']['strands']} strands, "
+                   f"{ref['kg']:,.0f} -> {state['kg']:,.0f} kg, "
+                   f"{ref['n_over']} -> {state['n_over']} reading(s) over.")
+
+    final_path = osh_path(out_dir, stem, "final")
+    if safe_save(session, final_path, job):
+        result["best"] = final_path
+    result["after"] = state["summary"]
+    if state["n_over"] > safe_state["n_over"]:
+        job.flag(f"The optimised model has {state['n_over']} reading(s) over "
+                 f"the limit against {safe_state['n_over']} at the end of "
+                 f"stage 2, so the stage-2 file is the one handed back.")
+        result["best"] = result["safe"] or result["best"]
+        result["put_back"] = True
+
+    # ---------------- التقرير
+    b, a = before, state
+    job.log("Optimum solution H - before and after", "head")
+    job.info(f"    tendons:      {b['summary']['tendons']} -> {a['summary']['tendons']}")
+    job.info(f"    strands:      {b['summary']['strands']} -> {a['summary']['strands']}")
+    job.info(f"    strand-m:     {b['summary']['strand_m']:,.0f} -> {a['summary']['strand_m']:,.0f}")
+    job.info(f"    strand steel: {b['kg']:,.0f} kg -> {a['kg']:,.0f} kg")
+    fo_b, fo_a = osh_faces_over(b), osh_faces_over(a)
+    for key in sorted(set(fo_b) | set(fo_a)):
+        job.info(f"    over the limit, {key[0]} {key[1]}: "
+                 f"{fo_b.get(key, 0)} -> {fo_a.get(key, 0)}")
+    job.info(f"    readings over the limit in all: {b['n_over']} -> {a['n_over']}")
+    if a["n_over"]:
+        job.flag(f"{a['n_over']} reading(s) are still over the limit: the "
+                 f"tendons through them reached the strand limit or there was "
+                 f"no room for another. Those are for depth, a drop, or "
+                 f"reinforcement.")
+    result["stopped"] = "finished"
+    return result
+
+
 def run_shave_loop(session, tendons, params, job, out_dir, stem, site=None,
                    mesh_size=None, plots=None):
     """
@@ -51220,6 +52720,11 @@ MODES = {
            "add strands where it is short, repeat",
     "moment": "Existing model: design the tendons from RAM's moments, check "
               "them, then the EFM loop",
+    #  18.103: Optimum solution H
+    "osh": "Existing model: Optimum solution H - make the sections pass, "
+           "then optimise",
+    "osh_new": "From DXF: structure and tendons, then Optimum solution H",
+    "osh_draw": "Existing model: draw the tendons, then Optimum solution H",
 }
 
 #  ==========================================================================
@@ -51256,7 +52761,7 @@ JOB_NEW = {
 
 JOB_EXISTING = {
     "Draw new tendons": "tendons",
-    "H optimization after drawing": "hopt",
+    "Optimum solution H": "osh",
     "Trim - take steel out": "shave",
     "Make it pass - add steel": "save",
     "Both - add, then trim": "both",
@@ -51267,6 +52772,7 @@ JOB_METHODS = {
     "RAM's own moments": "moment",
     "An AI platform": "ai",
     "A layout file I have": "file",
+    "Optimum solution H": "osh",
 }
 
 #  النسبة القصوى للحديد اللي الحلقة مسموح لها تزوّده - بالنسبة للي
@@ -51328,6 +52834,10 @@ def job_plan(start, what, method="balance"):
                      tendon_layout_file="")
     elif method == "file":
         flags.update(ai_layout=False, code_layout=False)
+    elif method == "osh":
+        #  18.103: الكابلات بتترسم بموازنة الأحمال، وبعدها المسار كله.
+        flags.update(ai_layout=False, code_layout=False,
+                     tendon_layout_file="")
     else:
         flags.update(ai_layout=False, code_layout=False,
                      tendon_layout_file="")
@@ -51344,6 +52854,17 @@ def job_plan(start, what, method="balance"):
                               "draw the design strips",
                               "apply the loads",
                               "save the model"]}
+        if what == "full" and method == "osh":
+            return {"mode": "osh_new", "flags": flags, "needs": ("dxf", "cpt"),
+                    "method": method,
+                    "title": "A new model from the drawing, then Optimum "
+                             "solution H",
+                    "steps": ["read the DXF", "build the structure and the "
+                              "strips", "apply the loads",
+                              "lay the tendons out and size them from w·L²/8",
+                              "Optimum solution H: make the bottom sections "
+                              "pass, then the top ones, then optimise",
+                              "save the model"]}
         if what == "full":
             mode = "end_to_end"
             steps = ["read the DXF", "build the structure and the strips",
@@ -51353,8 +52874,8 @@ def job_plan(start, what, method="balance"):
                      "take out the surplus where a strip has room",
                      "save the model"]
         else:
-            mode = {"moment": "two_pass", "file": "fromfile"}.get(method,
-                                                                  "full")
+            mode = {"moment": "two_pass", "file": "fromfile",
+                    "osh": "osh_new"}.get(method, "full")
             steps = ["read the DXF", "build the structure and the strips",
                      "apply the loads", _method_step(method),
                      "save the model"]
@@ -51368,7 +52889,7 @@ def job_plan(start, what, method="balance"):
     if what not in JOB_EXISTING.values():
         what = "tendons"
     if what == "tendons":
-        mode = {"moment": "moment"}.get(method, "tendons")
+        mode = {"moment": "moment", "osh": "osh_draw"}.get(method, "tendons")
         return {"mode": mode, "flags": flags, "needs": ("cpt",),
                 "method": method,
                 "title": f"The model you have, new tendons "
@@ -51377,8 +52898,30 @@ def job_plan(start, what, method="balance"):
                           _method_step(method),
                           "write the tendons into the model",
                           "save a new copy"]}
+    if what == "osh":
+        #  **18.103: Optimum solution H على الموديل زي ما هو.**
+        return {"mode": "osh", "flags": {},
+                "needs": ("cpt",), "method": None,
+                "title": "The model you have: Optimum solution H",
+                "steps": ["read the model and its tendons",
+                          "analyse in RAM and read the section check on "
+                          "both faces, both directions",
+                          "stage 1: make the bottom sections pass - strands "
+                          "on the tendons whose spans mostly fail, or a "
+                          "copy of the tendon over the span",
+                          "stage 2: make the top sections pass - drop-edge "
+                          "high point, peak on the support face, low points "
+                          "moved, then a tendon",
+                          "save that as the safe copy",
+                          "stage 3: optimise - give strands back where "
+                          "there is reserve, join tendons in line, replace "
+                          "short pieces, and undo anything that breaks a "
+                          "section",
+                          "save the final copy and report before/after"]}
     if what == "hopt":
         #  **18.87: ده اختيار بعد رسم الكابلات، مش طريقة رسمها.**
+        #  (18.103: الاختيار ده اتشال من القايمة - Optimum solution H
+        #  حل مكانه؛ الفرع باقي عشان أي إعداد محفوظ قديم.)
         #  الاختيار ده لازم يطلع في قائمة "ما تعملوه على الموديل الحالي"
         #  لأن وظيفته مراجعة تخطيط مرسوم فعلاً ثم تطبيق تحسين H على
         #  القطاعات الناقصة فقط، لا رسم كابلات من الصفر.
@@ -51447,6 +52990,7 @@ def _method_words(method):
     return {"balance": "from load balancing",
             "moment": "from RAM's moments",
             "hopt": "with H optimization",
+            "osh": "from load balancing, then Optimum solution H",
             "ai": "from an AI platform",
             "file": "from the layout file"}.get(method, "from load balancing")
 
@@ -51458,6 +53002,8 @@ def _method_step(method):
             "hopt": "read each failing section, add strands in the failing "
                     "spans, then trim the excess where a section can be "
                     "held safely",
+            "osh": "lay the tendons out from w·L²/8, then Optimum solution "
+                   "H: make every section pass, then optimise",
             "ai": "send the floor to the platform and draw the layout it "
                   "returns, against every rule the program applies to its own",
             "file": "draw the layout in the file - no service is asked and "
@@ -51504,6 +53050,11 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "band_beam_min_length", "band_run_profile", "band_run_share",
     "band_tendon_count", "band_tendon_spacing", "band_tendon_edge",
     "band_moment_face",
+    "osh_start", "osh_sizing", "osh_dir_order", "osh_margin_big",
+    "osh_margin_near", "osh_span_ratio", "osh_extend_m",
+    "osh_low_shift_steps", "osh_drop_edge_tol", "osh_strip_half",
+    "osh_optimise", "osh_axis_short_pct", "osh_merge_gap_m",
+    "osh_merge_across", "osh_rounds",
 )
 
 STRIP_LAYOUTS = {
@@ -53328,6 +54879,21 @@ class AutoPTApp:
             "ai_effort": V(value=AI_EFFORT_DEFAULT),
             "ai_timeout_s": V(value="0"),
             "ai_revise_rounds": V(value="0"),
+            "osh_start": V(value=list(OSH_STARTS)[0]),
+            "osh_sizing": V(value=list(OSH_SIZINGS)[0]),
+            "osh_dir_order": V(value=list(OSH_ORDERS)[0]),
+            "osh_margin_big": V(value="70"),
+            "osh_margin_near": V(value="90"),
+            "osh_span_ratio": V(value="50"),
+            "osh_extend_m": V(value="3.0"),
+            "osh_low_shift_steps": V(value="10, 20, 30"),
+            "osh_drop_edge_tol": V(value="0.6"),
+            "osh_strip_half": V(value="3.0"),
+            "osh_optimise": B(value=True),
+            "osh_axis_short_pct": V(value="70"),
+            "osh_merge_gap_m": V(value="3.0"),
+            "osh_merge_across": V(value="0.25"),
+            "osh_rounds": V(value="6"),
             "bakeoff_a": V(value=AI_MODEL_DEFAULT),
             "bakeoff_b": V(value=""),
             "bakeoff_c": V(value=""),
@@ -53957,6 +55523,7 @@ class AutoPTApp:
         ("profile",  "Tendon profile", "Where the tendon sits in the section"),
         ("layout",   "Tendon layout",  "Where the tendons run in plan"),
         ("ai",       "AI platform",    "A model draws the layout"),
+        ("osh",      "Optimum solution H", "Make the sections pass, then optimise"),
         ("bands",    "Banded groups",  "Neighbours acting as one beam"),
         ("loads",    "Loads",          "What sits on the slab"),
         ("strands",  "Strands & losses", "Force per tendon"),
@@ -53986,6 +55553,7 @@ class AutoPTApp:
             "geometry": self._set_geometry, "profile": self._set_profile,
             "layout": self._set_layout,     "bands": self._set_bands,
             "ai": self._set_ai,
+            "osh": self._set_osh,
             "loads": self._set_loads,       "strands": self._set_strands,
             "strips": self._set_strips,     "output": self._set_output,
         }
@@ -54782,6 +56350,116 @@ class AutoPTApp:
                else "\n\nThat one is NOT there - the call would come back "
                     "404. Copy one of the names above into the box."),
             parent=self.root)
+
+    def _set_osh(self, parent):
+        """**18.103: صفحة Optimum solution H.** كل إعداد للمسار ده هنا وبس."""
+        outer, page = self._scroll_page(parent)
+        right, left = self._columns(page)
+
+        c = Card(right, "Optimum solution H",
+                 "Make every section pass, then take out what it does not need",
+                 icon="H")
+        c.pack(fill="x", pady=(0, 14))
+        c.text("Works on a model that already has tendons - drawn a moment "
+               "ago from the DXF, or a model you open. Three stages, each "
+               "saved in its own file: (1) bottom sections: a tendon whose "
+               "spans are mostly failing gets strands; otherwise a copy of "
+               "the tendon over that span only, placed in the widest gap. "
+               "(2) top sections, only after the bottom ones: a high point "
+               "at a drop-panel edge, the peak moved onto the support face "
+               "where the mid-span has room, the low points shifted toward "
+               "the failing end in steps, then a tendon added. (3) the "
+               "optimisation: groups with reserve give strands back to the "
+               "one span at the limit, tendons in line are joined, and "
+               "short pieces covering most of an axis become one tendon. "
+               "The file handed back is never worse than the one saved at "
+               "the end of stage 2.")
+        c.combo("Start from", self.v["osh_start"], list(OSH_STARTS),
+                "Keep what the model has, or reduce every tendon - the "
+                "hand-drawn ones included - to the minimum strands and let "
+                "the stages build it back up to what the sections need.")
+        c.combo("Direction order", self.v["osh_dir_order"], list(OSH_ORDERS),
+                "Stages 1 and 2 take one direction, then the other.")
+        c.entry("Analyses per stage, at most", self.v["osh_rounds"],
+                "Each round treats every failing span once and analyses "
+                "once. A stage also stops on its own when nothing is over "
+                "the limit or nothing more can be added.")
+        c.check("Run the optimisation (stage 3) after the sections pass",
+                self.v["osh_optimise"],
+                "Off leaves the model as it is at the end of stage 2.")
+
+        c = Card(right, "Reading the sections",
+                 "What counts as room, and what counts as the limit", icon="◐")
+        c.pack(fill="x", pady=(0, 14))
+        c.entry("Large margin: utilisation below (%)", self.v["osh_margin_big"],
+                "A section this far under its limit has room. Used when a "
+                "top section fails and the program asks whether the mid-span "
+                "bottom can spare it (stage 2), and to find the groups with "
+                "reserve (stage 3).")
+        c.entry("At the limit: utilisation above (%)", self.v["osh_margin_near"],
+                "A strip this close to its limit is the one that gets the "
+                "strands the rest of its group gives up.")
+        c.entry("Tendons count as passing a section within (m)",
+                self.v["osh_strip_half"],
+                "Half the width of the cross line at mid-span that decides "
+                "which tendons run through a failing span.")
+        c.combo("How many strands a section needs", self.v["osh_sizing"],
+                list(OSH_SIZINGS),
+                "Ratio: the strands already there times stress over limit, "
+                "rounded up. Measured: the excess over the limit divided by "
+                "what one strand relieves at that section, as the program "
+                "measures it.")
+
+        c = Card(left, "Adding strands and tendons",
+                 "Stage 1 for the bottom face, and every later addition",
+                 icon="＋")
+        c.pack(fill="x", pady=(0, 14))
+        c.entry("Raise a tendon's strands when more than this share of its "
+                "spans fail (%)", self.v["osh_span_ratio"],
+                "Above it, the tendons through the span take the strands. "
+                "At or below it, or when they are at the strand limit, a "
+                "copy of the tendon is placed over that span only.")
+        c.entry("New tendon runs past each end of the span by (m)",
+                self.v["osh_extend_m"],
+                "The copy keeps the span's points and levels and is "
+                "extended this far beyond the span ends, in the tendon "
+                "direction. It goes in the middle of the widest gap between "
+                "the tendons through the span, never closer than the "
+                "minimum clear spacing.")
+        c.text("Strand limits, the minimum clear spacing and the kg/m² "
+               "budget are the ones on the other pages: 'Strands & losses' "
+               "and 'Run & output'. The 'up to N% more' cap on the Run page "
+               "applies here too.")
+
+        c = Card(left, "Top sections", "Stage 2, in this order", icon="⌂")
+        c.pack(fill="x", pady=(0, 14))
+        c.entry("A section counts as at a drop-panel edge within (m)",
+                self.v["osh_drop_edge_tol"],
+                "First check: is there a high point between the drop edge "
+                "and the column? If not, one is added and the model is "
+                "analysed again; if there is, tendons are added.")
+        c.entry("Move the low points toward the failing end by (% of span, "
+                "in steps)", self.v["osh_low_shift_steps"],
+                "When one end of the strip fails and the mid-span bottom is "
+                "near its limit, the low points move this much per round, "
+                "analysed after each step. Beyond the last step a tendon is "
+                "added.")
+
+        c = Card(left, "Optimisation", "Stage 3", icon="◆")
+        c.pack(fill="x")
+        c.entry("Remove short tendons covering more than this share of "
+                "their axis (%)", self.v["osh_axis_short_pct"],
+                "Their strands go onto the neighbouring tendons on the same "
+                "axis; when those are at the strand limit, one long tendon "
+                "from end to end takes their place.")
+        c.entry("Join two tendons in line when the gap between them is up "
+                "to (m)", self.v["osh_merge_gap_m"],
+                "The gap takes the profile of the neighbouring tendon.")
+        c.entry("Tendons are on the same axis within (m)",
+                self.v["osh_merge_across"],
+                "How far apart across the direction two tendons can be and "
+                "still count as one line.")
+        return outer
 
     def _set_ai(self, parent):
         """
@@ -58647,6 +60325,22 @@ class AutoPTApp:
             ai_effort=v["ai_effort"].get().strip() or AI_EFFORT_DEFAULT,
             ai_timeout_s=self._num("ai_timeout_s", 0.0),
             ai_revise_rounds=int(self._num("ai_revise_rounds", 0)),
+            osh_start=OSH_STARTS.get(v["osh_start"].get(), "keep"),
+            osh_sizing=OSH_SIZINGS.get(v["osh_sizing"].get(), "ratio"),
+            osh_dir_order=OSH_ORDERS.get(v["osh_dir_order"].get(), "longer"),
+            osh_margin_big=self._num("osh_margin_big", 70.0) / 100.0,
+            osh_margin_near=self._num("osh_margin_near", 90.0) / 100.0,
+            osh_span_ratio=self._num("osh_span_ratio", 50.0),
+            osh_extend_m=self._num("osh_extend_m", 3.0),
+            osh_low_shift_steps=(str(v["osh_low_shift_steps"].get() or "").strip()
+                                 or "10, 20, 30"),
+            osh_drop_edge_tol=self._num("osh_drop_edge_tol", 0.6),
+            osh_strip_half=self._num("osh_strip_half", 3.0),
+            osh_optimise=v["osh_optimise"].get(),
+            osh_axis_short_pct=self._num("osh_axis_short_pct", 70.0),
+            osh_merge_gap_m=self._num("osh_merge_gap_m", 3.0),
+            osh_merge_across=self._num("osh_merge_across", 0.25),
+            osh_rounds=int(self._num("osh_rounds", 6)),
             code_balance_ratio=self._num("code_balance_ratio", 0.65),
             code_dist_spacing=self._num("code_dist_spacing", 0.0),
             band_pitch=self._num("band_pitch", 0.30),
@@ -58914,7 +60608,8 @@ class AutoPTApp:
                         p.ai_base_url = base
                     if model:
                         p.ai_model = model
-            if plan["mode"] == "efm" and plan["flags"].get("efm_rebalance"):
+            if ((plan["mode"] == "efm" and plan["flags"].get("efm_rebalance"))
+                    or str(plan["mode"]).startswith("osh")):
                 p.add_cap_pct = float(ADD_CAPS.get(v["add_cap"].get(), 0.0))
             else:
                 p.add_cap_pct = 0.0
@@ -59157,13 +60852,15 @@ class AutoPTApp:
             show(self._job_file_row,
                  bool(plan and plan.get("method") == "file"))
             show(self._job_cap_row,
-                 bool(plan and plan["mode"] == "efm"
-                      and plan["flags"].get("efm_rebalance")))
+                 bool(plan and ((plan["mode"] == "efm"
+                                 and plan["flags"].get("efm_rebalance"))
+                                or str(plan["mode"]).startswith("osh"))))
             #  اللي الخطة دي مش هتقراه - مقفول وباين
             _lays = bool(plan is None or plan.get("method"))
             _dxf = bool(plan is None or "dxf" in plan["needs"])
             _engine = bool(plan is None
-                           or plan.get("method") in ("balance", "moment"))
+                           or plan.get("method") in ("balance", "moment",
+                                                     "osh"))
             for w in (self._row_layout_src, self._row_dirs):
                 live(w, _lays)
             live(self._row_unit, _dxf)
@@ -59205,12 +60902,12 @@ class AutoPTApp:
     #  كلها في الـ .cpt وبتتقرا منه (site_from_cpt). طلب ملف DXF فيها كان
     #  بقايا من فاليداتور واحد لكل الأوضاع، ومحدش بيستعمله - مسار حلقة الـ
     #  EFM مابياخدش الـ dxf أصلاً كوسيط.
-    CPT_ONLY_MODES = ("efm", "moment")
+    CPT_ONLY_MODES = ("efm", "moment", "osh")
     #  "رسم الكابلات فقط" معناه إن الموديل جاهز بكل مشتملاته - فملف
     #  الكاد فيه **اختياري**: سبته فاضي يبقى الهندسة من الموديل، حطيت
     #  ملف يبقى فيه مسارات كابلات مرسومة تتّبع. وجود الملف هو الاختيار،
     #  مش خانة زيادة.
-    DXF_OPTIONAL_MODES = ("tendons",)
+    DXF_OPTIONAL_MODES = ("tendons", "osh_draw")
 
     def _validate_files(self, mode):
         dxf = self.v["dxf"].get().strip()
@@ -59357,6 +61054,11 @@ class AutoPTApp:
             target, args = self._efm_pipeline, (cpt, out_dir, params)
         elif mode == "moment":
             target, args = self._moment_pipeline, (cpt, out_dir, params)
+        elif mode == "osh":
+            target, args = self._osh_pipeline, (cpt, out_dir, params)
+        elif mode in ("osh_new", "osh_draw"):
+            target, args = self._osh_chain_pipeline, (mode, dxf, cpt, out_dir,
+                                                      params)
         else:
             target, args = self._pipeline, (mode, dxf, cpt, out_dir, params)
         self.worker = threading.Thread(target=target, args=args, daemon=True)
@@ -59944,6 +61646,119 @@ class AutoPTApp:
             job.step(0.0, "Stopped")
         except Exception as e:
             job.error(f"Unexpected error in the two-pass run: {e}")
+            for line in traceback.format_exc().strip().splitlines()[-12:]:
+                job.log("   " + line, "error")
+            job.step(0.0, "Failed")
+        finally:
+            self._forced_workflow = None
+            self._forced_suffix = None
+            self._quiet_done = False
+            self._chained_run = False
+            self.root.after(0, self._finish)
+
+    def _osh_pipeline(self, cpt, out_dir, params: TendonDesignParams):
+        """
+        **18.103: Optimum solution H على موديل موجود.** بيقرا كابلاته،
+        يحلّل، يسيّف السفلي ثم العلوي، يحفظ نسخة آمنة، يحسّن، ويرجّع
+        الأحسن من الاتنين.
+        """
+        job = self.job
+        try:
+            job.log("=" * 62, "head")
+            job.log(f"{APP_NAME} {APP_VERSION} — {MODES['osh']}", "head")
+            job.log("=" * 62, "head")
+            if cpt and os.path.isfile(cpt) and not cpt_is_current_format(cpt):
+                cpt = ensure_current_model_format(
+                    cpt, out_dir, job, api_path=self.v["api_path"].get())
+                if not cpt:
+                    return
+            job.step(0.05, "Reading the model")
+            site = site_from_cpt(cpt)
+            tendons = tendons_from_cpt(cpt, params)
+            if not tendons:
+                job.error("This model has no tendons to work with. Draw them "
+                          "first, or pick 'Draw new tendons' with Optimum "
+                          "solution H as the method.")
+                return
+            job.ok(f"{len(tendons)} tendons read from the model, carrying "
+                   f"{sum(int(t.get('strands') or 0) for t in tendons)} "
+                   f"strands in total.")
+            if not float(getattr(params, "strand_force_kn", 0.0) or 0.0):
+                _f, _n = strand_force_from_model(cpt, tendons, job)
+                if _f and _n >= 5:
+                    params.strand_force_kn = _f
+            #  الكابلات اللي في الموديل بتترسم زي ما هي؛ اللي المسار
+            #  بيضيفه هو اللي بيعدّي على قواعد المسقط. نصف القطر الأدنى
+            #  حماية مش تصميم، فبيتطبّق على الكل.
+            for t in tendons:
+                t["as_drawn"] = True
+            enforce_min_radius(tendons, params, job)
+            stem = os.path.splitext(os.path.basename(cpt))[0]
+            mesh = self._num("mesh_size", 0) or None
+            base_kg = floor_strand_kg(tendons, params)
+            with RamSession(job, api_path=self.v["api_path"].get()) as session:
+                session.open(cpt)
+                res = run_optimum_h(session, tendons, params, job, out_dir,
+                                    stem, site=site, mesh_size=mesh,
+                                    base_kg=base_kg)
+            if res.get("best"):
+                self._mark_output(res["best"])
+                job.step(1.0, "Done")
+                job.log("=" * 62, "head")
+                job.ok(f"Finished. File: {res['best']}"
+                       + (f"  (the safe copy - the optimisation was undone)"
+                          if res.get("put_back") else ""))
+        except CancelledError:
+            job.warn("Stopped.")
+            job.step(0.0, "Stopped")
+        except Exception as e:
+            job.error(f"Optimum solution H failed: {e}")
+            for line in traceback.format_exc().strip().splitlines()[-12:]:
+                job.log("   " + line, "error")
+            job.step(0.0, "Failed")
+        finally:
+            self.root.after(0, self._finish)
+
+    def _osh_chain_pipeline(self, mode, dxf, cpt, out_dir,
+                            params: TendonDesignParams):
+        """
+        18.103: ارسم الكابلات الأول (من الـ DXF أو على الموديل الموجود)
+        وبعدين Optimum solution H على الملف اللي طلع - من غير وقفة.
+        """
+        job = self.job
+        self._chained_run = True
+        prev_output = self._last_output
+        first_mode = "full" if mode == "osh_new" else "tendons"
+        try:
+            job.log("=" * 62, "head")
+            job.log(f"{APP_NAME} {APP_VERSION} — {MODES[mode]}", "head")
+            job.log("=" * 62, "head")
+            job.log("", "info")
+            job.log("STAGE 1 of 2 — "
+                    + ("from the DXF: structure, strips and tendons"
+                       if first_mode == "full"
+                       else "the model you have: draw the tendons"), "head")
+            self._forced_workflow = "loadbal"
+            self._quiet_done = True
+            self._pipeline(first_mode, dxf, cpt, out_dir, params)
+            job.check()
+            first = self._last_output
+            if not first or first == prev_output or not os.path.isfile(first):
+                job.error("Stage 1 did not save a model, so Optimum solution "
+                          "H is not starting. Read the messages above.")
+                return
+            job.ok(f"Stage 1 done: {os.path.basename(first)}")
+            job.log("", "info")
+            job.log("STAGE 2 of 2 — Optimum solution H", "head")
+            self._forced_workflow = None
+            self._forced_suffix = None
+            self._quiet_done = False
+            self._osh_pipeline(first, out_dir, params)
+        except CancelledError:
+            job.warn("Stopped.")
+            job.step(0.0, "Stopped")
+        except Exception as e:
+            job.error(f"The run failed: {e}")
             for line in traceback.format_exc().strip().splitlines()[-12:]:
                 job.log("   " + line, "error")
             job.step(0.0, "Failed")
@@ -62033,6 +63848,10 @@ class SettingsParams:
     collect_params = AutoPTApp.collect_params
     _workflow_key = AutoPTApp._workflow_key
     _mode_key = AutoPTApp._mode_key
+    #  18.103: collect_params بتسأل الشجرة (18.73) - والصنف ده ماكانش
+    #  عنده الدالتين، فأي رن من سطر الأوامر كان بيقع بـ AttributeError.
+    _job_answers = AutoPTApp._job_answers
+    _job_plan = AutoPTApp._job_plan
 
     def __init__(self, data=None):
         saved = (tk.StringVar, tk.BooleanVar)
