@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.122"
+APP_VERSION = "18.123"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2929,6 +2929,20 @@ class TendonDesignParams:
         # أوتوماتيك على بلاطة شبكتها مش منتظمة بيدي نتيجة تبان صح وهي غلط.
         # تتفتح عن قصد وتتراجع في RAM قبل الحساب.
         self.write_design_strips = bool(kw.get("write_design_strips", True))
+        #  18.123: الأسعار والتكلفة
+        self.cost_report = bool(kw.get("cost_report", True))
+        self.cost_currency = str(kw.get("cost_currency", "SAR") or "SAR")
+        self.price_strand_kg = float(kw.get("price_strand_kg", 12.0) or 0.0)
+        self.price_duct_small_m = float(kw.get("price_duct_small_m", 8.0) or 0.0)
+        self.price_duct_large_m = float(kw.get("price_duct_large_m", 12.0) or 0.0)
+        self.duct_small_max_strands = int(kw.get("duct_small_max_strands", 3) or 3)
+        self.price_anchor_s2 = float(kw.get("price_anchor_s2", 60.0) or 0.0)
+        self.price_anchor_s3 = float(kw.get("price_anchor_s3", 75.0) or 0.0)
+        self.price_anchor_s4 = float(kw.get("price_anchor_s4", 90.0) or 0.0)
+        self.price_anchor_s5 = float(kw.get("price_anchor_s5", 110.0) or 0.0)
+        self.price_concrete_m3 = float(kw.get("price_concrete_m3", 450.0) or 0.0)
+        self.price_rebar_kg = float(kw.get("price_rebar_kg", 4.5) or 0.0)
+        self.rebar_kg_m2 = float(kw.get("rebar_kg_m2", 12.0) or 12.0)
         #  18.121: فحص الثقب بعد رسم الكابلات
         self.punch_check = bool(kw.get("punch_check", True))
         self.punch_code = str(kw.get("punch_code", list(PUNCH_CODES)[0]) or list(PUNCH_CODES)[0])
@@ -40521,6 +40535,159 @@ def shave_after_loop(session, best_path, params, job, out_dir, stem, site=None,
     return None
 
 
+# ==============================================================================
+#  الكميات والتكلفة (18.123)
+#
+#  الاسترند بالكيلو، الدكت بالمتر (صغير لحد N استرند، كبير فوقها)، المرساة
+#  بالقطعة حسب عدد الاسترندات (S2..S5، مرساتين لكل كابل)، الخرسانة
+#  بالمتر المكعب (البلاطة + زيادة الدروبات)، وحديد التسليح بالكيلو (من
+#  حديد رام المصمّم في الملف لو موجود، وإلا كجم/م² من الإعدادات).
+#  التكلفة بتتحسب قبل وبعد كل حلقة أو تحسين، وفي مراجعة المشروع.
+# ==============================================================================
+
+def designed_rebar_kg(cpt_path):
+    """كجم حديد التسليح اللي رام صمّمه في الملف، أو None لو ماينفعش يتقرا."""
+    try:
+        m = read_designed_steel(cpt_path)
+    except Exception:
+        return None
+    rows = (m or {}).get("rebar") or []
+    if not rows:
+        return None
+    #  المساحة بالمم² × الطول بالمتر × 7850 كجم/م³ ÷ 10⁶
+    return sum(float(r.get("area") or 0.0) * float(r.get("len") or 0.0)
+               for r in rows) * STEEL_DENSITY_KG_M3 / 1.0e6
+
+
+def floor_quantities(tendons, site, params, rebar_kg=None):
+    """
+    كميات السقف وتكلفته من الأسعار في الإعدادات. بترجّع dict فيه الكميات
+    (strand_m, strand_kg, duct_small_m, duct_large_m, anchors{2..5},
+    concrete_m3, rebar_kg, rebar_source) والتكاليف (cost_strand,
+    cost_duct, cost_anchor, cost_pt, cost_concrete, cost_rebar, total).
+    """
+    p = params
+    live = [t for t in (tendons or []) if not t.get("_deleted")]
+    small_max = int(getattr(p, "duct_small_max_strands", 3) or 3)
+    kgm = strand_kg_per_m(p)
+    q = {"tendons": len(live), "strands": 0, "strand_m": 0.0, "strand_kg": 0.0,
+         "duct_small_m": 0.0, "duct_large_m": 0.0,
+         "anchors": {2: 0, 3: 0, 4: 0, 5: 0}}
+    for t in live:
+        n = int(t.get("strands") or 0)
+        L = tendon_plan_length(t)
+        q["strands"] += n
+        q["strand_m"] += n * L
+        q["strand_kg"] += n * L * kgm
+        if n <= small_max:
+            q["duct_small_m"] += L
+        else:
+            q["duct_large_m"] += L
+        q["anchors"][max(2, min(5, n))] += 2
+    site = site or {}
+    area = None
+    try:
+        area = slab_area_m2(site)
+    except Exception:
+        area = None
+    if not area:
+        b = site.get("boundary") or []
+        area = (abs(polygon_area(b)) if len(b) >= 3 else 0.0) - sum(
+            abs(polygon_area(o)) for o in (site.get("openings") or []) if len(o) >= 3)
+    area = max(float(area or 0.0), 0.0)
+    h = float(getattr(p, "slab_thickness", 250.0) or 250.0)
+    h_drop = float(getattr(p, "drop_thickness", 0.0) or 0.0)
+    drop_area = sum(abs(polygon_area(dp)) for dp in (site.get("drops") or []) if len(dp) >= 3)
+    q["area_m2"] = area
+    q["concrete_m3"] = area * h / 1000.0 + (drop_area * max(h_drop - h, 0.0) / 1000.0)
+    if rebar_kg is not None and rebar_kg > 0:
+        q["rebar_kg"], q["rebar_source"] = float(rebar_kg), "RAM's designed rebar"
+    else:
+        q["rebar_kg"] = area * float(getattr(p, "rebar_kg_m2", 12.0) or 12.0)
+        q["rebar_source"] = f"{float(getattr(p, 'rebar_kg_m2', 12.0) or 12.0):.1f} kg/m² estimate"
+    pr = {k: float(getattr(p, k, 0.0) or 0.0) for k in (
+        "price_strand_kg", "price_duct_small_m", "price_duct_large_m",
+        "price_anchor_s2", "price_anchor_s3", "price_anchor_s4", "price_anchor_s5",
+        "price_concrete_m3", "price_rebar_kg")}
+    q["cost_strand"] = q["strand_kg"] * pr["price_strand_kg"]
+    q["cost_duct"] = q["duct_small_m"] * pr["price_duct_small_m"] + q["duct_large_m"] * pr["price_duct_large_m"]
+    q["cost_anchor"] = sum(q["anchors"][k] * pr[f"price_anchor_s{k}"] for k in (2, 3, 4, 5))
+    q["cost_pt"] = q["cost_strand"] + q["cost_duct"] + q["cost_anchor"]
+    q["cost_concrete"] = q["concrete_m3"] * pr["price_concrete_m3"]
+    q["cost_rebar"] = q["rebar_kg"] * pr["price_rebar_kg"]
+    q["total"] = q["cost_pt"] + q["cost_concrete"] + q["cost_rebar"]
+    q["per_m2"] = q["total"] / area if area else 0.0
+    q["currency"] = str(getattr(p, "cost_currency", "SAR") or "SAR")
+    return q
+
+
+def cost_lines(q, title="Quantities and cost"):
+    """سطور اللوج لكميات وتكلفة سقف واحد."""
+    c = q["currency"]
+    a = q["anchors"]
+    return [
+        f"{title}:",
+        f"    PT: {q['tendons']} tendons, {q['strands']} strands, {q['strand_m']:,.0f} strand-m "
+        f"= {q['strand_kg']:,.0f} kg strand -> {q['cost_strand']:,.0f} {c}",
+        f"    ducts: small {q['duct_small_m']:,.0f} m, large {q['duct_large_m']:,.0f} m -> "
+        f"{q['cost_duct']:,.0f} {c}",
+        f"    anchorages: S2 x{a[2]}, S3 x{a[3]}, S4 x{a[4]}, S5 x{a[5]} -> {q['cost_anchor']:,.0f} {c}",
+        f"    post-tensioning total: {q['cost_pt']:,.0f} {c}",
+        f"    concrete: {q['concrete_m3']:,.1f} m³ on {q['area_m2']:,.0f} m² -> {q['cost_concrete']:,.0f} {c}",
+        f"    rebar: {q['rebar_kg']:,.0f} kg ({q['rebar_source']}) -> {q['cost_rebar']:,.0f} {c}",
+        f"    FLOOR TOTAL: {q['total']:,.0f} {c}  ({q['per_m2']:,.1f} {c}/m²)",
+    ]
+
+
+def cost_delta_lines(before, after):
+    """قبل / بعد / التوفير - للحلقات والتحسين."""
+    c = after["currency"]
+
+    def d(k):
+        return before[k] - after[k]
+    sv = d("total")
+    pct = (sv / before["total"] * 100.0) if before["total"] else 0.0
+    return [
+        "Cost before -> after:",
+        f"    post-tensioning: {before['cost_pt']:,.0f} -> {after['cost_pt']:,.0f} {c} "
+        f"({d('cost_pt'):+,.0f} saved)",
+        f"    concrete: {before['cost_concrete']:,.0f} -> {after['cost_concrete']:,.0f} {c}",
+        f"    rebar: {before['cost_rebar']:,.0f} -> {after['cost_rebar']:,.0f} {c} "
+        f"({d('cost_rebar'):+,.0f} saved)",
+        f"    FLOOR TOTAL: {before['total']:,.0f} -> {after['total']:,.0f} {c}  "
+        f"SAVING {sv:+,.0f} {c} ({pct:+.1f}%)",
+    ]
+
+
+def cost_report(job, site, params, tendons_after, cpt_after=None,
+                tendons_before=None, cpt_before=None, title="Quantities and cost"):
+    """
+    بيكتب في اللوج تكلفة السقف (وقبل/بعد لو فيه نقطة بداية). الحديد من
+    الملف المحفوظ لو فيه، وإلا تقدير. بيرجّع (before, after).
+    """
+    if not bool(getattr(params, "cost_report", True)):
+        return None, None
+    try:
+        rk_a = designed_rebar_kg(cpt_after) if cpt_after and os.path.isfile(cpt_after) else None
+        after = floor_quantities(tendons_after, site, params, rebar_kg=rk_a)
+        before = None
+        if tendons_before is not None:
+            rk_b = designed_rebar_kg(cpt_before) if cpt_before and os.path.isfile(cpt_before) else None
+            before = floor_quantities(tendons_before, site, params, rebar_kg=rk_b)
+        job.log("Cost", "head")
+        for line in cost_lines(after, title):
+            job.info(line)
+        if before is not None:
+            for line in cost_delta_lines(before, after):
+                (job.ok if "SAVING" in line else job.info)(line)
+        return before, after
+    except CancelledError:
+        raise
+    except Exception as e:
+        job.warn(f"The cost could not be worked out: {e}")
+        return None, None
+
+
 REVIEW_METHODS = {
     "Optimum solution H": "osh",
     "EFM loop, then the shave loop": "efm",
@@ -40549,6 +40716,23 @@ def review_eta_text(i, n, stem, durations, elapsed_current=0.0, now=None):
     end = time.strftime("%H:%M", time.localtime(now + left))
     return (f"{head} · {done} done, {_hm(avg)} each · about {_hm(left)} "
             f"left, ends ~{end}")
+
+
+def _review_cost(row, site, params, job):
+    """تكلفة قبل/بعد لصف في المراجعة (18.123) - من الملفين."""
+    if row.get("status") != "ok" or not bool(getattr(params, "cost_report", True)):
+        return
+    try:
+        tb = tendons_from_cpt(row["path"], params, None)
+        ta = tendons_from_cpt(row["output"], params, None) if row.get("output") else tb
+        b, a = cost_report(job, site, params, ta, cpt_after=row.get("output"),
+                           tendons_before=tb, cpt_before=row["path"])
+        if b and a:
+            row["cost_before"], row["cost_after"] = b["total"], a["total"]
+            row["cost_saving"] = b["total"] - a["total"]
+            row["currency"] = a["currency"]
+    except Exception as e:
+        job.warn(f"Cost for this model could not be worked out: {e}")
 
 
 def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
@@ -40643,6 +40827,7 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
                 row["status"] = "ok"
                 row["minutes"] = round((time.time() - t0) / 60.0, 1)
                 durations.append(time.time() - t0)
+                _review_cost(row, site, p, job)
                 rows.append(row)
                 b, a = row.get("before"), row.get("after")
                 if b and a:
@@ -40723,6 +40908,7 @@ def review_project(files, params, job, out_dir, api_path=None, do_efm=True,
             job.error(f"{stem}: {e}")
         row["minutes"] = round((time.time() - t0) / 60.0, 1)
         durations.append(time.time() - t0)
+        _review_cost(row, site, p, job)
         rows.append(row)
         b, a = row.get("before"), row.get("after")
         if b and a:
@@ -40753,7 +40939,8 @@ def write_review_xlsx(rows, path, params=None, job=None):
     head = ["File", "Status", "Strands before", "Strands after", "Strand-m before",
             "Strand-m after", "Saving %", "kg before", "kg after", "Over (reach) before",
             "Over (reach) after", "Out of reach before", "Out of reach after",
-            "EFM rounds", "Shave rounds", "Minutes", "Output file", "Note"]
+            "EFM rounds", "Shave rounds", "Minutes", "Output file", "Note",
+            "Cost before", "Cost after", "Cost saving"]
     ws.append(head)
     bold = Font(bold=True)
     fill_h = PatternFill("solid", fgColor="DDE7F0")
@@ -40764,7 +40951,7 @@ def write_review_xlsx(rows, path, params=None, job=None):
     green = PatternFill("solid", fgColor="E3F4E1")
     red = PatternFill("solid", fgColor="F8E0E0")
     tot = {"sb": 0, "sa": 0, "mb": 0.0, "ma": 0.0, "kb": 0.0, "ka": 0.0,
-           "rb": 0, "ra": 0, "ub": 0, "ua": 0}
+           "rb": 0, "ra": 0, "ub": 0, "ua": 0, "cb": 0.0, "ca": 0.0}
     for r in rows:
         b, a = r.get("before") or {}, r.get("after") or {}
         sv = None
@@ -40782,7 +40969,10 @@ def write_review_xlsx(rows, path, params=None, job=None):
                 " · ".join(x for x in (
                     "Optimum solution H" if r.get("method") == "osh" else "",
                     "safe copy handed back" if r.get("osh_put_back") else "",
-                    r.get("error") or r.get("shave_stopped") or "") if x)]
+                    r.get("error") or r.get("shave_stopped") or "") if x),
+                round(r["cost_before"]) if r.get("cost_before") is not None else None,
+                round(r["cost_after"]) if r.get("cost_after") is not None else None,
+                round(r["cost_saving"]) if r.get("cost_saving") is not None else None]
         ws.append(line)
         i = ws.max_row
         if sv is not None:
@@ -40796,13 +40986,17 @@ def write_review_xlsx(rows, path, params=None, job=None):
             tot["kb"] += float(r.get("kg_before") or 0); tot["ka"] += float(r.get("kg_after") or 0)
             tot["rb"] += int(b.get("reach") or 0); tot["ra"] += int(a.get("reach") or 0)
             tot["ub"] += int(b.get("unreach") or 0); tot["ua"] += int(a.get("unreach") or 0)
+            tot["cb"] += float(r.get("cost_before") or 0.0); tot["ca"] += float(r.get("cost_after") or 0.0)
+        if r.get("cost_saving") is not None:
+            ws.cell(row=i, column=21).fill = green if r["cost_saving"] > 0 else red
     svt = (1.0 - tot["ma"] / tot["mb"]) * 100.0 if tot["mb"] else 0.0
     ws.append(["TOTAL", "", tot["sb"], tot["sa"], round(tot["mb"], 1), round(tot["ma"], 1),
                round(svt, 1), round(tot["kb"], 1), round(tot["ka"], 1), tot["rb"], tot["ra"],
-               tot["ub"], tot["ua"], "", "", "", "", ""])
+               tot["ub"], tot["ua"], "", "", "", "", "",
+               round(tot["cb"]), round(tot["ca"]), round(tot["cb"] - tot["ca"])])
     for c in ws[ws.max_row]:
         c.font = bold
-    widths = [34, 8, 9, 9, 11, 11, 9, 9, 9, 10, 10, 10, 10, 8, 8, 8, 40, 30]
+    widths = [34, 8, 9, 9, 11, 11, 9, 9, 9, 10, 10, 10, 10, 8, 8, 8, 40, 30, 12, 12, 12]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "B2"
@@ -40854,17 +41048,19 @@ def write_review_md(rows, path, job=None):
     """نفس الملخص كنص (Markdown) - يتقرا في أي مكان ويتلزق في وورد."""
     lines = [f"# Project review - {APP_NAME} {APP_VERSION}",
              f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", "",
-             "| File | Strands | Strand-m | Saving | Sections over (reach+out of reach) | Output |",
-             "|---|---|---|---|---|---|"]
+             "| File | Strands | Strand-m | Saving | Sections over (reach+out of reach) | Cost before -> after (saving) | Output |",
+             "|---|---|---|---|---|---|---|"]
     for r in rows:
         b, a = r.get("before") or {}, r.get("after") or {}
         if not b or not a:
-            lines.append(f"| {r.get('file')} | - | - | - | {r.get('error') or ''} | |")
+            lines.append(f"| {r.get('file')} | - | - | - | {r.get('error') or ''} | | |")
             continue
         sv = (1.0 - a["strand_m"] / b["strand_m"]) * 100.0 if b.get("strand_m") else 0.0
+        cost = (f"{r['cost_before']:,.0f} -> {r['cost_after']:,.0f} ({r['cost_saving']:+,.0f})"
+                if r.get("cost_before") is not None else "-")
         lines.append(f"| {r.get('file')} | {b['strands']} -> {a['strands']} | "
                      f"{b['strand_m']:,.0f} -> {a['strand_m']:,.0f} | {sv:+.1f}% | "
-                     f"{b['reach']}+{b['unreach']} -> {a['reach']}+{a['unreach']} | "
+                     f"{b['reach']}+{b['unreach']} -> {a['reach']}+{a['unreach']} | {cost} | "
                      f"{os.path.basename(r.get('output') or '')} |")
     try:
         with open(path, "w", encoding="utf-8") as fh:
@@ -54699,6 +54895,10 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "band_tendon_count", "band_tendon_spacing", "band_tendon_edge",
     "band_moment_face",
     "punch_check", "punch_code", "punch_fc", "punch_cover",
+    "cost_report", "cost_currency", "price_strand_kg", "price_duct_small_m",
+    "price_duct_large_m", "duct_small_max_strands", "price_anchor_s2",
+    "price_anchor_s3", "price_anchor_s4", "price_anchor_s5",
+    "price_concrete_m3", "price_rebar_kg", "rebar_kg_m2",
     "osh_start", "osh_sizing", "osh_dir_order", "osh_margin_big",
     "osh_margin_near", "osh_span_ratio", "osh_extend_m",
     "osh_low_shift", "osh_low_shift_steps", "osh_drop_edge_tol", "osh_strip_half",
@@ -56322,6 +56522,19 @@ class AutoPTApp:
             "rebar_fy": V(value="460"),
             "write_area_loads": B(value=False),
             "write_design_strips": B(value=True),
+            "cost_report": B(value=True),
+            "cost_currency": V(value="SAR"),
+            "price_strand_kg": V(value="12"),
+            "price_duct_small_m": V(value="8"),
+            "price_duct_large_m": V(value="12"),
+            "duct_small_max_strands": V(value="3"),
+            "price_anchor_s2": V(value="60"),
+            "price_anchor_s3": V(value="75"),
+            "price_anchor_s4": V(value="90"),
+            "price_anchor_s5": V(value="110"),
+            #  price_concrete_m3 / price_rebar_kg مشتركين مع صفحة التصميم
+            #  الابتدائي (معرّفين تحت).
+            "rebar_kg_m2": V(value="12"),
             "punch_check": B(value=True),
             "punch_code": V(value=list(PUNCH_CODES)[0]),
             "punch_fc": V(value="30"),
@@ -56562,9 +56775,9 @@ class AutoPTApp:
             "code_aci": B(value=True),
             "code_ec2": B(value=False),
             "code_ecp": B(value=False),
-            "price_concrete_m3": V(value=""),
+            "price_concrete_m3": V(value="450"),
             "price_pt_kg": V(value=""),
-            "price_rebar_kg": V(value=""),
+            "price_rebar_kg": V(value="4.5"),
             "price_formwork_m2": V(value=""),
             "strand_response_top": V(value="0"),
             "strand_response_bottom": V(value="0"),
@@ -56713,7 +56926,7 @@ class AutoPTApp:
             self.pages["design"] = self._page_settings_group(
                 self.stage,
                 ("profile", "layout", "bands", "ai", "osh", "strands", "strips",
-                 "output"),
+                 "output", "costs"),
                 "profile")
             self.pages["banks"] = self._page_banks(self.stage)
             self.pages["shop"] = self._page_shop(self.stage)
@@ -57182,6 +57395,7 @@ class AutoPTApp:
         ("layout",   "Tendon layout",  "Where the tendons run in plan"),
         ("ai",       "AI platform",    "A model draws the layout"),
         ("osh",      "Optimum solution H", "Make the sections pass, then optimise"),
+        ("costs",    "Costs",          "Prices, quantities and the floor's bill"),
         ("bands",    "Banded groups",  "Neighbours acting as one beam"),
         ("loads",    "Loads",          "What sits on the slab"),
         ("strands",  "Strands & losses", "Force per tendon"),
@@ -57211,7 +57425,7 @@ class AutoPTApp:
             "geometry": self._set_geometry, "profile": self._set_profile,
             "layout": self._set_layout,     "bands": self._set_bands,
             "ai": self._set_ai,
-            "osh": self._set_osh,
+            "osh": self._set_osh,           "costs": self._set_costs,
             "loads": self._set_loads,       "strands": self._set_strands,
             "strips": self._set_strips,     "output": self._set_output,
         }
@@ -58008,6 +58222,41 @@ class AutoPTApp:
                else "\n\nThat one is NOT there - the call would come back "
                     "404. Copy one of the names above into the box."),
             parent=self.root)
+
+    def _set_costs(self, parent):
+        outer, page = self._scroll_page(parent)
+        right, left = self._columns(page)
+        c = Card(right, "Prices", "Unit rates in your currency", icon="$")
+        c.pack(fill="x", pady=(0, 14))
+        c.text("Every run ends with the floor's quantities and cost: strand "
+               "by weight, ducts by length (small up to the strand count "
+               "below, large above it), anchorages by the piece and by "
+               "size (two per tendon: S2 for a 2-strand tendon, S3, S4, "
+               "S5), concrete by volume (slab plus the extra depth of the "
+               "drop panels) and rebar by weight - RAM's designed rebar "
+               "from the saved model when it is there, otherwise the kg/m² "
+               "estimate below. Every loop or optimisation reports the cost "
+               "before and after and the saving, and the project review "
+               "puts the three in its table.")
+        c.entry("Currency label", self.v["cost_currency"])
+        c.entry("Strand, per kg", self.v["price_strand_kg"])
+        c.entry("Small duct, per m", self.v["price_duct_small_m"])
+        c.entry("Large duct, per m", self.v["price_duct_large_m"])
+        c.entry("A duct is small up to (strands)", self.v["duct_small_max_strands"])
+        c.entry("Anchorage S2 (2 strands), per piece", self.v["price_anchor_s2"])
+        c.entry("Anchorage S3 (3 strands), per piece", self.v["price_anchor_s3"])
+        c.entry("Anchorage S4 (4 strands), per piece", self.v["price_anchor_s4"])
+        c.entry("Anchorage S5 (5 strands), per piece", self.v["price_anchor_s5"])
+        c.entry("Concrete, per m³", self.v["price_concrete_m3"])
+        c.entry("Rebar, per kg", self.v["price_rebar_kg"])
+        d = Card(left, "Rebar and reporting", None, icon="▤")
+        d.pack(fill="x", pady=(0, 14))
+        d.entry("Rebar estimate when the model has none designed (kg/m²)",
+                self.v["rebar_kg_m2"],
+                "Used only when the saved model carries no designed rebar - "
+                "a model drawn but not analysed, for example.")
+        d.check("Report quantities and cost after every run", self.v["cost_report"])
+        return outer
 
     def _set_osh(self, parent):
         """**18.103: صفحة Optimum solution H.** كل إعداد للمسار ده هنا وبس."""
@@ -62203,6 +62452,19 @@ class AutoPTApp:
             arch_wall_thickness=self._num("arch_wall_thickness", 0.0),
             write_area_loads=v["write_area_loads"].get(),
             write_design_strips=v["write_design_strips"].get(),
+            cost_report=v["cost_report"].get(),
+            cost_currency=(v["cost_currency"].get() or "SAR").strip(),
+            price_strand_kg=self._num("price_strand_kg", 12.0),
+            price_duct_small_m=self._num("price_duct_small_m", 8.0),
+            price_duct_large_m=self._num("price_duct_large_m", 12.0),
+            duct_small_max_strands=int(self._num("duct_small_max_strands", 3)),
+            price_anchor_s2=self._num("price_anchor_s2", 60.0),
+            price_anchor_s3=self._num("price_anchor_s3", 75.0),
+            price_anchor_s4=self._num("price_anchor_s4", 90.0),
+            price_anchor_s5=self._num("price_anchor_s5", 110.0),
+            price_concrete_m3=self._num("price_concrete_m3", 450.0),
+            price_rebar_kg=self._num("price_rebar_kg", 4.5),
+            rebar_kg_m2=self._num("rebar_kg_m2", 12.0),
             punch_check=v["punch_check"].get(),
             punch_code=v["punch_code"].get(),
             punch_fc=self._num("punch_fc", 30.0),
@@ -63631,6 +63893,8 @@ class AutoPTApp:
             for t in tendons:
                 t["as_drawn"] = True
             enforce_min_radius(tendons, params, job)
+            import copy as _cp
+            _t_before = _cp.deepcopy(tendons)
             stem = os.path.splitext(os.path.basename(cpt))[0]
             mesh = self._num("mesh_size", 0) or None
             base_kg = floor_strand_kg(tendons, params)
@@ -63647,6 +63911,13 @@ class AutoPTApp:
                                  "file handed back is the safe copy.")
                     self._punching_after(session, site, params, job, tendons)
             if res.get("best"):
+                #  18.123: التكلفة قبل (الملف اللي اتفتح) وبعد (الملف النهائي)
+                try:
+                    _t_after = tendons_from_cpt(res["best"], params, job) or osh_live(tendons)
+                except Exception:
+                    _t_after = osh_live(tendons)
+                cost_report(job, site, params, _t_after, cpt_after=res["best"],
+                            tendons_before=_t_before, cpt_before=cpt)
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
                 job.log("=" * 62, "head")
@@ -64050,6 +64321,17 @@ class AutoPTApp:
                         _pt = tendons
                     self._punching_after(session, site, params, job, _pt)
             if res.get("best"):
+                #  18.123: التكلفة قبل وبعد الحلقة
+                try:
+                    _t_after = tendons_from_cpt(res["best"], params, job) or tendons
+                except Exception:
+                    _t_after = tendons
+                try:
+                    _t_before = tendons_from_cpt(cpt, params, None) or tendons
+                except Exception:
+                    _t_before = tendons
+                cost_report(job, site, params, _t_after, cpt_after=res["best"],
+                            tendons_before=_t_before, cpt_before=cpt)
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
                 job.log("=" * 62, "head")
@@ -65496,6 +65778,9 @@ class AutoPTApp:
                             session, job, mesh_size=self._num("mesh_size", 0.0) or None)
                     if analysis.get("ok"):
                         self._punching_after(session, site, params, job, tendons)
+                #  18.123: كميات السقف وتكلفته
+                cost_report(job, site, params, tendons,
+                            cpt_after=out_file if saved else None)
 
                 if not saved:
                     job.error("NOTHING WAS SAVED - every save attempt failed. "
