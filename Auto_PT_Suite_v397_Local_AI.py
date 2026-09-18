@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.111"
+APP_VERSION = "18.112"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -38048,12 +38048,21 @@ def osh_add_drop_high(t, d, end_xy, site, params, direction):
 def osh_peak_to_face(t, d, end_xy, site, params, direction, tol=0.30):
     """
     القمم اللي في جهة الطرف ده وبعيدة عن وش الركيزة بتتشال، وقمة واحدة
-    بتتحط على الوش بالظبط. بترجّع عدد اللي اتغيّر (0 = مافيش ركيزة أو
-    القمة على الوش خلاص).
+    بتتحط على الوش بالظبط. بترجّع عدد اللي اتغيّر (0 = القمة على الوش
+    خلاص). **18.112:** لو مافيش بصمة ركيزة في المتناول، طرف البحر نفسه
+    (رام بيوقف الشريحة على الركيزة) هو الهدف - بدل ما يتقال "على
+    الوش خلاص" وهي مش على حاجة. السبب بيتحط في t["_osh_face_why"].
     """
     s_end, sign, face, _edge = osh_end_geometry(t, d, end_xy, site)
+    t["_osh_face_why"] = "face"
     if face is None:
-        return 0
+        at_sup = (d.get("at_support_a") if dist(end_xy, d["a"]) <= dist(end_xy, d["b"])
+                  else d.get("at_support_b"))
+        if at_sup is False:
+            t["_osh_face_why"] = "no support"
+            return 0
+        face = s_end
+        t["_osh_face_why"] = "span end"
     prof = t["profile"]
     st = osh_stations(prof)
     s_mid, _ = _station_of(prof, d["mid"])
@@ -38680,23 +38689,33 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
             step = "peaks"
         if step == "peaks":
             st["step"] = "ends"
-            in_drop = (osh_near_drop_edge(wxy, drops, edge_tol) is not None
-                       or any(point_in_polygon(end_xy[0], end_xy[1], p)
-                              for p in drops if p and len(p) >= 3))
-            if bottom_u <= big and in_drop:
+            if bottom_u <= big:
+                #  18.112: مش بس مع الدروب - أي بحر عنده احتياطي في النص
+                #  قممه بتتحط على الركيزة الأول.
                 n_mv = 0
                 sides = [end_xy] + ([other_xy] if len(ends_failing) == 2 else [])
+                whys = set()
                 for t in t_in:
                     for exy in sides:
                         n_mv += osh_peak_to_face(t, d, exy, site, params, direction)
+                        whys.add(t.get("_osh_face_why", "face"))
                 if n_mv:
                     actions += n_mv
                     job.ok(f"        mid-span bottom has room ({bottom_u:.2f}) "
-                           f"and the high points sat off the column: {n_mv} "
-                           f"point(s) moved onto the support face; re-analysing.")
+                           f"and the high points sat off the support: {n_mv} "
+                           f"point(s) moved onto "
+                           + ("the strip's span end (no support footprint "
+                              "was found within reach)" if "span end" in whys
+                              else "the support face")
+                           + "; re-analysing.")
                     continue
-                job.info("        the high points already sit on the support "
-                         "face.")
+                if "no support" in whys and len(whys) == 1:
+                    job.info("        this end of the strip is not on a "
+                             "support (a cantilever or a free edge), so no "
+                             "peak is put there.")
+                else:
+                    job.info("        the high points already sit on the "
+                             "support face.")
             elif bottom_u > big:
                 job.info(f"        mid-span bottom is near its limit "
                          f"({bottom_u:.2f}), so the high points stay.")
@@ -38772,6 +38791,65 @@ def osh_lanes(live, direction, tol):
     if cur:
         lanes.append(cur)
     return lanes
+
+
+def osh_size_up(n, params):
+    """أقرب مقاس متاح من فوق لو فيه قايمة مقاسات، وإلا العدد زي ما هو."""
+    sizes = sorted(int(x) for x in (getattr(params, "allowed_strands", None) or [])
+                   if int(x) > 0)
+    n = int(n)
+    if not sizes:
+        return n
+    for x in sizes:
+        if x >= n:
+            return x
+    return sizes[-1]
+
+
+def osh_reduce_solo(state, tendons, params, site, job, direction):
+    """
+    **18.112: الكابل اللي كل شرايحه عندها احتياطي كبير بيتخفف.** رن
+    المهندس طلّع كابلات خمسات على طول الدور وكل قطاعاتها تحت 0.70،
+    وقاعدة المجموعات ماكانتش بتلمسها لأنها بتدوّر على "بحر واحد على
+    الحد". هنا كل كابل بيتقاس لوحده: أسوأ شريحة بيقطعها بتحدد اللي
+    محتاجه، ولو كلها تحت الهامش الكبير بينزل لقد ما الأسوأ فيها
+    محتاجة عند الحد المستهدف. بترجّع (اتخفف, عدد الكابلات).
+    """
+    live = osh_live(tendons)
+    half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
+    big = float(getattr(params, "osh_margin_big", 0.70) or 0.70)
+    near = float(getattr(params, "osh_margin_near", 0.90) or 0.90)
+    n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    spans = state["ram_spans"]
+    removed, count = 0, 0
+    for t in live:
+        if osh_tendon_dir(t) != direction:
+            continue
+        n = int(t.get("strands") or 0)
+        if n <= n_min:
+            continue
+        keys = [k for k in osh_spans_of_tendon(t, spans, direction, half)
+                if k in state["spans"]]
+        if len(keys) < 2:
+            continue
+        u_max = max(max(state["spans"][k]["top"], state["spans"][k]["bottom"])
+                    for k in keys)
+        if u_max > big or u_max <= 0:
+            continue
+        new_n = osh_size_up(max(n_min, int(math.ceil(n * u_max / near - 1e-9))),
+                            params)
+        if new_n >= n:
+            continue
+        t["strands"] = new_n
+        t["_osh_reduced_by"] = n - new_n
+        t.setdefault("governing", {})["osh_reduced"] = n - new_n
+        removed += n - new_n
+        count += 1
+    if count:
+        job.ok(f"    {count} tendon(s) ({direction}) run only through strips "
+               f"under {big:.2f} of the limit: {removed} strand(s) taken off "
+               f"them, each cut to what its worst strip needs at {near:.2f}.")
+    return removed, count
 
 
 def osh_reduce_groups(state, tendons, params, site, job, direction, budget):
@@ -39203,8 +39281,13 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
         job.info(f"Direction {direction}:")
         snap = osh_snapshot(tendons)
         ref = state
+        for t in osh_live(tendons):
+            t.pop("_osh_reduced_by", None)
         removed, added = osh_reduce_groups(state, tendons, params, site, job,
                                            direction, budget)
+        r_solo, n_solo = osh_reduce_solo(state, tendons, params, site, job,
+                                         direction)
+        removed += r_solo
         joined = osh_join_inline(tendons, params, site, job, direction)
         gone, made = osh_remove_short_runs(tendons, params, site, job, direction)
         if removed == 0 and added == 0 and joined == 0 and gone == 0 and made == 0:
@@ -39217,8 +39300,9 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
             names = ", ".join(f"{state['spans'][k]['d'].get('name') or '?'}/{f}"
                               for k, f in new_bad if k in state["spans"])
             job.warn(f"    {len(new_bad)} section(s) that were safe are over "
-                     f"the limit now ({names}); a tendon is added over each "
-                     f"of those spans.")
+                     f"the limit now ({names}); the tendons through them get "
+                     f"their strands back, and a tendon is added where none "
+                     f"were cut.")
             fixed = 0
             for k, f in new_bad:
                 if k not in state["spans"]:
@@ -39226,6 +39310,20 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
                 rec = state["spans"][k]
                 d = rec["d"]
                 dd = rec["dir"]
+                #  18.112: التراجع المحلي الأول - اللي اتخفف على البحر ده
+                #  يرجع، قبل أي كابل جديد.
+                back = 0
+                for t in osh_tendons_in_span(osh_live(tendons), d, dd,
+                                             float(getattr(params, "osh_strip_half", 3.0) or 3.0)):
+                    r = int(t.pop("_osh_reduced_by", 0) or 0)
+                    if r > 0:
+                        t["strands"] = int(t.get("strands") or 0) + r
+                        back += r
+                if back:
+                    job.info(f"        {back} strand(s) put back on the tendons "
+                             f"through {d.get('name') or '?'}.")
+                    fixed += 1
+                    continue
                 t_in = osh_tendons_in_span(osh_live(tendons), d, dd,
                                            float(getattr(params, "osh_strip_half", 3.0) or 3.0))
                 donor = osh_band_donor(t_in, d, dd)
@@ -64467,6 +64565,10 @@ DEFAULT_MOVES_18_27 = (
     ("ai_effort", "high", "medium",
      "the model's deciding is 95% of the wait and the cost, and medium "
      "roughly halves it - put it back to high for a design going to RAM"),
+    #  **18.112.** القاعدة بقت على طول الكابل مش عدد بحوره، والحد 70%.
+    ("osh_span_ratio", "50", "70",
+     "the axis rule counts the failing length of a tendon, and the "
+     "agreed threshold is 70%"),
 )
 
 
