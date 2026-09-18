@@ -72,6 +72,7 @@ import json
 import threading
 import traceback
 import datetime
+import csv
 import hashlib
 import time
 import glob
@@ -84,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.125"
+APP_VERSION = "18.126"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -40618,7 +40619,198 @@ def floor_quantities(tendons, site, params, rebar_kg=None):
     q["total"] = q["cost_pt"] + q["cost_concrete"] + q["cost_rebar"]
     q["per_m2"] = q["total"] / area if area else 0.0
     q["currency"] = str(getattr(p, "cost_currency", "SAR") or "SAR")
+    #  18.126: المعدلات على المتر المسطح والأسعار اللي اتحسب بيها
+    q["prices"] = pr
+    q["h_mm"], q["h_drop_mm"], q["drop_area_m2"] = h, h_drop, drop_area
+    q["strand_area_mm2"] = kgm / STEEL_DENSITY_KG_M3 * 1e6
+    for k, src in (("strand_kg_m2", "strand_kg"), ("strand_m_m2", "strand_m"),
+                   ("concrete_m3_m2", "concrete_m3"), ("rebar_kg_m2_actual", "rebar_kg"),
+                   ("cost_pt_m2", "cost_pt"), ("cost_concrete_m2", "cost_concrete"),
+                   ("cost_rebar_m2", "cost_rebar")):
+        q[k] = q[src] / area if area else 0.0
     return q
+
+
+def cost_boq_rows(q):
+    """
+    18.126: بنود حصر الكميات - (رقم، البند، الوحدة، الكمية، سعر الوحدة،
+    الإجمالي، المجموعة). الإجماليات الفرعية والكلي مش هنا.
+    """
+    pr = q.get("prices") or {}
+    a = q["anchors"]
+    rows = [
+        (1, f"Prestressing strand {q['strand_area_mm2']:.0f} mm² (all tendons)", "kg",
+         q["strand_kg"], pr.get("price_strand_kg", 0.0), q["cost_strand"], "pt"),
+        (2, "Duct, small (tendons up to the small-duct strand count)", "m",
+         q["duct_small_m"], pr.get("price_duct_small_m", 0.0),
+         q["duct_small_m"] * pr.get("price_duct_small_m", 0.0), "pt"),
+        (3, "Duct, large", "m", q["duct_large_m"], pr.get("price_duct_large_m", 0.0),
+         q["duct_large_m"] * pr.get("price_duct_large_m", 0.0), "pt"),
+    ]
+    n = 4
+    for k in (2, 3, 4, 5):
+        rows.append((n, f"Anchorage S{k} (2 per {k}-strand tendon)", "pcs", a[k],
+                     pr.get(f"price_anchor_s{k}", 0.0), a[k] * pr.get(f"price_anchor_s{k}", 0.0), "pt"))
+        n += 1
+    rows.append((n, f"Concrete, slab {q['h_mm']:.0f} mm"
+                 + (f" + drops to {q['h_drop_mm']:.0f} mm" if q.get("drop_area_m2") else ""),
+                 "m³", q["concrete_m3"], pr.get("price_concrete_m3", 0.0), q["cost_concrete"], "concrete"))
+    rows.append((n + 1, f"Reinforcement ({q['rebar_source']})", "kg", q["rebar_kg"],
+                 pr.get("price_rebar_kg", 0.0), q["cost_rebar"], "rebar"))
+    return rows
+
+
+def cost_rate_rows(q):
+    """18.126: المعدلات على المتر المسطح - (البند، الوحدة، القيمة)."""
+    c = q["currency"]
+    return [
+        ("Slab area", "m²", q["area_m2"]),
+        ("Tendons / strands", "no.", f"{q['tendons']} / {q['strands']}"),
+        ("Strand", "kg/m²", q["strand_kg_m2"]),
+        ("Strand", "strand-m/m²", q["strand_m_m2"]),
+        ("Concrete", "m³/m²", q["concrete_m3_m2"]),
+        ("Reinforcement", "kg/m²", q["rebar_kg_m2_actual"]),
+        ("Post-tensioning cost", f"{c}/m²", q["cost_pt_m2"]),
+        ("Concrete cost", f"{c}/m²", q["cost_concrete_m2"]),
+        ("Reinforcement cost", f"{c}/m²", q["cost_rebar_m2"]),
+        ("Floor cost", f"{c}/m²", q["per_m2"]),
+    ]
+
+
+def _cost_table(after, before=None, model=""):
+    """
+    18.126: جدول التقرير كسطور (قوائم خلايا) - نفس المحتوى بيتكتب CSV
+    وإكسل. لو فيه "قبل" بيبقى فيه عمودين كمية/إجمالي قبل وبعد والتوفير.
+    """
+    c = after["currency"]
+    two = before is not None
+    out = [["Quantities and cost report", model],
+           ["Date", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")],
+           ["Program", f"{APP_NAME} {APP_VERSION}"],
+           ["Slab area (m²)", round(after["area_m2"], 1)],
+           ["Slab thickness (mm)", round(after["h_mm"])],
+           ["Currency", c], []]
+    if two:
+        out.append(["BILL OF QUANTITIES", "", "", "Before (file opened)", "", "",
+                    "After (file handed back)", "", "", "Saving"])
+        out.append(["No", "Item", "Unit", "Quantity", f"Unit price ({c})", f"Amount ({c})",
+                    "Quantity", f"Unit price ({c})", f"Amount ({c})", f"Amount ({c})"])
+    else:
+        out.append(["BILL OF QUANTITIES"])
+        out.append(["No", "Item", "Unit", "Quantity", f"Unit price ({c})", f"Amount ({c})"])
+    ra = cost_boq_rows(after)
+    rb = cost_boq_rows(before) if two else [None] * len(ra)
+    groups = (("pt", "Post-tensioning subtotal", "cost_pt"),
+              ("concrete", "Concrete subtotal", "cost_concrete"),
+              ("rebar", "Reinforcement subtotal", "cost_rebar"))
+    for g, label, key in groups:
+        for a, b in zip(ra, rb):
+            if a[6] != g:
+                continue
+            line = [a[0], a[1], a[2], round(a[3], 2), round(a[4], 2), round(a[5], 2)]
+            if two:
+                line = [b[0], b[1], b[2], round(b[3], 2), round(b[4], 2), round(b[5], 2),
+                        round(a[3], 2), round(a[4], 2), round(a[5], 2), round(b[5] - a[5], 2)]
+            out.append(line)
+        line = ["", label, "", "", "", round(after[key], 2)]
+        if two:
+            line = ["", label, "", "", "", round(before[key], 2), "", "", round(after[key], 2),
+                    round(before[key] - after[key], 2)]
+        out.append(line)
+    line = ["", "FLOOR TOTAL", "", "", "", round(after["total"], 2)]
+    if two:
+        line = ["", "FLOOR TOTAL", "", "", "", round(before["total"], 2), "", "",
+                round(after["total"], 2), round(before["total"] - after["total"], 2)]
+        pct = ((before["total"] - after["total"]) / before["total"] * 100.0) if before["total"] else 0.0
+        out.append(line)
+        out.append(["", "Saving (%)", "", "", "", "", "", "", "", round(pct, 1)])
+    else:
+        out.append(line)
+    out.append([])
+    out.append(["RATES PER SQUARE METRE", "", "", "Before", "After", "Saving"] if two
+               else ["RATES PER SQUARE METRE", "", "", "Value"])
+    out.append(["", "Item", "Unit"] + (["Before", "After", "Saving"] if two else ["Value"]))
+    rra = cost_rate_rows(after)
+    rrb = cost_rate_rows(before) if two else [None] * len(rra)
+    for a, b in zip(rra, rrb):
+        va = round(a[2], 3) if isinstance(a[2], float) else a[2]
+        if two:
+            vb = round(b[2], 3) if isinstance(b[2], float) else b[2]
+            sv = round(b[2] - a[2], 3) if isinstance(a[2], float) and isinstance(b[2], float) else ""
+            out.append(["", a[0], a[1], vb, va, sv])
+        else:
+            out.append(["", a[0], a[1], va])
+    out.append([])
+    out.append(["UNIT PRICES USED"])
+    names = (("price_strand_kg", "Strand", "kg"), ("price_duct_small_m", "Duct, small", "m"),
+             ("price_duct_large_m", "Duct, large", "m"), ("price_anchor_s2", "Anchorage S2", "pcs"),
+             ("price_anchor_s3", "Anchorage S3", "pcs"), ("price_anchor_s4", "Anchorage S4", "pcs"),
+             ("price_anchor_s5", "Anchorage S5", "pcs"), ("price_concrete_m3", "Concrete", "m³"),
+             ("price_rebar_kg", "Reinforcement", "kg"))
+    for k, label, unit in names:
+        out.append(["", label, f"{c}/{unit}", (after.get("prices") or {}).get(k, 0.0)])
+    return out
+
+
+def write_cost_report(path_base, after, before=None, model="", job=None):
+    """
+    **18.126: تقرير التكلفة في ملف منفصل مع ملفات الـ Temp.** حصر كل
+    البنود (كمية، سعر وحدة، إجمالي) والإجماليات الفرعية والكلي، ومساحة
+    السقف ومعدل الاسترند كجم/م² وتكلفة المتر المسطح، وقبل/بعد والتوفير
+    لو فيه نقطة بداية. CSV دايماً، وإكسل لو openpyxl موجودة.
+    بيرجّع قائمة الملفات اللي اتكتبت.
+    """
+    table = _cost_table(after, before, model)
+    written = []
+    csv_path = path_base + "_cost_report.csv"
+    try:
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.writer(f)
+            for line in table:
+                w.writerow(line)
+        written.append(csv_path)
+    except Exception as e:
+        if job:
+            job.warn(f"The cost report CSV could not be written: {e}")
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Cost"
+        bold = Font(bold=True)
+        fill_h = PatternFill("solid", fgColor="DDE7F0")
+        fill_t = PatternFill("solid", fgColor="E3F4E1")
+        for line in table:
+            ws.append(line)
+            i = ws.max_row
+            first = str(line[0]) if line else ""
+            second = str(line[1]) if len(line) > 1 else ""
+            if first in ("Quantities and cost report", "BILL OF QUANTITIES",
+                         "RATES PER SQUARE METRE", "UNIT PRICES USED") or first == "No":
+                for cell in ws[i]:
+                    cell.font = bold
+                    cell.fill = fill_h
+            elif second.endswith("subtotal") or second == "FLOOR TOTAL" or second == "Saving (%)":
+                for cell in ws[i]:
+                    cell.font = bold
+                    if second == "FLOOR TOTAL":
+                        cell.fill = fill_t
+            for cell in ws[i]:
+                if isinstance(cell.value, float):
+                    cell.number_format = "#,##0.00"
+                    cell.alignment = Alignment(horizontal="right")
+        widths = {1: 6, 2: 52, 3: 12}
+        for col in range(1, ws.max_column + 1):
+            ws.column_dimensions[get_column_letter(col)].width = widths.get(col, 16)
+        xlsx_path = path_base + "_cost_report.xlsx"
+        wb.save(xlsx_path)
+        written.append(xlsx_path)
+    except Exception as e:
+        if job:
+            job.info(f"No Excel cost report ({e}); the CSV has the same content.")
+    return written
 
 
 def cost_lines(q, title="Quantities and cost"):
@@ -40636,6 +40828,9 @@ def cost_lines(q, title="Quantities and cost"):
         f"    concrete: {q['concrete_m3']:,.1f} m³ on {q['area_m2']:,.0f} m² -> {q['cost_concrete']:,.0f} {c}",
         f"    rebar: {q['rebar_kg']:,.0f} kg ({q['rebar_source']}) -> {q['cost_rebar']:,.0f} {c}",
         f"    FLOOR TOTAL: {q['total']:,.0f} {c}  ({q['per_m2']:,.1f} {c}/m²)",
+        f"    per m²: strand {q['strand_kg_m2']:.2f} kg/m², post-tensioning "
+        f"{q['cost_pt_m2']:,.1f} {c}/m², concrete {q['concrete_m3_m2']:.3f} m³/m², "
+        f"rebar {q['rebar_kg_m2_actual']:.1f} kg/m²",
     ]
 
 
@@ -40660,10 +40855,13 @@ def cost_delta_lines(before, after):
 
 
 def cost_report(job, site, params, tendons_after, cpt_after=None,
-                tendons_before=None, cpt_before=None, title="Quantities and cost"):
+                tendons_before=None, cpt_before=None, title="Quantities and cost",
+                out_dir=None, stem=None):
     """
     بيكتب في اللوج تكلفة السقف (وقبل/بعد لو فيه نقطة بداية). الحديد من
     الملف المحفوظ لو فيه، وإلا تقدير. بيرجّع (before, after).
+    18.126: ولو فيه out_dir بيكتب كمان تقرير التكلفة المنفصل
+    (<stem>_cost_report.csv / .xlsx) في مجلد الرن.
     """
     if not bool(getattr(params, "cost_report", True)):
         return None, None
@@ -40680,6 +40878,15 @@ def cost_report(job, site, params, tendons_after, cpt_after=None,
         if before is not None:
             for line in cost_delta_lines(before, after):
                 (job.ok if "SAVING" in line else job.info)(line)
+        if out_dir and os.path.isdir(out_dir):
+            name = stem or (os.path.splitext(os.path.basename(cpt_after))[0]
+                            if cpt_after else "floor")
+            model = os.path.basename(cpt_after) if cpt_after else name
+            files = write_cost_report(os.path.join(out_dir, name), after, before,
+                                      model=model, job=job)
+            if files:
+                job.ok("Cost report: " + ", ".join(os.path.basename(f) for f in files)
+                       + f"  (in {out_dir})")
         return before, after
     except CancelledError:
         raise
@@ -40726,7 +40933,8 @@ def _review_cost(row, site, params, job):
         tb = tendons_from_cpt(row["path"], params, None)
         ta = tendons_from_cpt(row["output"], params, None) if row.get("output") else tb
         b, a = cost_report(job, site, params, ta, cpt_after=row.get("output"),
-                           tendons_before=tb, cpt_before=row["path"])
+                           tendons_before=tb, cpt_before=row["path"],
+                           out_dir=os.path.dirname(row["output"]) if row.get("output") else None)
         if b and a:
             row["cost_before"], row["cost_after"] = b["total"], a["total"]
             row["cost_saving"] = b["total"] - a["total"]
@@ -48042,6 +48250,7 @@ AR_UI.update({
     'Rebar estimate when the model has none designed (kg/m²)': 'تقدير الحديد عندما لا يوجد حديد مصمم في النموذج (كجم/م²)',
     'Used only when the saved model carries no designed rebar - a model drawn but not analysed, for example.': 'يُستخدم فقط عندما لا يحمل النموذج المحفوظ حديداً مصمماً - نموذج مرسوم ولم يُحلَّل مثلاً.',
     'Report quantities and cost after every run': 'اذكر الكميات والتكلفة بعد كل تشغيل',
+    "A separate cost report (<model>_cost_report.csv and .xlsx) goes into the run's Temp folder: every item with its quantity, unit price and amount, the subtotals, the slab area, the strand kg/m² and the cost per m², and before/after with the saving whenever the run starts from a model.": 'تقرير تكلفة منفصل (<model>_cost_report.csv و .xlsx) بينزل في مجلد Temp بتاع الرن: كل بند بكميته وسعر وحدته وإجماليه، الإجماليات الفرعية، مساحة السقف، معدل الاسترند كجم/م² وتكلفة المتر المسطح، وقبل/بعد مع التوفير كل ما الرن يبدأ من موديل.',
     'Optimum solution H': 'Optimum solution H',
     'Make every section pass, then take out what it does not need': 'اجعل كل قطاع يجتاز، ثم أخرج ما لا يحتاجه',
     'Works on a model that already has tendons - drawn a moment ago from the DXF, or a model you open. Three stages, each saved in its own file: (1) bottom sections: a tendon whose spans are mostly failing gets strands; otherwise a copy of the tendon over that span only, placed in the free lane nearest the column line (the strip between the slab edge and the first tendon counts). (2) top sections, only after the bottom ones: a high point at a drop-panel edge, the peak moved onto the support face where the mid-span has room, then strands or a tendon - the low points stay at mid-span, at the bottom, unless the setting below says otherwise. (3) the optimisation: groups with reserve give strands back to the one span at the limit, tendons in line are joined, and short pieces covering most of an axis become one tendon. The file handed back is never worse than the one saved at the end of stage 2.': 'يعمل على نموذج به كابلات بالفعل - رُسمت للتو من DXF، أو نموذج تفتحه. ثلاث مراحل، كل منها محفوظة في ملفها: (1) القطاعات السفلية: الكابل الذي معظم بحوره راسبة يأخذ استرندات؛ وإلا نسخة من الكابل فوق ذلك البحر فقط، توضع في أقرب مكان فاضٍ لخط الأعمدة (والفراغ بين حافة البلاطة وأول كابل يُحتسب). (2) القطاعات العلوية، بعد السفلية فقط: نقطة عالية عند حافة الدروب، ونقل القمة إلى وجه الركيزة حيث في منتصف البحر متسع، ثم استرندات أو كابل - النقاط المنخفضة تبقى في منتصف البحر وفي الأسفل ما لم يقل الإعداد أدناه غير ذلك. (3) التحسين: المجموعات التي لها احتياطي تعيد استرندات إلى البحر الوحيد الذي عند الحد، والكابلات المتوالية تُربط، والقطع القصيرة التي تغطي معظم محور تصير كابلاً واحداً. الملف المُعاد لا يكون أبداً أسوأ من المحفوظ في نهاية المرحلة 2.',
@@ -59585,6 +59794,10 @@ class AutoPTApp:
                 "Used only when the saved model carries no designed rebar - "
                 "a model drawn but not analysed, for example.")
         d.check("Report quantities and cost after every run", self.v["cost_report"])
+        d.text("A separate cost report (<model>_cost_report.csv and .xlsx) goes into the "
+               "run's Temp folder: every item with its quantity, unit price and amount, "
+               "the subtotals, the slab area, the strand kg/m² and the cost per m², "
+               "and before/after with the saving whenever the run starts from a model.")
         return outer
 
     def _set_osh(self, parent):
@@ -65246,7 +65459,7 @@ class AutoPTApp:
                 except Exception:
                     _t_after = osh_live(tendons)
                 cost_report(job, site, params, _t_after, cpt_after=res["best"],
-                            tendons_before=_t_before, cpt_before=cpt)
+                            tendons_before=_t_before, cpt_before=cpt, out_dir=out_dir)
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
                 job.log("=" * 62, "head")
@@ -65660,7 +65873,7 @@ class AutoPTApp:
                 except Exception:
                     _t_before = tendons
                 cost_report(job, site, params, _t_after, cpt_after=res["best"],
-                            tendons_before=_t_before, cpt_before=cpt)
+                            tendons_before=_t_before, cpt_before=cpt, out_dir=out_dir)
                 self._mark_output(res["best"])
                 job.step(1.0, "Done")
                 job.log("=" * 62, "head")
@@ -67109,7 +67322,8 @@ class AutoPTApp:
                         self._punching_after(session, site, params, job, tendons)
                 #  18.123: كميات السقف وتكلفته
                 cost_report(job, site, params, tendons,
-                            cpt_after=out_file if saved else None)
+                            cpt_after=out_file if saved else None, out_dir=out_dir,
+                            stem=os.path.splitext(os.path.basename(out_file))[0])
 
                 if not saved:
                     job.error("NOTHING WAS SAVED - every save attempt failed. "
