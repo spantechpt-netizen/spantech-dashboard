@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.113"
+APP_VERSION = "18.114"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3547,6 +3547,7 @@ class TendonDesignParams:
         self.osh_margin_near = float(kw.get("osh_margin_near", 0.90) or 0.90)
         self.osh_span_ratio = float(kw.get("osh_span_ratio", 70.0) or 70.0)
         self.osh_extend_m = float(kw.get("osh_extend_m", 3.0) or 3.0)
+        self.osh_low_shift = str(kw.get("osh_low_shift", "never") or "never")
         self.osh_low_shift_steps = str(kw.get("osh_low_shift_steps", "10, 20, 30")
                                        or "10, 20, 30")
         self.osh_drop_edge_tol = float(kw.get("osh_drop_edge_tol", 0.60) or 0.60)
@@ -37359,6 +37360,17 @@ OSH_ORDERS = {
     "X first": "x",
     "Y first": "y",
 }
+#  **18.114: الغطسة في نص البحر وفي قاع البلاطة هي الأولوية.** رن المهندس
+#  (18.111) طلّع إن زحزحة الغطسة 10/20/30% ناحية الطرف الراسب - مع الرفع
+#  اللي نصف القطر الأدنى بيفرضه - ماساعدتش القطاع العلوي (19-1: 1.67 →
+#  1.73) وكسرت قطاعات سفلية كانت سليمة (42-2: 0.97 → 1.25)، وهو نفسه
+#  سيّف البحرين بغطسة في النص وفي القاع. فالافتراضي بقى "أبداً"، و"آخر
+#  حل" بيجرّبها بس لما الاسترندات والكابل مايتضافوش ويرجّعها لو ماساعدتش.
+OSH_LOW_SHIFTS = {
+    "Never: the low points stay at mid-span, at the bottom of the slab": "never",
+    "Last resort: only when no strand or tendon can be added, undone if it does not help": "last",
+    "Before adding: 10/20/30% steps toward the failing end, then a tendon": "first",
+}
 
 
 def osh_live(tendons):
@@ -38496,8 +38508,13 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
     """
     كل بحر راسب على الوش العلوي في الاتجاه ده بيتقدّم خطوة واحدة في
     الجولة دي حسب مرحلته: حافة الدروب → القمة على الوش → النهايتين ولا
-    نهاية → زحزحة الغطسة 10/20/30 → إضافة. `stages` بتفضل بين الجولات.
-    بترجّع (عدد الأفعال, بحور استنفدت علاجها).
+    نهاية → إضافة (استرندات على المحور ثم كابل). `stages` بتفضل بين
+    الجولات. بترجّع (عدد الأفعال, بحور استنفدت علاجها).
+
+    **18.114:** زحزحة الغطسة ناحية الطرف الراسب بقت حسب `osh_low_shift`:
+    "never" (الافتراضي) الغطسة بتفضل في نص البحر وفي القاع؛ "last" بتتجرّب
+    بس لما الاسترندات والكابل مايتضافوش، وبتترجّع لو الجولة الجاية ماوّرتش
+    تحسّن؛ "first" هي سلّم 18.103 القديم (قبل الإضافة) مع نفس التراجع.
     """
     live = osh_live(tendons)
     half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
@@ -38509,6 +38526,9 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
                   or "10, 20, 30").replace(";", ",").split(",") if x.strip()]
     if not shifts:
         shifts = [0.10, 0.20, 0.30]
+    shift_mode = str(getattr(params, "osh_low_shift", "never") or "never")
+    if shift_mode == "never":
+        shifts = []
     n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
     n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
     drops = (site or {}).get("drops") or []
@@ -38672,6 +38692,31 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
                 st["step"] = "done"
             continue
 
+        #  18.114: الغطسة اللي اتحركت الجولة اللي فاتت بتتقاس هنا: لو
+        #  القراءة ماتحسّنتش بترجع مكانها (نص البحر، في القاع).
+        snap = st.pop("_shift_snap", None)
+        if snap is not None:
+            u0 = float(st.pop("_shift_u", worst["u"]))
+            if worst["u"] > u0 - 0.02:
+                for q, saved in snap:
+                    q.clear()
+                    q.update(saved)
+                for t in t_in:
+                    t.pop("_osh_lift_mm", None)
+                st["shift"] = len(shifts)
+                actions += 1
+                job.warn(f"        the low points moved last round did not help "
+                         f"this section ({u0:.2f} -> {worst['u']:.2f}): they go "
+                         f"back to mid-span, at the bottom, and are not moved "
+                         f"again.")
+                if shift_mode == "last":
+                    st["step"] = "done"
+                    exhausted.append((label, "everything tried"))
+                    continue
+                st["step"] = "add"
+            else:
+                job.info(f"        the moved low points helped ({u0:.2f} -> "
+                         f"{worst['u']:.2f}); they stay.")
         step = st["step"]
         if step == "drop":
             st["step"] = "peaks"
@@ -38738,46 +38783,93 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
                 st["step"] = "add"
                 st["adds"] += 1 if made else 0
                 if not made:
-                    exhausted.append((label, "no room"))
-                    st["step"] = "done"
-                continue
-            st["step"] = "shift"
-            step = "shift"
-        if step == "shift":
-            i = int(st.get("shift", 0))
-            if i < len(shifts):
-                frac = shifts[i]
-                n_mv = sum(osh_shift_lows(t, d, end_xy, frac, params) for t in t_in)
-                lift = max([float(t.get("_osh_lift_mm") or 0.0) for t in t_in] or [0.0])
-                st["shift"] = i + 1
-                if n_mv:
-                    actions += n_mv
-                    job.ok(f"        one end over: {n_mv} low point(s) moved "
-                           f"{100 * frac:.0f}% of the span toward it"
-                           + (f", raised up to {lift:.0f} mm to keep the "
-                              f"minimum radius" if lift > 0 else "")
-                           + "; re-analysing.")
+                    step = "shift" if shift_mode == "last" and shifts else "done"
+                    st["step"] = step
+                    if step == "done":
+                        exhausted.append((label, "no room"))
+                        continue
+                else:
                     continue
-                job.info("        no low point could move: none inside the "
-                         "span, or the move would put it above the peak "
-                         "beside it.")
+            else:
+                step = "shift" if shift_mode == "first" and shifts else "add"
+                st["step"] = step
+
+        def try_shift():
+            """خطوة زحزحة واحدة؛ True لو حاجة اتحركت (نحلل)، وإلا False."""
+            import copy
+            i = int(st.get("shift", 0))
+            if i >= len(shifts):
+                return False
+            frac = shifts[i]
+            #  الصورة بتتاخد للنقط نفسها (الزحزحة بتعدّلها في مكانها)، مش
+            #  للبروفايل كله: البحرين على نفس العامود بيشتركوا في الكابلات،
+            #  ورجوع بروفايل كامل كان بيرجّع زحزحة البحر التاني معاه.
+            snap = []
+            for t in t_in:
+                prof = t.get("profile") or []
+                if len(prof) < 3:
+                    continue
+                sa, _ = _station_of(prof, d["a"])
+                sb, _ = _station_of(prof, d["b"])
+                lo_s, hi_s = sorted((sa, sb))
+                for q, s_q in zip(prof, osh_stations(prof)):
+                    if q.get("sag") and lo_s - 1e-6 <= s_q <= hi_s + 1e-6:
+                        snap.append((q, dict(q)))
+            n_mv = sum(osh_shift_lows(t, d, end_xy, frac, params) for t in t_in)
+            lift = max([float(t.get("_osh_lift_mm") or 0.0) for t in t_in] or [0.0])
+            st["shift"] = i + 1
+            if n_mv:
+                st["_shift_snap"] = snap
+                st["_shift_u"] = float(worst["u"])
+                job.ok(f"        one end over: {n_mv} low point(s) moved "
+                       f"{100 * frac:.0f}% of the span toward it"
+                       + (f", raised up to {lift:.0f} mm to keep the "
+                          f"minimum radius" if lift > 0 else "")
+                       + "; re-analysing - put back if the reading does not "
+                       "improve.")
+                return True
+            job.info("        no low point could move: none inside the "
+                     "span, or the move would put it above the peak "
+                     "beside it.")
+            st["shift"] = len(shifts)
+            return False
+
+        if step == "shift" and shift_mode == "first":
+            if try_shift():
+                actions += 1
+                continue
             st["step"] = "add"
             step = "add"
         if step == "add":
             if int(st.get("adds", 0)) >= 3:
-                st["step"] = "done"
                 exhausted.append((label, "three additions"))
-                continue
-            job.info("        still over: a tendon is added over the span"
-                     + (" (sized on what the last one did)" if st.get("adds")
-                        else "") + ".")
-            made = add_over(d, rows, t_in, label, "t", key=key)
-            actions += made
-            if not made:
-                exhausted.append((label, "no room"))
-                st["step"] = "done"
+                step = "shift" if shift_mode == "last" and shifts else "done"
+                st["step"] = step
+                if step == "done":
+                    continue
             else:
-                st["adds"] += 1
+                job.info("        still over: a tendon is added over the span"
+                         + (" (sized on what the last one did)" if st.get("adds")
+                            else "") + ".")
+                made = add_over(d, rows, t_in, label, "t", key=key)
+                actions += made
+                if made:
+                    st["adds"] += 1
+                    continue
+                step = "shift" if shift_mode == "last" and shifts else "done"
+                st["step"] = step
+                if step == "done":
+                    exhausted.append((label, "no room"))
+                    continue
+        if step == "shift" and shift_mode == "last":
+            if int(st.get("shift", 0)) == 0:
+                job.info("        nothing more can be added here, so as a last "
+                         "resort the low points move toward the failing end.")
+            if try_shift():
+                actions += 1
+                continue
+            st["step"] = "done"
+            exhausted.append((label, "everything tried"))
             continue
         if step == "done":
             exhausted.append((label, "everything tried"))
@@ -39263,7 +39355,9 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
         if did == 0:
             job.warn("Every top section still over the limit has had every "
                      "step tried (drop-edge high point, peak on the support "
-                     "face, low points moved, tendon added). Moving on.")
+                     "face, strands and a tendon added"
+                     + (", low points moved" if getattr(params, "osh_low_shift", "never") != "never" else "")
+                     + "). Moving on.")
             break
         state = osh_cycle(session, tendons, params, site, mesh_size, job,
                           out_dir, stem, f"top_r{rnd}")
@@ -53576,8 +53670,8 @@ def job_plan(start, what, method="balance"):
                           "on the tendons whose spans mostly fail, or a "
                           "copy of the tendon over the span",
                           "stage 2: make the top sections pass - drop-edge "
-                          "high point, peak on the support face, low points "
-                          "moved, then a tendon",
+                          "high point, peak on the support face, then "
+                          "strands or a tendon (low points stay at mid-span)",
                           "save that as the safe copy",
                           "stage 3: optimise - give strands back where "
                           "there is reserve, join tendons in line, replace "
@@ -53719,7 +53813,7 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "band_moment_face",
     "osh_start", "osh_sizing", "osh_dir_order", "osh_margin_big",
     "osh_margin_near", "osh_span_ratio", "osh_extend_m",
-    "osh_low_shift_steps", "osh_drop_edge_tol", "osh_strip_half",
+    "osh_low_shift", "osh_low_shift_steps", "osh_drop_edge_tol", "osh_strip_half",
     "osh_optimise", "osh_axis_short_pct", "osh_merge_gap_m",
     "osh_merge_across", "osh_rounds",
 )
@@ -55555,6 +55649,7 @@ class AutoPTApp:
             "osh_margin_near": V(value="90"),
             "osh_span_ratio": V(value="70"),
             "osh_extend_m": V(value="3.0"),
+            "osh_low_shift": V(value=list(OSH_LOW_SHIFTS)[0]),
             "osh_low_shift_steps": V(value="10, 20, 30"),
             "osh_drop_edge_tol": V(value="0.6"),
             "osh_strip_half": V(value="3.0"),
@@ -57037,8 +57132,9 @@ class AutoPTApp:
                "the tendon over that span only, placed in the widest gap. "
                "(2) top sections, only after the bottom ones: a high point "
                "at a drop-panel edge, the peak moved onto the support face "
-               "where the mid-span has room, the low points shifted toward "
-               "the failing end in steps, then a tendon added. (3) the "
+               "where the mid-span has room, then strands or a tendon - the "
+               "low points stay at mid-span, at the bottom, unless the "
+               "setting below says otherwise. (3) the "
                "optimisation: groups with reserve give strands back to the "
                "one span at the limit, tendons in line are joined, and "
                "short pieces covering most of an axis become one tendon. "
@@ -57118,12 +57214,20 @@ class AutoPTApp:
                 "First check: is there a high point between the drop edge "
                 "and the column? If not, one is added and the model is "
                 "analysed again; if there is, tendons are added.")
-        c.entry("Move the low points toward the failing end by (% of span, "
-                "in steps)", self.v["osh_low_shift_steps"],
-                "When one end of the strip fails and the mid-span bottom is "
-                "near its limit, the low points move this much per round, "
-                "analysed after each step. Beyond the last step a tendon is "
-                "added.")
+        c.combo("Low points", self.v["osh_low_shift"], list(OSH_LOW_SHIFTS),
+                "The low point at mid-span, at the bottom cover, gives the "
+                "span its full drape and balances the most load, and that "
+                "is what the engineer keeps by hand. Moving it toward a "
+                "failing support shortens the drape and the minimum radius "
+                "lifts it, so on a real floor it made the top readings "
+                "worse and broke bottom sections that were passing. It is "
+                "off by default; 'last resort' tries it only after strands "
+                "and a tendon could not be added, and puts the points back "
+                "when the next analysis shows no gain.")
+        c.entry("...and if they do move: by (% of span, in steps)",
+                self.v["osh_low_shift_steps"],
+                "One step per round, analysed after each. Used only by the "
+                "two moving choices above.")
 
         c = Card(left, "Optimisation", "Stage 3", icon="◆")
         c.pack(fill="x")
@@ -61025,6 +61129,7 @@ class AutoPTApp:
             osh_margin_near=self._num("osh_margin_near", 90.0) / 100.0,
             osh_span_ratio=self._num("osh_span_ratio", 70.0),
             osh_extend_m=self._num("osh_extend_m", 3.0),
+            osh_low_shift=OSH_LOW_SHIFTS.get(v["osh_low_shift"].get(), "never"),
             osh_low_shift_steps=(str(v["osh_low_shift_steps"].get() or "").strip()
                                  or "10, 20, 30"),
             osh_drop_edge_tol=self._num("osh_drop_edge_tol", 0.6),
