@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.110"
+APP_VERSION = "18.111"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3556,6 +3556,7 @@ class TendonDesignParams:
         self.osh_merge_gap_m = float(kw.get("osh_merge_gap_m", 3.0) or 3.0)
         self.osh_merge_across = float(kw.get("osh_merge_across", 0.25) or 0.25)
         self.osh_rounds = int(kw.get("osh_rounds", 6) or 6)
+        self.osh_step_max = int(kw.get("osh_step_max", 3) or 3)
         #  الفحص المقطعي بيتقرا من رام نفسه بعد تحليل كل دورة، بدل
         #  التصدير بالإيد والوقفة. لو القراية فشلت الدورة بترجع للوقفة.
         self.efm_read_ram = bool(kw.get("efm_read_ram", True))
@@ -38162,6 +38163,40 @@ def osh_shift_lows(t, d, toward_xy, frac, params):
 #  صور للتراجع
 # ---------------------------------------------------------------------------
 
+def osh_centre_low(t, d, params, tol_frac=0.05):
+    """
+    الغطسة الوحيدة جوّه البحر ده بترجع لنص البحر لو بعيدة عنه أكتر من
+    `tol_frac` من طوله (18.111). بترجّع 1 لو اتحركت.
+    """
+    prof = t.get("profile") or []
+    if len(prof) < 3:
+        return 0
+    st = osh_stations(prof)
+    sa, _ = _station_of(prof, d["a"])
+    sb, _ = _station_of(prof, d["b"])
+    lo, hi = sorted((sa, sb))
+    L = hi - lo
+    if L < 1.0:
+        return 0
+    idx = [i for i in range(1, len(prof) - 1)
+           if prof[i].get("sag") and lo < st[i] < hi]
+    if len(idx) != 1:
+        return 0
+    i = idx[0]
+    mid = (lo + hi) / 2.0
+    if abs(st[i] - mid) <= tol_frac * L:
+        return 0
+    gap = max(0.5, float(getattr(params, "min_point_gap", 0.5) or 0.5))
+    new = max(st[i - 1] + gap, min(st[i + 1] - gap, mid))
+    if abs(new - st[i]) < 0.05:
+        return 0
+    q = prof[i]
+    q["pos"] = _profile_point_at(prof, new)
+    q.pop("_s", None)
+    q.pop("_osh_base_s", None)
+    return 1
+
+
 def osh_snapshot(tendons):
     import copy
     return [(t, copy.deepcopy({k: v for k, v in t.items() if k != "path"}))
@@ -38262,7 +38297,7 @@ def osh_fail_share(t, fail_ds, half):
 # ---------------------------------------------------------------------------
 
 def osh_bottom_round(state, tendons, params, site, job, direction, budget,
-                     hist=None):
+                     hist=None, stages=None):
     """
     كل بحر راسب على الوش السفلي في الاتجاه ده بياخد علاجه في الجولة دي.
 
@@ -38279,10 +38314,12 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget,
     extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
     n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
     n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
+    step_max = max(1, int(getattr(params, "osh_step_max", 3) or 3))
     fail_keys = [k for (k, f) in state["fail"]
                  if f == "bottom" and state["spans"][k]["dir"] == direction]
     fail_ds = [state["spans"][k]["d"] for k in fail_keys]
     strands_added, tendons_added, treated, stuck = 0, 0, 0, []
+    stages = stages if stages is not None else {}
     n_start = {id(t): int(t.get("strands") or 0) for t in live}
     _share = {}
 
@@ -38328,6 +38365,33 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget,
                  + (f", {len(grp)} spans on one axis" if len(grp) > 1 else "")
                  + f"): worst {u_worst:.2f} of the limit, {len(t_in)} tendon(s) "
                  f"with {n_tot} strands - needs about {need} more.")
+        #  **18.111: الهندسة قبل الحديد.** أول مرة البحر ده يتعالج: القمم
+        #  اللي جنب طرفيه بتتحط على وش الركيزة (مش على حافة الدروب)
+        #  والغطسة بترجع لنص البحر - وده اللي المهندس عمله بإيده وسيّف
+        #  البحر بـ 3 استرندات بدل 5. لو حاجة اتحركت بنحلل الأول.
+        gk = tuple(sorted(str(k) for k, _d in grp))
+        stg = stages.setdefault(gk, {"geom": False})
+        if not stg["geom"] and t_in:
+            stg["geom"] = True
+            n_g = 0
+            for t in t_in:
+                for k, d in grp:
+                    for exy in (d["a"], d["b"]):
+                        n_g += osh_peak_to_face(t, d, exy, site, params, direction)
+                    n_g += osh_centre_low(t, d, params)
+            if n_g:
+                treated += 1
+                strands_added += 0
+                job.ok(f"        geometry first: {n_g} point(s) put where they "
+                       f"belong - high points on the support faces, the low "
+                       f"point at mid-span - on {len(t_in)} tendon(s); "
+                       f"re-analysing before any strand is added.")
+                stuck.append((label, "geometry"))
+                continue
+        if need > step_max:
+            job.info(f"        capped at {step_max} strand(s) this round; the "
+                     f"next round measures what they did before adding more.")
+            need = step_max
         if need <= 0:
             job.info("        already covered by what this round put on the "
                      "same tendons for a neighbouring span.")
@@ -38470,6 +38534,11 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
             return 0
         if need <= 0:
             need = max(1, int(getattr(params, "min_strands", 2) or 2))
+        step_max = max(1, int(getattr(params, "osh_step_max", 3) or 3))
+        if need > step_max:
+            job.info(f"        capped at {step_max} strand(s) this round; the "
+                     f"next round measures what they did before adding more.")
+            need = step_max
         left = osh_budget_left(tendons, params, budget)
         if left is not None and left <= 0:
             job.warn("        the strand budget is used up - nothing added.")
@@ -39066,6 +39135,7 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
 
     # ---------------- المرحلة 1
     hist_b, hist_t = {}, {}
+    stages_b = {}
     if over_count(state, "bottom") == 0:
         job.ok("Stage 1: no bottom section is over the limit.")
     for rnd in range(1, rounds_max + 1):
@@ -39076,8 +39146,8 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
         for direction in order:
             s_add, t_add, treated, stuck = osh_bottom_round(
                 state, tendons, params, site, job, direction, budget,
-                hist=hist_b)
-            did += s_add + t_add
+                hist=hist_b, stages=stages_b)
+            did += s_add + t_add + sum(1 for _l, why in stuck if why == "geometry")
         if did == 0:
             job.warn("Nothing more can be added for the bottom sections "
                      "(strand limit, no room, or budget). Moving on.")
@@ -55386,6 +55456,7 @@ class AutoPTApp:
             "osh_merge_gap_m": V(value="3.0"),
             "osh_merge_across": V(value="0.25"),
             "osh_rounds": V(value="6"),
+            "osh_step_max": V(value="3"),
             "bakeoff_a": V(value=AI_MODEL_DEFAULT),
             "bakeoff_b": V(value=""),
             "bakeoff_c": V(value=""),
@@ -56913,6 +56984,14 @@ class AutoPTApp:
                 "that gets one tendon over the failing spans of that axis "
                 "together - never one short piece per span on top of "
                 "another.")
+        c.entry("Strands added to one span per round, at most",
+                self.v["osh_step_max"],
+                "A ceiling on what one round may put on a span. The next "
+                "round measures what those strands did before adding more, "
+                "so a span is never given five where three would do. "
+                "Before any strand, the first round puts the high points on "
+                "the support faces and the low point at mid-span and "
+                "analyses that alone.")
         c.entry("New tendon runs past each end of the span by (m)",
                 self.v["osh_extend_m"],
                 "The copy keeps the span's points and levels and is "
@@ -60848,6 +60927,7 @@ class AutoPTApp:
             osh_merge_gap_m=self._num("osh_merge_gap_m", 3.0),
             osh_merge_across=self._num("osh_merge_across", 0.25),
             osh_rounds=int(self._num("osh_rounds", 6)),
+            osh_step_max=int(self._num("osh_step_max", 3)),
             code_balance_ratio=self._num("code_balance_ratio", 0.65),
             code_dist_spacing=self._num("code_dist_spacing", 0.0),
             band_pitch=self._num("band_pitch", 0.30),
