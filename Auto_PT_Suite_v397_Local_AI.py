@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.121"
+APP_VERSION = "18.122"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -47330,6 +47330,7 @@ _DRAWING_COLOURS = {
     "opening": "#e05a5a",
     "column": "#12496f",
     "wall": "#6b7d8c",
+    "arch_wall": "#b9a184",
     "beam": "#9a6a2a",
     "pour_strip": "#c9772e",
     "tendon_x": "#1668b8",
@@ -47731,6 +47732,7 @@ class PlanCanvas(tk.Canvas):
             "slab": True, "drop": True, "opening": True, "column": True,
             "wall": True, "beam": True, "tendon_x": True, "tendon_y": True,
             "pour_strip": True,
+            "arch_wall": True,
             "points": False,
             "band": True,
             "groups": True,
@@ -47862,6 +47864,14 @@ class PlanCanvas(tk.Canvas):
                 px = max(2, int(w.get("width", 250) / 1000.0 * self.scale_f))
                 self.create_line(a[0], a[1], c[0], c[1], fill=PALETTE["wall"],
                                  width=min(px, 18), capstyle="butt")
+        #  18.122: الحوائط المعمارية (أحمال خطية، مش ركائز) بلون فاتح
+        #  ومتقطّعة، ولها زرار إظهار/إخفاء في شاشة المراجعة.
+        if self.show.get("arch_wall"):
+            for w in s.get("arch_walls", []) or []:
+                a, c = self.t(w["p1"]), self.t(w["p2"])
+                px = max(1, int((w.get("width") or 200) / 1000.0 * self.scale_f))
+                self.create_line(a[0], a[1], c[0], c[1], fill=PALETTE["arch_wall"],
+                                 width=min(px, 12), capstyle="butt", dash=(6, 3))
 
         if self.show["column"]:
             for c in s.get("columns", []):
@@ -49013,7 +49023,7 @@ class ReviewDialog(ModalDialog):
 
     def __init__(self, parent, title, site, tendons=None, headline="", rows=None,
                  notes=None, confirm_text="Continue", support_lines=None,
-                 bands=None, params=None, drops=None):
+                 bands=None, params=None, drops=None, back_text=None):
         super().__init__(parent, title, 1060, 720)
 
         head = tk.Frame(self, bg=PALETTE["brand"], height=S(62))
@@ -49049,6 +49059,8 @@ class ReviewDialog(ModalDialog):
 
         toggles = [("slab", "Boundary"), ("drop", "Drops"), ("opening", "Openings"),
                    ("column", "Columns"), ("wall", "Walls"), ("beam", "Beams")]
+        if (site or {}).get("arch_walls"):
+            toggles.append(("arch_wall", "Arch. walls"))
         if tendons:
             toggles += [("tendon_x", "X tendons"), ("tendon_y", "Y tendons"),
                         ("points", "High points")]
@@ -49065,6 +49077,10 @@ class ReviewDialog(ModalDialog):
         ttk.Button(foot, text=confirm_text, style="Primary.TButton",
                    command=self._go).pack(side="left")
         ttk.Button(foot, text="Cancel run", command=self._cancel).pack(side="left", padx=8)
+        if back_text:
+            #  18.122: الرجوع لشاشة الليّرات - الخطأ ساعات في الليّر مش
+            #  في الرسمة، والرن مايتلغيش عشان كده.
+            ttk.Button(foot, text=back_text, command=self._back).pack(side="left")
         #  التعديل باليد قبل الكتابة: نفس الليستة اللي هتتكتب بتتعدّل في
         #  المحرّر، فأي مسح هنا بيروح على الرام على طول.
         if tendons and params is not None:
@@ -49122,6 +49138,10 @@ class ReviewDialog(ModalDialog):
 
     def _go(self):
         self.result = "continue"
+        self.destroy()
+
+    def _back(self):
+        self.result = "layers"
         self.destroy()
 
 
@@ -63044,7 +63064,40 @@ class AutoPTApp:
         finally:
             self.root.after(0, self._finish)
 
-    def _confirm_layers(self, dxf, job):
+    def _geometry_summary(self, site):
+        """صفوف الملخص وملاحظات شاشة مراجعة الهندسة (18.122: في مكان واحد)."""
+        area = site_plan_area(site) or polygon_area(site["boundary"])
+        open_area = sum(polygon_area(o) for o in site["openings"])
+        x0, y0, x1, y1 = bbox_of(list(site["boundary"])
+                                 + [q for pc in (site.get("pieces") or []) for q in pc])
+        geo_rows = [
+            ("Slab area", f"{area - open_area:,.1f} m²"),
+            ("Overall size", f"{x1 - x0:,.1f} × {y1 - y0:,.1f} m"),
+            ("Slab areas", len(site["slabs"])),
+            ("Drop panels", len(site["drops"])),
+            ("Openings", f"{len(site['openings'])} ({open_area:,.1f} m²)"),
+            ("Columns", len(site["columns"])),
+            ("Walls", len(site["walls"])),
+            ("Beams", len(site["beams"])),
+        ]
+        if site.get("arch_walls"):
+            geo_rows.append(("Architectural walls", len(site["arch_walls"])))
+        geo_notes = []
+        if not site["columns"] and not site["walls"]:
+            geo_notes.append("No columns and no walls - the profile has no supports to peak "
+                             "over, so every tendon will come out nearly straight.")
+        if area > 20000:
+            geo_notes.append(f"Slab area {area:,.0f} m² is unusually large. "
+                             f"Check that the drawing unit is correct.")
+        if area < 5:
+            geo_notes.append(f"Slab area {area:,.2f} m² is far too small. "
+                             f"The drawing unit is probably wrong.")
+        if not geo_notes:
+            geo_notes.append("Geometry read with no warnings. Review the shape in the preview "
+                             "before continuing.")
+        return geo_rows, geo_notes
+
+    def _confirm_layers(self, dxf, job, force_ask=False):
         """
         **شاشة تأكيد الليّرات والوحدة - لكل وضع بيقرا DXF.**
 
@@ -63071,7 +63124,7 @@ class AutoPTApp:
         #  (أ) جوّه نفس الرن: اللي اتأكد في المرحلة الأولى بيتنقل
         #      للتانية زي ما هو - الشاشة مبتظهرش تاني أبدًا.
         locked = getattr(self, "_layer_choice", None)
-        if locked and sorted(locked.get("names") or []) == sorted(names):
+        if locked and sorted(locked.get("names") or []) == sorted(names) and not force_ask:
             job.info("Layer mapping carried over from the first pass - "
                      "not asking again in this run.")
             return {"roles": dict(locked["roles"]), "unit": locked["unit"],
@@ -63087,6 +63140,16 @@ class AutoPTApp:
         ask = bool(self.v["confirm_layers"].get())
         if saved and not self.v["layer_ask_again"].get():
             ask = False
+        if force_ask:
+            #  18.122: رجوع من شاشة مراجعة الهندسة - الشاشة بتتفتح على
+            #  آخر اختيار (بتاع الرن ده أو المحفوظ) عشان يتعدّل السطر الغلط بس.
+            if locked and sorted(locked.get("names") or []) == sorted(names):
+                roles = dict(locked["roles"])
+                unit_label = locked.get("unit") or unit_label
+            for l in layers:
+                if l["name"] in roles:
+                    l["role"] = roles[l["name"]]
+            ask = True
 
         if ask:
             res = self.bridge.ask(
@@ -64539,42 +64602,36 @@ class AutoPTApp:
             apply_experience(params, site, job)
             #  17.54: الكمرات العريضة قبل المعاينة، عشان تبان كمرات
             mark_band_beams(site, params, job)
-            area = site_plan_area(site) or polygon_area(site["boundary"])
-            open_area = sum(polygon_area(o) for o in site["openings"])
-            x0, y0, x1, y1 = bbox_of(list(site["boundary"])
-                                     + [q for pc in (site.get("pieces") or []) for q in pc])
-
-            geo_rows = [
-                ("Slab area", f"{area - open_area:,.1f} m²"),
-                ("Overall size", f"{x1 - x0:,.1f} × {y1 - y0:,.1f} m"),
-                ("Slab areas", len(site["slabs"])),
-                ("Drop panels", len(site["drops"])),
-                ("Openings", f"{len(site['openings'])} ({open_area:,.1f} m²)"),
-                ("Columns", len(site["columns"])),
-                ("Walls", len(site["walls"])),
-                ("Beams", len(site["beams"])),
-            ]
-
-            geo_notes = []
-            if not site["columns"] and not site["walls"]:
-                geo_notes.append("No columns and no walls - the profile has no supports to peak "
-                                 "over, so every tendon will come out nearly straight.")
-            if area > 20000:
-                geo_notes.append(f"Slab area {area:,.0f} m² is unusually large. "
-                                 f"Check that the drawing unit is correct.")
-            if area < 5:
-                geo_notes.append(f"Slab area {area:,.2f} m² is far too small. "
-                                 f"The drawing unit is probably wrong.")
-            if not geo_notes:
-                geo_notes.append("Geometry read with no warnings. Review the shape in the preview "
-                                 "before continuing.")
-
+            geo_rows, geo_notes = self._geometry_summary(site)
             if self.v["confirm_geometry"].get():
-                res = self.bridge.ask(lambda: ReviewDialog(
-                    self.root, "Review the geometry read from the DXF", site, None,
-                    headline="This is what the program understood from the drawing. Review it before writing to RAM.",
-                    rows=geo_rows, notes=geo_notes,
-                    confirm_text="Geometry is correct - continue").show())
+                def _geo_review(site, rows, notes):
+                    return self.bridge.ask(lambda: ReviewDialog(
+                        self.root, "Review the geometry read from the DXF", site, None,
+                        headline="This is what the program understood from the drawing. Review it before writing to RAM.",
+                        rows=rows, notes=notes,
+                        confirm_text="Geometry is correct - continue",
+                        back_text=("←  Back to the layer mapping" if dxf else None)).show())
+                res = _geo_review(site, geo_rows, geo_notes)
+                #  18.122: "ارجع للّيّرات" - الخريطة بتتفتح تاني على آخر
+                #  اختيار، الرسمة بتتقرا من جديد، والمراجعة بتظهر تاني.
+                while res == "layers" and dxf:
+                    job.info("Back to the layer mapping at your request.")
+                    got = self._confirm_layers(dxf, job, force_ask=True)
+                    if got is None:
+                        return
+                    roles, unit_label = got["roles"], got["unit"]
+                    job.check()
+                    site = parse_dxf(dxf, roles, unit_label, job)
+                    wall_udl_check(site, params, job)
+                    if not site.get("boundary"):
+                        job.error("No valid slab boundary found. Check that the "
+                                  "boundary layer is mapped correctly and that "
+                                  "the contour is closed or its lines meet.")
+                        return
+                    apply_experience(params, site, job)
+                    mark_band_beams(site, params, job)
+                    geo_rows, geo_notes = self._geometry_summary(site)
+                    res = _geo_review(site, geo_rows, geo_notes)
                 if res != "continue":
                     job.warn("Cancelled at the geometry review dialog.")
                     return
