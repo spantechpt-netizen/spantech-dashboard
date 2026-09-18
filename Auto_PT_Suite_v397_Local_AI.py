@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.124"
+APP_VERSION = "18.125"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -48943,11 +48943,15 @@ def tr(text):
 def _tr_widget(base):
     """نسخة من كلاس ويدجت بتترجم `text` وتحاذي العربي يمين."""
 
+    #  18.125: `justify` للّيبل بس - زرار ttk وCheckbutton ttk مايقبلوش
+    #  الخيار ده، وكان بيرمي TclError جوّه إعادة بناء الشاشة فتفضل فاضية.
+    can_justify = base.__name__ == "Label"
+
     class Translated(base):
         def __init__(self, master=None, cnf=None, **kw):
             if "text" in kw:
                 kw["text"] = tr(kw["text"])
-                if _has_arabic(kw["text"]):
+                if can_justify and _has_arabic(kw["text"]):
                     kw.setdefault("justify", "right")
             if cnf is None:
                 super().__init__(master, **kw)
@@ -58179,8 +58183,59 @@ class AutoPTApp:
         self._show_template()
 
     def _refresh_ui_language(self, *_a):
-        """Rebuild the visible UI so labels and hints follow the selected language."""
+        """
+        إعادة بناء الشاشة باللغة المختارة. 18.125: بتتأجّل خطوة واحدة عشان
+        الكومبو اللي غيّر اللغة مايتهدّش وهو لسه جوّه حدثه، ولو البناء
+        فشل بأي سبب الشاشة ماتفضلش فاضية: الخطأ يتسجّل ونرجع للإنجليزي.
+        """
+        if getattr(self, "_lang_busy", False):
+            return
         try:
+            self.root.after(30, self._rebuild_ui_for_language)
+        except Exception:
+            self._rebuild_ui_for_language()
+
+    def _rebuild_ui_for_language(self):
+        self._lang_busy = True
+        try:
+            try:
+                self._rebuild_ui_once()
+            except Exception as e:
+                import traceback as _tb
+                err = _tb.format_exc()
+                try:
+                    sys.stderr.write(err)
+                except Exception:
+                    pass
+                if UI_LANG != "English":
+                    set_ui_language("English")
+                    try:
+                        self.v["ui_lang"].set("English")
+                    except Exception:
+                        pass
+                    try:
+                        self._rebuild_ui_once()
+                    except Exception:
+                        pass
+                    try:
+                        messagebox.showwarning(
+                            "Interface language",
+                            f"The Arabic screen could not be built, so the "
+                            f"program stayed in English.\n\n{e}",
+                            parent=self.root)
+                    except Exception:
+                        pass
+                    try:
+                        self.log(f"The Arabic screen could not be built: {e}", "warn")
+                        for line in err.strip().splitlines()[-8:]:
+                            self.log("   " + line, "warn")
+                    except Exception:
+                        pass
+        finally:
+            self._lang_busy = False
+
+    def _rebuild_ui_once(self):
+        if True:
             set_ui_language(self.v["ui_lang"].get())
             for w in list(self.root.winfo_children()):
                 try:
@@ -58217,8 +58272,6 @@ class AutoPTApp:
             self._refresh_derived()
             self._job_tree_changed()
             self._show_template()
-        except Exception:
-            pass
 
     def _tag(self, group, widget):
         """
