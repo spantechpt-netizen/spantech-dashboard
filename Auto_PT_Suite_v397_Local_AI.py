@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.108"
+APP_VERSION = "18.109"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3545,7 +3545,7 @@ class TendonDesignParams:
         self.osh_dir_order = str(kw.get("osh_dir_order", "longer") or "longer")
         self.osh_margin_big = float(kw.get("osh_margin_big", 0.70) or 0.70)
         self.osh_margin_near = float(kw.get("osh_margin_near", 0.90) or 0.90)
-        self.osh_span_ratio = float(kw.get("osh_span_ratio", 50.0) or 50.0)
+        self.osh_span_ratio = float(kw.get("osh_span_ratio", 70.0) or 70.0)
         self.osh_extend_m = float(kw.get("osh_extend_m", 3.0) or 3.0)
         self.osh_low_shift_steps = str(kw.get("osh_low_shift_steps", "10, 20, 30")
                                        or "10, 20, 30")
@@ -38165,6 +38165,80 @@ def osh_restore(tendons, snap):
 
 
 # ---------------------------------------------------------------------------
+#  البحور المتجاورة على محور واحد (18.109)
+# ---------------------------------------------------------------------------
+
+def osh_span_groups(keys, span_state, tol=0.6):
+    """
+    البحور الراسبة اللي وراء بعض على نفس الخط بتتجمّع في مجموعة واحدة:
+    طرف واحد بيقابل بداية اللي بعده. بترجّع [[(key, d), ...], ...].
+    """
+    items = [(k, span_state[k]["d"]) for k in keys if k in span_state]
+    groups, used = [], set()
+    for k, d in items:
+        if k in used:
+            continue
+        grp = [(k, d)]
+        used.add(k)
+        changed = True
+        while changed:
+            changed = False
+            for k2, d2 in items:
+                if k2 in used:
+                    continue
+                if any(dist(d2["a"], g["b"]) <= tol or dist(d2["b"], g["a"]) <= tol
+                       or dist(d2["a"], g["a"]) <= tol or dist(d2["b"], g["b"]) <= tol
+                       for _k, g in grp):
+                    grp.append((k2, d2))
+                    used.add(k2)
+                    changed = True
+        groups.append(grp)
+    return groups
+
+
+def osh_group_span(grp, direction):
+    """بحر واحد بيغطي المجموعة كلها: من أول طرف لآخر طرف على المحور."""
+    if len(grp) == 1:
+        return grp[0][1]
+    pts = [g["a"] for _k, g in grp] + [g["b"] for _k, g in grp]
+    lo = min(pts, key=lambda p: osh_along(p, direction))
+    hi = max(pts, key=lambda p: osh_along(p, direction))
+    return {"name": "+".join(str(g.get("name") or "?") for _k, g in grp),
+            "a": lo, "b": hi,
+            "mid": ((lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0),
+            "length": dist(lo, hi), "group": [k for k, _g in grp]}
+
+
+def osh_band_donor(t_in, d, direction):
+    """
+    الكابل اللي بروفايله بيتنسخ: أقرب كابل لمحور البحر - يعني لخط
+    الأعمدة (الـ band zone)، مش الأبعد عنها. البروفايل هناك هو اللي
+    قممه على الركائز فعلاً. (18.109)
+    """
+    if not t_in:
+        return None
+    centre = osh_across_pt(d["mid"], direction)
+    return min(t_in, key=lambda t: (abs(osh_across_at(t, d, direction) - centre),
+                                    -tendon_plan_length(t)))
+
+
+def osh_fail_share(t, fail_ds, half):
+    """
+    نسبة طول الكابل اللي بيمرّ في بحور راسبة: مجموع أطوال البحور
+    الراسبة اللي بيقطعها ÷ طوله. دي اللي بتقرر "زوّد استرندات المحور
+    كله الأول".
+    """
+    L = tendon_plan_length(t)
+    if L <= 0:
+        return 0.0
+    fl = 0.0
+    for d in fail_ds:
+        if _tendons_over_span([t], d, strip=half):
+            fl += float(d.get("length") or dist(d["a"], d["b"]))
+    return min(1.0, fl / L)
+
+
+# ---------------------------------------------------------------------------
 #  المرحلة 1 - القطاعات السفلية
 # ---------------------------------------------------------------------------
 
@@ -38172,55 +38246,69 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget,
                      hist=None):
     """
     كل بحر راسب على الوش السفلي في الاتجاه ده بياخد علاجه في الجولة دي.
+
+    **18.109: المحور قبل البحر.** البحور الراسبة المتجاورة على نفس الخط
+    بتتعالج كمجموعة واحدة: الكابل اللي البحور الراسبة بتغطي أكتر من
+    `osh_span_ratio` من طوله بياخد استرندات الأول (المحور كله)، واللي
+    يفضل ناقص بياخد كابل طويل واحد بيغطي المجموعة كلها (+3 م من
+    الجهتين) - مش قطعة لكل بحر فوق بعض.
     بترجّع (اتزوّد استرندات, اتضاف كابلات, بحور اتعالجت, اللي مافيش له علاج).
     """
     live = osh_live(tendons)
     half = float(getattr(params, "osh_strip_half", 3.0) or 3.0)
-    ratio_min = float(getattr(params, "osh_span_ratio", 50.0) or 50.0) / 100.0
+    ratio_min = float(getattr(params, "osh_span_ratio", 70.0) or 70.0) / 100.0
     extend = float(getattr(params, "osh_extend_m", 3.0) or 3.0)
     n_max = max(1, int(getattr(params, "max_strands", 5) or 5))
     n_min = max(1, int(getattr(params, "min_strands", 2) or 2))
-    spans = state["ram_spans"]
     fail_keys = [k for (k, f) in state["fail"]
                  if f == "bottom" and state["spans"][k]["dir"] == direction]
-    fail_set = set(fail_keys)
+    fail_ds = [state["spans"][k]["d"] for k in fail_keys]
     strands_added, tendons_added, treated, stuck = 0, 0, 0, []
     n_start = {id(t): int(t.get("strands") or 0) for t in live}
-    _ratio_cache = {}
+    _share = {}
 
-    def ratio_of(t):
-        if id(t) not in _ratio_cache:
-            crossed = osh_spans_of_tendon(t, spans, direction, half)
-            bad = [k for k in crossed if k in fail_set]
-            _ratio_cache[id(t)] = (len(bad) / len(crossed)) if crossed else 0.0
-        return _ratio_cache[id(t)]
+    def share_of(t):
+        if id(t) not in _share:
+            _share[id(t)] = osh_fail_share(t, fail_ds, half)
+        return _share[id(t)]
 
-    for key in sorted(fail_keys, key=lambda k: -state["spans"][k]["bottom"]):
+    groups = osh_span_groups(fail_keys, state["spans"])
+    groups.sort(key=lambda grp: -max(state["spans"][k]["bottom"] for k, _d in grp))
+    for grp in groups:
         job.check()
-        rec = state["spans"][key]
-        d = rec["d"]
-        rows = rec["rows"]["bottom"]
-        t_in = osh_tendons_in_span(live, d, direction, half)
-        prev = (hist or {}).get(key)
-        need, n_now, u_max = osh_need_strands(rows, t_in, live, params,
-                                              "bottom", direction,
-                                              n_start=n_start, hist=prev)
-        if hist is not None:
-            hist[key] = {"u": u_max, "n": n_now}
-        label = d.get("name") or str(key)
-        if need < 0:
-            job.warn(f"    span {label} ({direction}, bottom): worst {u_max:.2f} "
-                     f"- the strands added here last round did not move it "
-                     f"({prev['u']:.2f} -> {u_max:.2f}), so nothing more is "
-                     f"put here. That section wants depth, a drop or "
-                     f"reinforcement.")
+        dg = osh_group_span(grp, direction)
+        label = dg.get("name") or "?"
+        t_in, seen = [], set()
+        needs, u_worst, n_tot = [], 0.0, 0
+        for k, d in grp:
+            rec = state["spans"][k]
+            t_k = osh_tendons_in_span(live, d, direction, half)
+            for t in t_k:
+                if id(t) not in seen:
+                    seen.add(id(t))
+                    t_in.append(t)
+            prev = (hist or {}).get(k)
+            need_k, n_k, u_k = osh_need_strands(rec["rows"]["bottom"], t_k, live,
+                                                params, "bottom", direction,
+                                                n_start=n_start, hist=prev)
+            if hist is not None:
+                hist[k] = {"u": u_k, "n": n_k}
+            needs.append(need_k)
+            u_worst = max(u_worst, u_k)
+            n_tot = max(n_tot, n_k)
+        live_needs = [n for n in needs if n >= 0]
+        if not live_needs:
+            job.warn(f"    span {label} ({direction}, bottom): worst {u_worst:.2f} "
+                     f"- the strands added here last round did not move it, so "
+                     f"nothing more is put here. That section wants depth, a "
+                     f"drop or reinforcement.")
             stuck.append((label, "unresponsive"))
             continue
-        job.info(f"    span {label} ({direction}, bottom): worst {u_max:.2f} of "
-                 f"the limit, {len(t_in)} tendon(s) with {n_now} strands - "
-                 f"needs about {need} more"
-                 + (" (measured on last round's response)" if prev and
-                    n_now > int(prev.get("n") or 0) else "") + ".")
+        need = max(live_needs)
+        job.info(f"    span {label} ({direction}, bottom"
+                 + (f", {len(grp)} spans on one axis" if len(grp) > 1 else "")
+                 + f"): worst {u_worst:.2f} of the limit, {len(t_in)} tendon(s) "
+                 f"with {n_tot} strands - needs about {need} more.")
         if need <= 0:
             job.info("        already covered by what this round put on the "
                      "same tendons for a neighbouring span.")
@@ -38229,40 +38317,41 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget,
         left = osh_budget_left(tendons, params, budget)
         if left is not None and left <= 0:
             stuck.append((label, "budget"))
-            job.warn(f"        the strand budget is used up - nothing added.")
+            job.warn("        the strand budget is used up - nothing added.")
             continue
+        #  1) المحور كله الأول: الكابل اللي البحور الراسبة بتغطي أكتر من
+        #     النسبة من طوله بياخد الاسترندات.
         got = 0
-        cands = [t for t in t_in if ratio_of(t) > ratio_min
+        cands = [t for t in t_in if share_of(t) > ratio_min
                  and int(t.get("strands") or 0) < n_max]
         if cands:
-            cands.sort(key=lambda t: (-ratio_of(t), -int(t.get("strands") or 0)))
+            cands.sort(key=lambda t: (-share_of(t), -int(t.get("strands") or 0)))
             got = osh_raise_strands(cands, need, params)
             if got:
                 strands_added += got
-                job.ok(f"        +{got} strand(s) on {len(cands)} tendon(s) "
-                       f"whose spans are mostly failing "
-                       f"({', '.join(f'{100 * ratio_of(t):.0f}%' for t in cands[:4])}).")
+                job.ok(f"        +{got} strand(s) on {len(cands)} tendon(s) along "
+                       f"the axis - failing spans cover "
+                       f"{', '.join(f'{100 * share_of(t):.0f}%' for t in cands[:4])}"
+                       f" of their length.")
         rest = need - got
         if rest > 0:
-            why = ("no tendon through it has more than "
-                   f"{100 * ratio_min:.0f}% of its spans failing"
-                   if not cands else "the tendons through it are at the "
+            why = (f"no tendon through it has failing spans over more than "
+                   f"{100 * ratio_min:.0f}% of its length"
+                   if not cands else "the tendons along the axis are at the "
                                      "strand limit")
             if not t_in:
                 why = "no tendon passes through it"
-            donor = (max(t_in, key=lambda t: (int(t.get("strands") or 0),
-                                              tendon_plan_length(t)))
-                     if t_in else None)
+            donor = osh_band_donor(t_in, dg, direction)
             if donor is None:
-                # أقرب كابل في نفس الاتجاه للبحر ده
                 cand = [t for t in live if osh_tendon_dir(t) == direction]
                 if cand:
                     donor = min(cand, key=lambda t: _station_of(
-                        t["profile"], d["mid"])[1])
+                        t["profile"], dg["mid"])[1])
+            #  2) كابل طويل واحد على المجموعة كلها
             made = 0
-            while rest > 0 and donor is not None and made < 3:
+            while rest > 0 and donor is not None and made < 2:
                 n = min(n_max, max(n_min, rest))
-                new = osh_clone_over_span(donor, d, osh_live(tendons), params,
+                new = osh_clone_over_span(donor, dg, osh_live(tendons), params,
                                           site, n, extend, direction,
                                           tag=f"-b{made + 1}")
                 if new is None:
@@ -38272,14 +38361,11 @@ def osh_bottom_round(state, tendons, params, site, job, direction, budget,
                 made += 1
                 tendons_added += 1
                 rest -= int(new["strands"])
-                job.ok(f"        new tendon over the span only, {new['strands']} "
-                       f"strand(s), offset {new['offset']:+.2f} m into the "
-                       f"widest gap, extended {extend:.0f} m past each end "
-                       f"({why}).")
+                job.ok(f"        new tendon over {label} as one piece, "
+                       f"{new['strands']} strand(s), offset {new['offset']:+.2f} m "
+                       f"into the widest gap, extended {extend:.0f} m past "
+                       f"each end ({why}).")
             if rest > 0 and made == 0:
-                #  18.106: مافيش مكان لكابل جديد - الاسترندات تروح على
-                #  الكابلات المارّة في البحر مهما كانت نسبتها، بدل ما
-                #  القطاع يتساب راسب.
                 room = [t for t in t_in if int(t.get("strands") or 0) < n_max]
                 extra = osh_raise_strands(room, rest, params) if room else 0
                 if extra:
@@ -38327,8 +38413,22 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
     drops = (site or {}).get("drops") or []
     fail_keys = [k for (k, f) in state["fail"]
                  if f == "top" and state["spans"][k]["dir"] == direction]
+    fail_ds = [state["spans"][k]["d"] for k in fail_keys]
+    ratio_min = float(getattr(params, "osh_span_ratio", 70.0) or 70.0) / 100.0
     actions, exhausted = 0, []
     n_start = {id(t): int(t.get("strands") or 0) for t in live}
+    #  البحور اللي هتوصل لخطوة الإضافة الجولة دي - عشان المتجاور منها
+    #  ياخد كابل واحد طويل.
+    add_ready = set()
+    for k in fail_keys:
+        st0 = stages.get(k) or {}
+        rows0 = state["spans"][k]["rows"]["top"]
+        ends0 = {("a" if dist((r["x"], r["y"]), state["spans"][k]["d"]["a"])
+                  <= dist((r["x"], r["y"]), state["spans"][k]["d"]["b"]) else "b")
+                 for r in rows0 if r["u"] > 1.0}
+        if (st0.get("step") == "add" and int(st0.get("adds", 0)) < 3) or (
+                st0.get("step") == "ends" and len(ends0) == 2):
+            add_ready.add(k)
 
     def add_over(d, rows, t_in, label, tag, key=None):
         nonlocal live
@@ -38355,17 +38455,48 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
         if left is not None and left <= 0:
             job.warn("        the strand budget is used up - nothing added.")
             return 0
-        donor = (max(t_in, key=lambda t: (int(t.get("strands") or 0),
-                                          tendon_plan_length(t)))
-                 if t_in else None)
+        #  18.109: المحور الأول - الكابل اللي القطاعات العلوية الراسبة
+        #  على أكتر من النسبة من طوله بياخد استرندات قبل أي كابل جديد.
+        rest = need
+        cands = [t for t in t_in if osh_fail_share(t, fail_ds, half) > ratio_min
+                 and int(t.get("strands") or 0) < n_max]
+        got = osh_raise_strands(cands, rest, params) if cands else 0
+        if got:
+            rest -= got
+            job.ok(f"        +{got} strand(s) on {len(cands)} tendon(s) along "
+                   f"the axis first (their failing spans cover more than "
+                   f"{100 * ratio_min:.0f}% of their length).")
+            if rest <= 0:
+                return got
+        #  والبحر المجاور اللي وصل لنفس الخطوة بياخد نفس الكابل: قطعة
+        #  واحدة طويلة على الاتنين بدل قطعتين فوق بعض.
+        dg = d
+        twins = []
+        for k2 in list(add_ready):
+            if k2 == key or k2 not in state["spans"]:
+                continue
+            d2 = state["spans"][k2]["d"]
+            if (dist(d2["a"], d["b"]) <= 0.6 or dist(d2["b"], d["a"]) <= 0.6
+                    or dist(d2["a"], d["a"]) <= 0.6 or dist(d2["b"], d["b"]) <= 0.6):
+                twins.append((k2, d2))
+        if twins:
+            dg = osh_group_span([(key, d)] + twins, direction)
+            for k2, _d2 in twins:
+                stages.setdefault(k2, {})["_covered"] = stages.get("_round", 0)
+            label = dg["name"]
+            for k2, d2 in twins:
+                for t in osh_tendons_in_span(live, d2, direction, half):
+                    if not any(t is x for x in t_in):
+                        t_in.append(t)
+        donor = osh_band_donor(t_in, dg, direction)
         if donor is None:
             cand = [t for t in live if osh_tendon_dir(t) == direction]
             if cand:
-                donor = min(cand, key=lambda t: _station_of(t["profile"], d["mid"])[1])
-        made, rest = 0, need
-        while rest > 0 and donor is not None and made < 3:
+                donor = min(cand, key=lambda t: _station_of(t["profile"], dg["mid"])[1])
+        made = 0
+        while rest > 0 and donor is not None and made < 2:
             n = min(n_max, max(n_min, rest))
-            new = osh_clone_over_span(donor, d, osh_live(tendons), params, site,
+            new = osh_clone_over_span(donor, dg, osh_live(tendons), params, site,
                                       n, extend, direction, tag=f"-{tag}{made + 1}")
             if new is None:
                 break
@@ -38374,9 +38505,10 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
             made += 1
             done.add(wkey)
             rest -= int(new["strands"])
-            job.ok(f"        new tendon over span {label}, {new['strands']} "
-                   f"strand(s), offset {new['offset']:+.2f} m, extended "
-                   f"{extend:.0f} m past the supports.")
+            job.ok(f"        new tendon over {label}"
+                   + (" as one piece over both spans" if twins else "")
+                   + f", {new['strands']} strand(s), offset {new['offset']:+.2f} m, "
+                   f"extended {extend:.0f} m past the supports.")
         if made == 0:
             room = [t for t in t_in if int(t.get("strands") or 0) < n_max]
             extra = osh_raise_strands(room, rest, params) if room else 0
@@ -38384,10 +38516,10 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
                 job.ok(f"        no gap wide enough for a new tendon over "
                        f"{label}, so +{extra} strand(s) went onto the "
                        f"{len(room)} tendon(s) through the span instead.")
-                return extra
+                return extra + got
             job.warn(f"        no gap wide enough for a new tendon over {label}"
                      f"{', and the tendons through it are at the strand limit' if t_in else ''}.")
-        return made
+        return made + got
 
     for key in sorted(fail_keys, key=lambda k: -state["spans"][k]["top"]):
         job.check()
@@ -38399,6 +38531,12 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
         label = d.get("name") or str(key)
         t_in = osh_tendons_in_span(live, d, direction, half)
         st = stages.setdefault(key, {"step": "drop", "shift": 0, "adds": 0})
+        if st.get("_covered") == stages.get("_round", 0):
+            job.info(f"    span {d.get('name') or key} ({direction}, top): covered "
+                     f"by the long tendon added with the span next to it.")
+            st["adds"] = int(st.get("adds", 0)) + 1
+            st["step"] = "add"
+            continue
         worst = max(rows, key=lambda r: r["u"])
         if hist is not None:
             _n_now = sum(int(t.get("strands") or 0) for t in t_in)
@@ -38601,8 +38739,7 @@ def osh_reduce_groups(state, tendons, params, site, job, direction, budget):
         for k in near_k:
             d = state["spans"][k]["d"]
             t_in = osh_tendons_in_span(osh_live(tendons), d, direction, half)
-            donor = (max(t_in, key=lambda t: tendon_plan_length(t)) if t_in
-                     else lane[0])
+            donor = osh_band_donor(t_in, d, direction) or lane[0]
             rest, made = share, 0
             while rest > 0 and made < 3:
                 n = min(n_max, max(n_min, rest))
@@ -38997,8 +39134,7 @@ def run_optimum_h(session, tendons, params, job, out_dir, stem, site=None,
                 dd = rec["dir"]
                 t_in = osh_tendons_in_span(osh_live(tendons), d, dd,
                                            float(getattr(params, "osh_strip_half", 3.0) or 3.0))
-                donor = (max(t_in, key=lambda t: tendon_plan_length(t)) if t_in
-                         else None)
+                donor = osh_band_donor(t_in, d, dd)
                 if donor is None:
                     continue
                 need, _n, _u = osh_need_strands(rec["rows"][f], t_in, osh_live(tendons),
@@ -55216,7 +55352,7 @@ class AutoPTApp:
             "osh_dir_order": V(value=list(OSH_ORDERS)[0]),
             "osh_margin_big": V(value="70"),
             "osh_margin_near": V(value="90"),
-            "osh_span_ratio": V(value="50"),
+            "osh_span_ratio": V(value="70"),
             "osh_extend_m": V(value="3.0"),
             "osh_low_shift_steps": V(value="10, 20, 30"),
             "osh_drop_edge_tol": V(value="0.6"),
@@ -56746,11 +56882,13 @@ class AutoPTApp:
                  "Stage 1 for the bottom face, and every later addition",
                  icon="＋")
         c.pack(fill="x", pady=(0, 14))
-        c.entry("Raise a tendon's strands when more than this share of its "
-                "spans fail (%)", self.v["osh_span_ratio"],
-                "Above it, the tendons through the span take the strands. "
-                "At or below it, or when they are at the strand limit, a "
-                "copy of the tendon is placed over that span only.")
+        c.entry("Raise a tendon's strands first when its failing spans cover "
+                "more than this share of its length (%)", self.v["osh_span_ratio"],
+                "The axis before the span: the tendons running along the "
+                "axis take the strands first. What is still short after "
+                "that gets one tendon over the failing spans of that axis "
+                "together - never one short piece per span on top of "
+                "another.")
         c.entry("New tendon runs past each end of the span by (m)",
                 self.v["osh_extend_m"],
                 "The copy keeps the span's points and levels and is "
@@ -60675,7 +60813,7 @@ class AutoPTApp:
             osh_dir_order=OSH_ORDERS.get(v["osh_dir_order"].get(), "longer"),
             osh_margin_big=self._num("osh_margin_big", 70.0) / 100.0,
             osh_margin_near=self._num("osh_margin_near", 90.0) / 100.0,
-            osh_span_ratio=self._num("osh_span_ratio", 50.0),
+            osh_span_ratio=self._num("osh_span_ratio", 70.0),
             osh_extend_m=self._num("osh_extend_m", 3.0),
             osh_low_shift_steps=(str(v["osh_low_shift_steps"].get() or "").strip()
                                  or "10, 20, 30"),
