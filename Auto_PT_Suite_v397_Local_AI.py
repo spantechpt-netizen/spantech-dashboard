@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.106"
+APP_VERSION = "18.107"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -37451,6 +37451,53 @@ def osh_read_state(plots, spans, live, params):
     return state
 
 
+def run_temp_dir(out_dir, cpt):
+    """
+    **18.107: كل رن في مجلده.** المجلد اللي فيه الموديل كان بيتملي
+    بملفات كل دورة من كل رن (_OSH_bottom_r1, _EFM_r3, لوجات، تقارير...)
+    ومحدش عارف الملف النهائي أنهو. دلوقتي كل رن بيكتب كل حاجة في
+    Temp\<اسم الموديل>_<التاريخ والوقت>\ جنب الموديل، والملف النهائي
+    بس هو اللي بيتنسخ جنب الموديل الأصلي (finish_run_output).
+    """
+    stem = os.path.splitext(os.path.basename(cpt or "run"))[0] or "run"
+    when = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(out_dir, "Temp", f"{stem}_{when}")
+    k = 2
+    base = path
+    while os.path.exists(path):
+        path = f"{base}-{k}"
+        k += 1
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def finish_run_output(last_output, run_dir, final_dir, log=None):
+    """
+    ينسخ الملف النهائي من مجلد الرن لجنب الموديل الأصلي ويرجّع مساره -
+    أو الملف زي ما هو لو مش جوّه مجلد الرن. الاسم زي ما هو، ونسخة
+    قديمة بنفس الاسم بتتكتب فوقها: نسختها الكاملة لسه جوّه Temp.
+    """
+    try:
+        if not last_output or not run_dir or not final_dir:
+            return last_output
+        src = os.path.abspath(str(last_output))
+        if not os.path.isfile(src):
+            return last_output
+        if os.path.commonpath([src, os.path.abspath(run_dir)]) != os.path.abspath(run_dir):
+            return last_output
+        dst = os.path.join(final_dir, os.path.basename(src))
+        shutil.copy2(src, dst)
+        if log:
+            log(f"Final model beside the one you started from: {dst}", "ok")
+            log(f"Everything else from this run is in {run_dir}", "info")
+        return dst
+    except Exception as e:
+        if log:
+            log(f"The final model could not be copied beside the original "
+                f"({e}); it is in {run_dir}", "warn")
+        return last_output
+
+
 def osh_path(out_dir, stem, label):
     base = os.path.join(out_dir or ".", f"{stem}_OSH_{label}.cpt")
     path, k = base, 2
@@ -60385,6 +60432,8 @@ class AutoPTApp:
                 return None
             folder = (self.v["log_folder"].get() or "").strip()
             if not folder:
+                folder = getattr(self, "_run_dir", None) or ""
+            if not folder:
                 folder = (self.v["out_dir"].get() or "").strip()
             if not folder:
                 cpt = (self.v["cpt"].get() or "").strip()
@@ -61189,6 +61238,19 @@ class AutoPTApp:
         if not os.path.isdir(out_dir):
             messagebox.showerror("Output folder", "The output folder does not exist.", parent=self.root)
             return
+        #  18.107: كل ملفات الرن في Temp\<الموديل>_<الوقت>\، والنهائي بس
+        #  بيتنسخ جنب الموديل لما الرن يخلص (في _finish).
+        try:
+            self._final_dir = out_dir
+            self._run_dir = run_temp_dir(out_dir, cpt)
+            out_dir = self._run_dir
+        except Exception as e:
+            self._final_dir = None
+            self._run_dir = None
+            messagebox.showerror("Output folder",
+                                 f"The run folder could not be created under "
+                                 f"{out_dir}\\Temp ({e}).", parent=self.root)
+            return
 
         self.nav.select("run")
         self._clear_log()
@@ -61314,6 +61376,15 @@ class AutoPTApp:
         #  الملف يتحفظ.
         try:
             self._report_flags()
+        except Exception:
+            pass
+        #  18.107: الملف النهائي بس جنب الموديل الأصلي؛ الباقي في Temp.
+        try:
+            if (self._last_output
+                    and self._last_output != getattr(self, "_run_marker", None)):
+                self._last_output = finish_run_output(
+                    self._last_output, getattr(self, "_run_dir", None),
+                    getattr(self, "_final_dir", None), log=self.log)
         except Exception:
             pass
         try:
@@ -64246,8 +64317,9 @@ def run_cli(argv):
             if name.lower().endswith(".dxf"):
                 files.append(os.path.join(args.batch, name))
 
-    out_dir = args.out or os.path.dirname(os.path.abspath(args.cpt))
-    os.makedirs(out_dir, exist_ok=True)
+    final_dir = args.out or os.path.dirname(os.path.abspath(args.cpt))
+    os.makedirs(final_dir, exist_ok=True)
+    out_dir = run_temp_dir(final_dir, args.cpt)
 
     job = ConsoleJob(quiet=args.quiet)
     params, data = cli_params_from_config()
@@ -64263,6 +64335,9 @@ def run_cli(argv):
             result = cli_process_one(path, args.cpt, out_dir, params, data, job, args)
             (done if result else failed).append(path)
             if result:
+                result = finish_run_output(
+                    result, out_dir, final_dir,
+                    log=lambda m, lvl="info": job.info(m))
                 job.ok(f"Done: {result}")
         except CancelledError:
             break
