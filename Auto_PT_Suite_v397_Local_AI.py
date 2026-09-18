@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.114"
+APP_VERSION = "18.115"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -12373,7 +12373,14 @@ def maximise_profile_drape(profile, p, drops=None, direction="X",
     بعدها على طول. باص اسمه "استهلك الغطس" وبياخد غطس كمان بيخلي اللوج
     مايتقريش والقاعدتين بيلغوا بعض.
 
-    بترجّع (قمم اتشالت لفوق, غطسات نزلت, قمم اتنزّلت عشان نصف القطر).
+    **18.115: القمة عمرها ما تنزل عشان نصف القطر.** المهندس لاحظ إن
+    الباص ده كان بينزّل قمم بدل ما الغطسة تترفع، وده غلط: علاج اللفّة
+    الحادة هو رفع الغطسة (`enforce_min_radius`)، والقمة بتفضل على الغطاء
+    العلوي. فجار الغطسة مابقاش بيحدّ القمة خالص، والجار الثابت (مرساة
+    أو قمة تانية) بيحدّ **الرفع** بس - قمة واطية بتطلع لحد ما هو يسمح،
+    وقمة على الغطاء بتفضل مكانها ورام يقول كلمته.
+
+    بترجّع (قمم اتشالت لفوق, غطسات نزلت, قمم اتساببت أحدّ من الحد جنب عقدة ثابتة).
     """
     rounding = p.elevation_rounding or 1.0
     raised = lowered = eased = 0
@@ -12420,6 +12427,9 @@ def maximise_profile_drape(profile, p, drops=None, direction="X",
             continue
         want, capped = top_depth, False
         for j, arc in around(k):
+            if profile[j].get("sag"):
+                #  18.115: الغطسة هي اللي بتترفع بعدين - مش القمة اللي تنزل.
+                continue
             lim = radius_drape_limit(arc, p)
             if lim is not None and profile[j]["depth"] - lim > want:
                 want, capped = profile[j]["depth"] - lim, True
@@ -12434,20 +12444,10 @@ def maximise_profile_drape(profile, p, drops=None, direction="X",
             q["depth"] = want
             raised += 1
         elif capped and want > q["depth"] + 0.5:
-            #  **18.27: والقمة بتنزل لو نصف القطر بيطلب كده.**
-            #
-            #  القمة اللي جنب المرساة مباشرة: المرساة في نص السمك وثابتة،
-            #  والقمة عند الغطاء العلوي. على دور المهندس ده مرساة عند 100
-            #  وقمة عند 40 على بُعد 1.34 م = فرق 60 مم، يعني
-            #  R = 0.1 × 1.34² / 0.060 = 2.99 مقابل حد 3.00. ومحدش كان
-            #  يقدر يصلّحها: `enforce_min_radius` علاجه رفع الغطسة، ومابين
-            #  المرساة والقمة مافيش غطسة - بيكتب "the span is too short to
-            #  hold any dip at all" ويسيبها. ستة منهم في الملف النهائي.
-            #
-            #  الباص ده هو اللي حاسب الحد أصلاً، فهو اللي يطبّقه. بينزّل
-            #  القمة للمنسوب المسموح وبس - وده بيكلّف مليمترات من الغطس
-            #  في البحر الطرفي، مقابل مخالفة رام بيرفضها.
-            q["depth"] = want
+            #  18.27 كانت بتنزّل القمة هنا للمنسوب اللي الجار الثابت
+            #  (المرساة) يسمح بيه. **18.115: مابتنزلش.** القمة بتفضل على
+            #  الغطاء وبتتعدّ عشان اللوج يقول إن اللفّة دي جنب عقدة ثابتة
+            #  ومحتاجة تتحل في المخطط (المرساة أو القمة تتبعد)، مش بالمنسوب.
             eased += 1
 
     #  (2) وبعدين الغطسات، على المناسيب الجديدة للقمم
@@ -12614,14 +12614,13 @@ def maximise_drape(tendons, p, job=None, drops=None):
 
     gain = after - before
     if job and eased:
-        job.info(f"Drape: {eased} high point(s) were taken back DOWN, because "
-                 f"the minimum radius will not let a peak that close to a "
-                 f"fixed node sit at the cover. An anchorage is at mid-depth "
-                 f"and does not move, so a peak a metre from it at the top "
-                 f"cover asks the strand to turn tighter than the duct can. "
-                 f"enforce_min_radius cannot undo that - it lifts dips, and "
-                 f"there is no dip between an anchorage and the peak beside "
-                 f"it - so the pass that works the limit out applies it.")
+        job.warn(f"Drape: {eased} high point(s) sit closer to an anchorage (or "
+                 f"another fixed node) than the minimum radius allows at the "
+                 f"top cover. They are left at the cover - a peak is never "
+                 f"lowered to ease a bend; a dip is lifted instead, and there "
+                 f"is no dip between an anchorage and the peak beside it. RAM "
+                 f"may report 'Tendon radius less than minimum allowed' there: "
+                 f"the cure is more run between the anchorage and that peak.")
     if job and (raised or lowered):
         job.info(f"Drape: {raised} high point(s) taken up to the top cover "
                  f"and {lowered} low point(s) taken down to the deepest level "
@@ -28406,7 +28405,8 @@ def floor_brief(site, params, job=None):
             f"{_min_leg(abs(float(getattr(params, 'anchor_elevation', h / 2.0) or h / 2.0) - z_hi), params):.2f} m of run, "
             f"and to a dip at {z_lo:.0f} mm at least "
             f"{_min_leg(abs(float(getattr(params, 'anchor_elevation', h / 2.0) or h / 2.0) - z_lo), params):.2f} m; "
-            f"closer than that the peak has to sit lower, not nearer",
+            f"closer than that the peak moves farther from the anchorage - "
+            f"a peak is never lowered to ease a bend, a dip is lifted instead",
             f"no two tendons closer than "
             f"{float(getattr(params, 'min_clear_spacing', 0.40) or 0.40):.2f} "
             f"m apart in plan - there has to be room for the anchorages and "
