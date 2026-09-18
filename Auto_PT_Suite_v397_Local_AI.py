@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.117"
+APP_VERSION = "18.118"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -5524,12 +5524,15 @@ class PTEngine(SiteModel):
 
     # ---------------- بناء البروفايل ----------------
 
-    def _profile(self, seg_start, seg_end, along_x):
+    def _profile(self, seg_start, seg_end, along_x, extra_axes=()):
         """
         بروفايل الكابل: نقط عالية فوق الركائز، نقط سفلية في منتصف البحور،
         ومرساة عند منتصف السمك في البداية والنهاية.
         كل نقطة: {pos, elev, ref, drop_idx, high}
         ref = "TOP" (level measured from the top surface) or "SOFFIT" (من السطح السفلي)
+
+        `extra_axes` (18.118): محاور ركائز بتاخد قمة **من غير** اختبار
+        الامتداد والمدى - كابل الشريط الأوسط اللي بيستلف بروفايل جيرانه.
         """
         p = self.p
         s_x, s_y = seg_start
@@ -5596,6 +5599,15 @@ class PTEngine(SiteModel):
         for line in axes:
             axis = line["coord"]
             if not (lo + 1e-6 <= axis <= hi - 1e-6):
+                continue
+            if any(abs(axis - c) < 1e-6 for c in (extra_axes or ())):
+                node = (axis, s_y) if along_x else (s_x, axis)
+                if self._within(node, seg_start, seg_end):
+                    near_col = min((dist(node, q) for q in self._support_pts),
+                                   default=0.0)
+                    add_support_point(node[0], node[1], near_col,
+                                      max(self._axis_node_reach, 1e-6),
+                                      src="field")
                 continue
 
             # الشرط الحاسم: الكابل لازم يقع **داخل امتداد خط الركائز**،
@@ -6222,8 +6234,88 @@ class PTEngine(SiteModel):
             }
         return report
 
+    def _borrow_field_profiles(self, tendons, label, along_x):
+        """
+        **18.118: كابل الشريط الأوسط مش بحر طويل.** الكابل الماشي بين صفّين
+        أعمدة بعيد عن الركائز بيعدّي اختبار المدى على محاور قليلة (حيطة
+        هنا وهناك) فبحوره بتطلع 12-15 م وبياخد أقصى استرندات - وهو أصلاً
+        في منطقة الشريط الأوسط. المهندس قال: يتدّي بروفايل الكابلات اللي
+        حواليه وأقل عدد استرندات مسموح. فكل محور ركائز الكابل بيعدّيه من
+        غير قمة، وجاره الأقرب (في حدود 3 مسافات) عنده قمة عليه، بياخد
+        القمة دي؛ ولو استلف حاجة بيتعلّم `field_strip` ويبدأ من الحد
+        الأدنى - حلقات القطاعات بعد كده هي اللي تزوّده لو احتاج.
+        """
+        p = self.p
+        group = [t for t in tendons
+                 if t.get("dir") == label and not t.get("beam_tendon")
+                 and not t.get("rib") and len(t.get("profile") or []) >= 2]
+        if len(group) < 2:
+            return 0
+        ax = 0 if along_x else 1
+        axes = [line["coord"] for line in self.axis_lines[label]]
+        gap = max(float(p.min_point_gap or 0.0), 0.01)
+        near_real = max(AXIS_CLUSTER_TOL, 2.0 * gap)
+        reach_across = max(3.0 * float(p.spacing or 1.0), 2.0)
+
+        def extent(t):
+            a = t["profile"][0]["pos"][ax]
+            b = t["profile"][-1]["pos"][ax]
+            return min(a, b), max(a, b)
+
+        def highs(t):
+            return [q["pos"][ax] for q in t["profile"] if q.get("high")]
+
+        n_field = n_pts = 0
+        for t in group:
+            lo, hi = extent(t)
+            crossing = [c for c in axes if lo + gap < c < hi - gap]
+            hs = highs(t)
+            missing = [c for c in crossing
+                       if not any(abs(h - c) <= near_real for h in hs)]
+            if not missing:
+                continue
+            nbs = sorted((o for o in group if o is not t
+                          and abs(float(o.get("coord", 0.0)) - float(t.get("coord", 0.0)))
+                          <= reach_across),
+                         key=lambda o: abs(float(o.get("coord", 0.0)) - float(t.get("coord", 0.0))))
+            borrowed = []
+            for c in missing:
+                for o in nbs:
+                    olo, ohi = extent(o)
+                    if not (olo <= c <= ohi):
+                        continue
+                    if any(abs(h - c) <= near_real for h in highs(o)):
+                        borrowed.append(c)
+                        break
+            if not borrowed:
+                continue
+            s0, e0 = t["profile"][0]["pos"], t["profile"][-1]["pos"]
+            prof = self._profile(s0, e0, along_x, extra_axes=borrowed)
+            if len(prof) < 2:
+                continue
+            t["profile"] = prof
+            t["field_strip"] = True
+            t["strands"] = _clamp_strands(int(p.min_strands), p)
+            t["governing"] = {"span": 0.0, "p_req": 0.0, "raw": int(p.min_strands),
+                              "clipped": False, "governing": "field strip",
+                              "borrowed_axes": len(borrowed)}
+            n_field += 1
+            n_pts += len(borrowed)
+        if n_field:
+            self.job.ok(f"{n_field} field-strip tendon(s) ({label}) took the high "
+                        f"points of the column-line tendons beside them at "
+                        f"{n_pts} support line(s) their own line does not reach, "
+                        f"and start at the minimum {p.min_strands} strand(s): "
+                        f"a tendon between two column rows spans what its "
+                        f"neighbours span, not the distance between the few "
+                        f"supports on its own line. The section loops add "
+                        f"strands there only if a section asks for them.")
+        return n_field
+
     def _apply_factor(self, tendon, factor):
         p = self.p
+        if tendon.get("field_strip"):
+            return
         req = tendon["governing"].get("p_req", 0.0) * factor
         pe = (tendon["losses"]["force_per_strand"] if tendon.get("losses")
               else p.force_per_strand)
@@ -6347,6 +6439,11 @@ class PTEngine(SiteModel):
         # A tendon the support rules all missed borrows its neighbour's
         # profile, before the group passes run.
         fill_bare_runs(tendons, p, self.job, engine=self)
+        #  18.118: وكابل الشريط الأوسط اللي وصله بعض المحاور بس بياخد
+        #  محاور جيرانه كلها وأقل عدد استرندات.
+        for along_x, label in ((True, "X"), (False, "Y")):
+            if label in dirs:
+                self._borrow_field_profiles(tendons, label, along_x)
 
         # --- Banded groups ---
         #
@@ -10649,7 +10746,7 @@ def veto_unsupported_highs(tendons, engine, p, job=None):
         ax = 0 if abs(pr[-1]["pos"][0] - pr[0]["pos"][0]) >= abs(pr[-1]["pos"][1] - pr[0]["pos"][1]) else 1
         keep = [pr[0]]
         for q in pr[1:-1]:
-            if q.get("high"):
+            if q.get("high") and not (t.get("field_strip") and q.get("src") == "field"):
                 x, y = q["pos"]
                 near = any(abs(a[ax] - q["pos"][ax]) <= along_tol
                            and abs(a[1 - ax] - q["pos"][1 - ax]) <= reach
@@ -12681,7 +12778,7 @@ def drape_sizing_check(tendons, p, job=None, apply=False):
     worst = None
     for t in tendons:
         if (t.get("as_drawn") or t.get("from_adapt") or t.get("field")
-                or t.get("governing") is None):
+                or t.get("field_strip") or t.get("governing") is None):
             continue
         pr = t.get("profile") or []
         was = int(t.get("strands") or 0)
@@ -13418,7 +13515,7 @@ def harmonise_profiles(tendons, p, job=None, supports=None, drops=None,
 
     if engine is not None and changed:
         for t in tendons:
-            if not t.get("span_groups"):
+            if not t.get("span_groups") or t.get("field_strip"):
                 continue
             if (t.get("governing") or {}).get("governing") == "moment field":
                 continue
@@ -14176,7 +14273,7 @@ def fill_bare_runs(tendons, p, job=None, engine=None):
                 #      اللي جه من الحقل هو نفسه الرقم المكسور.
                 #  الكابل دلوقتي عنده بحور حقيقية، فالعدد بيترجع يتحسب
                 #  منها. `ProfileSizer` بيعمل ده من غير engine.
-                if bool(getattr(p, "resize_filled_from_profile", True)):
+                if bool(getattr(p, "resize_filled_from_profile", True)) and not t.get("field_strip"):
                     sizer = engine if engine is not None else ProfileSizer(p)
                     was = int(t.get("strands") or 0)
                     t["strands"], t["governing"] = sizer._required_strands(
@@ -14263,7 +14360,7 @@ def band_groups_pass(tendons, p, job=None, drops=None, engine=None,
     if engine is not None and (stats["added"] or stats["merged"]):
         resized = 0
         for t in tendons:
-            if not t.get("band_high_points"):
+            if not t.get("band_high_points") or t.get("field_strip"):
                 continue
             if (t.get("governing") or {}).get("governing") == "moment field":
                 continue
