@@ -53028,6 +53028,7 @@ BASIC_SETTINGS = (
     "spacing", "band_spacing",
     "min_tendon_radius", "radius_from_model",
     "strip_layout", "run_report",
+    "osh_start", "osh_optimise", "osh_rounds",
 )
 
 #  اللي بتحتاجه لما الدور يبقى مش عادي
@@ -55010,7 +55011,7 @@ class AutoPTApp:
             self.stage, ("geometry", "loads"), "geometry")
         self.pages["design"] = self._page_settings_group(
             self.stage,
-            ("profile", "layout", "bands", "ai", "strands", "strips",
+            ("profile", "layout", "bands", "ai", "osh", "strands", "strips",
              "output"),
             "profile")
         self.pages["banks"] = self._page_banks(self.stage)
@@ -55054,7 +55055,7 @@ class AutoPTApp:
                 self.stage, ("geometry", "loads"), "geometry")
             self.pages["design"] = self._page_settings_group(
                 self.stage,
-                ("profile", "layout", "bands", "ai", "strands", "strips",
+                ("profile", "layout", "bands", "ai", "osh", "strands", "strips",
                  "output"),
                 "profile")
             self.pages["banks"] = self._page_banks(self.stage)
