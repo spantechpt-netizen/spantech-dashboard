@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.112"
+APP_VERSION = "18.113"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -37939,10 +37939,18 @@ def osh_walk_first_inside(prof, s_from, s_to, polys, step=0.05):
     return None
 
 
-def osh_end_geometry(t, d, end_xy, site, reach=3.0):
+def osh_end_geometry(t, d, end_xy, site, reach=1.5, edge_reach=3.0, across=1.5):
     """
     للكابل عند طرف البحر ده: (محطة الطرف, إشارة الاتجاه من الداخل للخارج,
     محطة وش الركيزة أو None, محطة حافة الدروب أو None).
+
+    **18.113: الركيزة هي طرف شريحة التصميم نفسه** (End 1 / End 2 في رام) -
+    مش أقرب بصمة عامود في 3 م زي قبل كده، لأن الكابل الماشي جنب فتحة أو
+    جنب عامود كان بيلاقي بصمة غلط أو مايلاقيش حاجة. البصمة بتتستخدم بس
+    عشان القمة تتظبّط على الوش لو فيه بصمة **عند الطرف ده فعلاً**: في
+    حدود `reach` منه على مسار الكابل وعلى ≤ `across` منه عرضياً. لو الكابل
+    ماشي فوقها الوش هو أول نقطة جوّاها من ناحية البحر، ولو ماشي جنبها
+    الوش هو إسقاطها على المسار. غير كده بيرجع None والطرف نفسه هو الهدف.
     """
     prof = t.get("profile") or []
     st = osh_stations(prof)
@@ -37950,29 +37958,29 @@ def osh_end_geometry(t, d, end_xy, site, reach=3.0):
     s_mid, _ = _station_of(prof, d["mid"])
     sign = 1.0 if s_end >= s_mid else -1.0
     total = st[-1]
-    inner = max(0.0, min(total, s_end - sign * reach))
-    outer = max(0.0, min(total, s_end + sign * reach))
-    polys = osh_support_polys(site)
-    face = osh_walk_first_inside(prof, inner, outer, polys)
-    if face is None:
-        #  الكابل مش ماشي فوق الركيزة نفسها (جنب العامود بنص متر مثلاً):
-        #  وش الركيزة هو إسقاط بصمتها على مسار الكابل، لو هي في المتناول.
-        across = 1.5
-        best = None
-        w_lo, w_hi = sorted((inner, outer))
-        for poly in polys:
-            pts = [_station_of(prof, c) for c in poly]
-            if min(o for _s, o in pts) > across:
-                continue
-            lo = min(s for s, _o in pts)
-            hi = max(s for s, _o in pts)
-            if hi < w_lo or lo > w_hi:
-                continue
-            cand = lo if sign > 0 else hi
-            if best is None or abs(cand - s_end) < abs(best - s_end):
-                best = cand
-        face = best
-    edge = osh_walk_first_inside(prof, inner, outer,
+    w_lo = max(0.0, min(total, s_end - reach))
+    w_hi = max(0.0, min(total, s_end + reach))
+    inner, outer = (w_lo, w_hi) if sign > 0 else (w_hi, w_lo)
+    face = None
+    best = None
+    for poly in osh_support_polys(site):
+        pts = [_station_of(prof, c) for c in poly]
+        if min(o for _s, o in pts) > across:
+            continue
+        lo = min(s for s, _o in pts)
+        hi = max(s for s, _o in pts)
+        if hi < w_lo or lo > w_hi:
+            continue
+        f = osh_walk_first_inside(prof, inner, outer, [poly])
+        if f is None:
+            f = lo if sign > 0 else hi
+        score = abs((lo + hi) / 2.0 - s_end)
+        if best is None or score < best:
+            best, face = score, f
+    e_lo = max(0.0, min(total, s_end - edge_reach))
+    e_hi = max(0.0, min(total, s_end + edge_reach))
+    e_in, e_out = (e_lo, e_hi) if sign > 0 else (e_hi, e_lo)
+    edge = osh_walk_first_inside(prof, e_in, e_out,
                                  [p for p in ((site or {}).get("drops") or [])
                                   if p and len(p) >= 3])
     return s_end, sign, face, edge
@@ -38049,9 +38057,10 @@ def osh_peak_to_face(t, d, end_xy, site, params, direction, tol=0.30):
     """
     القمم اللي في جهة الطرف ده وبعيدة عن وش الركيزة بتتشال، وقمة واحدة
     بتتحط على الوش بالظبط. بترجّع عدد اللي اتغيّر (0 = القمة على الوش
-    خلاص). **18.112:** لو مافيش بصمة ركيزة في المتناول، طرف البحر نفسه
-    (رام بيوقف الشريحة على الركيزة) هو الهدف - بدل ما يتقال "على
-    الوش خلاص" وهي مش على حاجة. السبب بيتحط في t["_osh_face_why"].
+    خلاص). **18.113:** الركيزة هي طرف شريحة التصميم (End 1 / End 2): القمة
+    بتتحط على وش بصمتها لو فيه بصمة عند الطرف ده، وإلا على الطرف نفسه.
+    الطرف اللي رام بيقول إنه مش على ركيزة (AtSupport = False، تقسيمة
+    جوّه البحر) مابيتحطش عليه قمة. السبب في t["_osh_face_why"].
     """
     s_end, sign, face, _edge = osh_end_geometry(t, d, end_xy, site)
     t["_osh_face_why"] = "face"
@@ -38704,9 +38713,9 @@ def osh_top_round(state, tendons, params, site, job, direction, budget, stages,
                     job.ok(f"        mid-span bottom has room ({bottom_u:.2f}) "
                            f"and the high points sat off the support: {n_mv} "
                            f"point(s) moved onto "
-                           + ("the strip's span end (no support footprint "
-                              "was found within reach)" if "span end" in whys
-                              else "the support face")
+                           + ("the design strip's end (the support; no "
+                              "column footprint sits at it)" if "span end" in whys
+                              else "the support face at the strip's end")
                            + "; re-analysing.")
                     continue
                 if "no support" in whys and len(whys) == 1:
