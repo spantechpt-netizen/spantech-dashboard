@@ -84,7 +84,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.107"
+APP_VERSION = "18.108"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2921,6 +2921,9 @@ class TendonDesignParams:
         # إيه اللي يتكتب في الموديل
         self.write_area_loads = bool(kw.get("write_area_loads", False))
         self.write_wall_loads = bool(kw.get("write_wall_loads", False))
+        #  18.108: حمل خطي على حدود البلاطة الخارجية (kN/m)
+        self.write_edge_load = bool(kw.get("write_edge_load", False))
+        self.edge_line_load = float(kw.get("edge_line_load", 0.0) or 0.0)
         # --- شرائح التصميم (Support Lines) ---
         # مقفولة افتراضيًا: الشرائح بتحكم التصميم كله في RAM، ورسمها
         # أوتوماتيك على بلاطة شبكتها مش منتظمة بيدي نتيجة تبان صح وهي غلط.
@@ -21084,6 +21087,68 @@ def write_area_loads_to_ram(session, site, params, job):
         job.info("Live load reduction, pattern loading and the load "
                  "combinations stay as the template file defines them.")
     return done
+
+
+def write_edge_loads_to_ram(session, site, params, job):
+    """
+    **18.108: حمل خطي على حدود البلاطة الخارجية.** رام بيعرف يعمله من
+    جوّه، بس المهندس بيكتب القيمة هنا (kN/m) والبرنامج بيحطه على كل
+    ضلع من حدود كل قطعة خرسانة - الحدود الخارجية بس، مش حواف الفتحات.
+    بيتكتب على طبقة الحمل الميت. بيرجّع عدد الأضلاع اللي اتكتبت.
+    """
+    value = float(getattr(params, "edge_line_load", 0.0) or 0.0)
+    if value <= 0:
+        return 0
+    Point2D = session.api["Point2D"]
+    LineSegment2D = session.api["LineSegment2D"]
+    pieces = [q for q in (site.get("pieces") or []) if q and len(q) >= 3]
+    if not pieces:
+        b = site.get("boundary") or []
+        pieces = [b] if len(b) >= 3 else []
+    if not pieces:
+        job.warn("Edge line load: no slab boundary was read, so nothing was "
+                 "written.")
+        return 0
+    layer = pick_loading_layer(session, DEAD_CAUSE_NAMES, job,
+                               "Edge line load")
+    if layer is None:
+        return 0
+    sign = down_sign(session, job)
+    first = [None]
+    drawn, failed, total_m = 0, 0, 0.0
+    for poly in pieces:
+        n = len(poly)
+        for i in range(n):
+            job.check()
+            a, b = poly[i], poly[(i + 1) % n]
+            length = dist(a, b)
+            if length < 0.20:
+                continue
+            try:
+                elem = layer.add_line_load(LineSegment2D(
+                    Point2D(a[0], a[1]), Point2D(b[0], b[1])))
+            except Exception as e:
+                failed += 1
+                if failed <= 3:
+                    job.warn(f"An edge load was not added: {e}")
+                continue
+            if elem is None:
+                failed += 1
+                continue
+            if _set_line_load(elem, value, job, first, sign):
+                drawn += 1
+                total_m += length
+            else:
+                failed += 1
+    if drawn:
+        job.ok(f"Edge line load: {value:.2f} kN/m on {drawn} edge(s) of the "
+               f"outer slab boundary, {total_m:,.0f} m in all "
+               f"({value * total_m:,.0f} kN), on the dead layer. Opening "
+               f"edges are not loaded.")
+    if failed:
+        job.warn(f"Edge line load: {failed} edge(s) could not be written"
+                 + (f" ({first[0]})" if first[0] else "") + ".")
+    return drawn
 
 
 def wall_line_load(wall, params):
@@ -54979,6 +55044,8 @@ class AutoPTApp:
             "strip_min_supports": V(value="2"),
             "strip_edge_extend": B(value=True),
             "write_wall_loads": B(value=False),
+            "write_edge_load": B(value=False),
+            "edge_line_load": V(value="0"),
             "arch_wall_density": V(value="14"),
             "arch_wall_height": V(value="3.0"),
             "arch_wall_openings": V(value="85"),
@@ -57075,6 +57142,14 @@ class AutoPTApp:
                 "Writes the SDL and live load from the Loads card as area "
                 "loads on the model's own dead and live layers. Self weight "
                 "is left to RAM.")
+        c.separator()
+        c.check("Line load along the outer slab edge", self.v["write_edge_load"],
+                "A parapet, a cladding line or a facade wall sitting on the "
+                "slab edge. Written on every edge of the outer boundary of "
+                "each slab piece - never on opening edges - on the model's "
+                "dead layer. RAM can do this itself; here you type the value "
+                "once and every run carries it.")
+        c.entry("Edge line load (kN/m)", self.v["edge_line_load"])
         c.separator()
         c.check("Architectural walls as line loads", self.v["write_wall_loads"],
                 "Walls on an architectural layer are NOT supports - they are "
@@ -59702,6 +59777,9 @@ class AutoPTApp:
                 build_structure_in_ram(session, site, params, job)
                 job.step(0.60, "Writing the loads from the Loads page")
                 write_area_loads_to_ram(session, site, params, job)
+                if (getattr(params, "write_edge_load", False)
+                        and float(getattr(params, "edge_line_load", 0) or 0) > 0):
+                    write_edge_loads_to_ram(session, site, params, job)
                 if got["lines"]:
                     job.step(0.70, "Drawing the support lines")
                     #  **18.92: الخطوط المقروءة هي اللي تترسم، مش خطوط
@@ -60818,6 +60896,8 @@ class AutoPTApp:
             strip_min_supports=int(self._num("strip_min_supports", 2)),
             strip_edge_extend=v["strip_edge_extend"].get(),
             write_wall_loads=v["write_wall_loads"].get(),
+            write_edge_load=v["write_edge_load"].get(),
+            edge_line_load=self._num("edge_line_load", 0.0),
             balance_ratio=self._num("balance_ratio", 70.0) / 100.0,
             strand_type=v["strand_type"].get(),
             fpe_ratio=self._num("fpe_ratio", FPE_RATIO_DEFAULT),
@@ -61237,6 +61317,10 @@ class AutoPTApp:
         out_dir = self.v["out_dir"].get().strip() or os.path.dirname(cpt)
         if not os.path.isdir(out_dir):
             messagebox.showerror("Output folder", "The output folder does not exist.", parent=self.root)
+            return
+        #  18.108: موديل جديد من الكاد - تأكيد السُمك والدروب والأحمال
+        #  قبل ما رام يفتح.
+        if not self._confirm_cad_build(mode, dxf, params):
             return
         #  18.107: كل ملفات الرن في Temp\<الموديل>_<الوقت>\، والنهائي بس
         #  بيتنسخ جنب الموديل لما الرن يخلص (في _finish).
@@ -61944,6 +62028,61 @@ class AutoPTApp:
             self._quiet_done = False
             self._chained_run = False
             self.root.after(0, self._finish)
+
+    CAD_BUILD_MODES = ("full", "end_to_end", "structure", "two_pass",
+                       "fromfile", "osh_new")
+
+    def _confirm_cad_build(self, mode, dxf, params):
+        """
+        **18.108: رسالة تأكيد قبل بناء موديل من الكاد.** السُمك والدروب
+        والأحمال هم اللي بيتنسوا: إعداد من مشروع فات بيتشغّل على مشروع
+        جديد ورن كامل بيتعمل على أرقام غلط. بترجّع False لو المستخدم لغى.
+        """
+        if mode not in self.CAD_BUILD_MODES or not dxf:
+            return True
+        try:
+            lines = [f"Model built from: {os.path.basename(dxf)}", ""]
+            th = float(getattr(params, "slab_thickness", 0) or 0)
+            dr = float(getattr(params, "drop_thickness", 0) or 0)
+            lines.append(f"Slab thickness:   {th:.0f} mm"
+                         + ("   (a template thickness overrides it if the "
+                            "model has one)" if getattr(params, "thickness_from_model", False)
+                            else ""))
+            lines.append(f"Drop panels:      {dr:.0f} mm thick, read from "
+                         f"the DXF layer given the 'drop panel' role")
+            lines.append("")
+            if getattr(params, "write_area_loads", False):
+                lines.append(f"SDL:              {float(params.sdl):.2f} kN/m²")
+                lines.append(f"Live load:        {float(params.live_load):.2f} kN/m²")
+            else:
+                lines.append("SDL / live load:  NOT written (box off) - "
+                             "self weight and prestress only")
+            if getattr(params, "write_edge_load", False) and float(
+                    getattr(params, "edge_line_load", 0) or 0) > 0:
+                lines.append(f"Edge line load:   {float(params.edge_line_load):.2f} "
+                             f"kN/m on the outer slab boundary")
+            else:
+                lines.append("Edge line load:   none")
+            if getattr(params, "write_wall_loads", False):
+                lines.append(f"Arch. walls:      {float(params.arch_wall_density):g} kN/m³ "
+                             f"× {float(params.arch_wall_height):.2f} m floor × "
+                             f"{float(params.arch_wall_opening_factor):.2f} openings")
+            else:
+                lines.append("Arch. walls:      none")
+            try:
+                bt = str(self.v["balance_target"].get() or "")
+                lines.append(f"Balanced load:    {bt} at "
+                             f"{float(self._num('balance_ratio', 0)):.0f}%")
+            except Exception:
+                pass
+            lines.append("")
+            lines.append("OK builds the model with these. Cancel goes back "
+                         "to the settings.")
+            return bool(messagebox.askokcancel(
+                "Check before building the model", "\n".join(lines),
+                parent=self.root))
+        except Exception:
+            return True
 
     def _osh_pipeline(self, cpt, out_dir, params: TendonDesignParams):
         """
@@ -63141,6 +63280,9 @@ class AutoPTApp:
                         write_area_loads_to_ram(session, site, params, job)
                     if params.write_wall_loads:
                         write_wall_loads_to_ram(session, site, params, job)
+                    if (getattr(params, "write_edge_load", False)
+                            and float(getattr(params, "edge_line_load", 0) or 0) > 0):
+                        write_edge_loads_to_ram(session, site, params, job)
                     #  الأحمال الخطية اللي جت من ملف أدابت بتتكتب مع
                     #  الأحمال المساحية، مش مربوطة بخانة الحوائط.
                     if site.get("line_loads") and params.write_area_loads:
@@ -64234,6 +64376,9 @@ def cli_process_one(dxf, cpt, out_dir, params, data, job, args):
                 write_adm_line_loads_to_ram(session, site, params, job)
         if getattr(params, "write_wall_loads", False):
             write_wall_loads_to_ram(session, site, params, job)
+        if (getattr(params, "write_edge_load", False)
+                and float(getattr(params, "edge_line_load", 0) or 0) > 0):
+            write_edge_loads_to_ram(session, site, params, job)
         if write_strips:
             write_design_strips_to_ram(session, site, params, job, cpt)
         elif getattr(args, "no_strips", False):
