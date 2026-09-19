@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.132"
+APP_VERSION = "18.133"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2993,7 +2993,7 @@ class TendonDesignParams:
         #  18.132: التفاصيل النمطية وبلوك الليبل
         self.rc_sheet_details = bool(kw.get("rc_sheet_details", True))
         self.rc_bar_blocks = bool(kw.get("rc_bar_blocks", True))
-        self.rc_bar_fields = bool(kw.get("rc_bar_fields", True))
+        self.rc_bar_fields = bool(kw.get("rc_bar_fields", False))
         self.rc_edge_on_plan = bool(kw.get("rc_edge_on_plan", False))
         #  18.121: فحص الثقب بعد رسم الكابلات
         self.punch_check = bool(kw.get("punch_check", True))
@@ -49400,8 +49400,8 @@ AR_UI.update({
     'A fourth sheet drawn at 1:20 from the same settings: slab edge U-bars, top bars over a column (section and plan), drop panel, top bars across a wall, opening trim, punching links (top view, section and legend) and the beam elevation with its two sections and A/B/C/E/F key.': 'لوحة رابعة مرسومة 1:20 من نفس الإعدادات: أسياخ U للحافة، الحديد العلوي فوق العمود (قطاع ومسقط)، الدروب، الحديد العلوي عبر الحيطة، تقوية الفتحة، كانات الثقب (مسقط وقطاع ومفتاح)، وارتفاع الكمرة بقطاعيها ومفتاح A/B/C/E/F.',
     "Bar callouts as attribute blocks (the competitor's method)": 'ليبل السيخ بلوك بخصائص (طريقة المنافس)',
     'Every bar is a polyline and its callout a block with two attributes, BARS and LENGTH, on a masked background: edit the text with the attribute editor, stretch the bar by its grip.': 'كل سيخ بولي لاين وليبله بلوك بخاصيتين BARS وLENGTH على خلفية ماسك: عدّل الكتابة من محرر الخصائص، وشدّ السيخ من طرفه.',
-    'Length as a live field': 'الطول حقل حي',
-    "The LENGTH attribute is a field that reads the bar polyline's own length (%lu2%pr0%ps[L=,]), exactly as in the competitor's blocks: stretch the bar and L= follows. Needs AutoCAD 2005 or later; turn it off for a CAD that rejects fields.": 'خاصية LENGTH حقل بيقرا طول بولي لاين السيخ نفسه (%lu2%pr0%ps[L=,]) زي بلوكات المنافس بالظبط: شدّ السيخ وL= بتتغير وراه. محتاج AutoCAD 2005 أو أحدث؛ اقفله لو الكاد بيرفض الحقول.',
+    'Length as a live field (experimental)': 'الطول حقل حي (تجريبي)',
+    "The LENGTH attribute is a field that reads the bar polyline's own length (%lu2%pr0%ps[L=,]), exactly as in the competitor's blocks: stretch the bar and L= follows. The field objects are written by hand (no library writes them): try one file in AutoCAD; if it refuses to open, leave this off and the callout keeps the right text.": 'خاصية LENGTH حقل بيقرا طول بولي لاين السيخ نفسه (%lu2%pr0%ps[L=,]) زي بلوكات المنافس بالظبط: شدّ السيخ وL= بتتغير وراه. كائنات الحقل مكتوبة يدوياً (مافيش مكتبة بتكتبها): جرّب ملف واحد في AutoCAD؛ لو رفض يفتح سيبها مقفولة والليبل بيفضل بالنص الصح.',
 })
 #  18.131: الكمرات، أحمال الموديل، التشطيب
 AR_UI.update({
@@ -54809,28 +54809,32 @@ def _rc_length_field(doc, attrib, target_handle, length_mm):
     بالظبط. لو الكاد مابيعرفش الحقول بيفضل النص المحفوظ زي ما هو.
     """
     val = f"L={int(round(length_mm))}"
-    child = "\n".join(["  0", "FIELD", "  5", "0", "330", "0", "100", "AcDbField", "  1", "AcObjProp.16.2",
-                       "  2", '\\AcObjProp.16.2 Object(%<\\_ObjIdx 0>%,1).Length \\f "%lu2%pr0%ps[L=,]"',
-                       " 90", "0", " 97", "1", " 91", "63", " 92", "0", " 94", "59", " 95", "2", " 96", "0", "300", "",
-                       " 93", "0", " 90", "2", "140", f"{float(length_mm):.6f}", "301", val, " 98", str(len(val)), " 93", "3",
-                       "  6", "ObjectPropertyId", " 93", "0", " 90", "64", "330", target_handle,
-                       "  6", "ObjectPropertyName", " 93", "0", " 90", "4", "  1", "Length",
-                       "  6", "ObjectPropertyOption", " 93", "0", " 90", "1", " 91", "1",
-                       "331", target_handle, ""])
+    fmt = "%lu2%pr0%ps[L=,]"
+    #  18.133: ترتيب مجموعات FIELD زي ما AutoCAD نفسه بيكتبها (مرجع DXF):
+    #  1, 2, 90 + 360*, 97 + 331*, 91/92/94/95/96/300, 93 + (6, 90, value)*,
+    #  7 ACFD_FIELD_VALUE + 90 + value, 301 format, 98 length. ومافيش xdata
+    #  على الخاصية: appid مش مسجّل كان بيوقّع AutoCAD في ATTRIB.
+    child = "\n".join(["  0", "FIELD", "  5", "0", "330", "0", "100", "AcDbField", "  1", "AcObjProp",
+                       "  2", '\\AcObjProp Object(%<\\_ObjIdx 0>%,1).Length \\f "' + fmt + '"',
+                       " 90", "0", " 97", "1", "331", target_handle,
+                       " 91", "63", " 92", "0", " 94", "59", " 95", "2", " 96", "0", "300", "",
+                       " 93", "3",
+                       "  6", "ObjectPropertyId", " 90", "64", "330", target_handle,
+                       "  6", "ObjectPropertyName", " 90", "4", "  1", "Length",
+                       "  6", "ObjectPropertyOption", " 90", "1", " 91", "1",
+                       "  7", "ACFD_FIELD_VALUE", " 90", "2", "140", f"{float(length_mm):.6f}",
+                       "301", fmt, " 98", str(len(fmt)), ""])
     xd = attrib.get_extension_dict() if attrib.has_extension_dict else attrib.new_extension_dict()
     fdict = xd.add_dictionary("ACAD_FIELD", hard_owned=True)
     c = _rc_raw_object(doc, child)
     wrap = "\n".join(["  0", "FIELD", "  5", "0", "330", "0", "100", "AcDbField", "  1", "_text", "  2", "%<\\_FldIdx 0>%",
-                      " 90", "1", "360", c.dxf.handle, " 97", "0", " 91", "63", " 92", "0", " 94", "9", " 95", "2", " 96", "0", "300", "",
-                      " 93", "0", " 90", "0", " 91", "0", "301", "", " 98", "0", " 93", "0", ""])
+                      " 90", "1", "360", c.dxf.handle, " 97", "0",
+                      " 91", "63", " 92", "0", " 94", "9", " 95", "2", " 96", "0", "300", "",
+                      " 93", "0", "  7", "ACFD_FIELD_VALUE", " 90", "4", "  1", val, "301", "", " 98", "0", ""])
     w = _rc_raw_object(doc, wrap)
     w.dxf.owner = fdict.dxf.handle
     c.dxf.owner = w.dxf.handle
     fdict["TEXT"] = w
-    try:
-        attrib.set_xdata("AcDbAttr", [(1070, 0), (1070, 1)])
-    except Exception:
-        pass
     return w
 
 
@@ -61897,7 +61901,7 @@ class AutoPTApp:
             "rc_beam_link_dia": V(value="10"), "rc_beam_link_max": V(value="300"),
             "rc_beam_side_bar": V(value="T12@200"), "rc_beam_side_from_depth": V(value="750"),
             "rc_loads_from_model": B(value=True), "rc_edge_on_plan": B(value=False),
-            "rc_sheet_details": B(value=True), "rc_bar_blocks": B(value=True), "rc_bar_fields": B(value=True),
+            "rc_sheet_details": B(value=True), "rc_bar_blocks": B(value=True), "rc_bar_fields": B(value=False),
             "shop_mark_prefix": V(value=""),
             "shop_live_block": V(value="LiveEnd"),
             "shop_dead_block": V(value="DeadEnd"),
@@ -65772,10 +65776,11 @@ class AutoPTApp:
         c.check("Bar callouts as attribute blocks (the competitor's method)", self.v["rc_bar_blocks"],
                 "Every bar is a polyline and its callout a block with two attributes, BARS and LENGTH, "
                 "on a masked background: edit the text with the attribute editor, stretch the bar by its grip.")
-        c.check("Length as a live field", self.v["rc_bar_fields"],
+        c.check("Length as a live field (experimental)", self.v["rc_bar_fields"],
                 "The LENGTH attribute is a field that reads the bar polyline's own length (%lu2%pr0%ps[L=,]), "
-                "exactly as in the competitor's blocks: stretch the bar and L= follows. Needs AutoCAD 2005 or "
-                "later; turn it off for a CAD that rejects fields.")
+                "exactly as in the competitor's blocks: stretch the bar and L= follows. The field objects are "
+                "written by hand (no library writes them): try one file in AutoCAD; if it refuses to open, "
+                "leave this off and the callout keeps the right text.")
         c.entry("Layer prefix", self.v["rc_layer_prefix"],
                 "Every layer is <prefix>-GA-..., <prefix>-LOAD-..., <prefix>-RC-... so the file is yours, "
                 "not the competitor's.")
