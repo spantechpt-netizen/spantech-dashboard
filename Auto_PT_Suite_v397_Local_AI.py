@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.126"
+APP_VERSION = "18.127"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -25695,6 +25695,7 @@ def write_design_strips_to_ram(session, site, params, job, cpt_path=None):
         return {"lines": 0, "spans": 0}
 
     base_props = strip_span_props(params)
+    _LAST_DRAWN["lines"] = lines                       # 18.127: لشاشة "مين رسم الشريحة دي"
     return _draw_support_lines(access, lines, beam_splitters, base_props,
                                site, params, job)
 
@@ -26632,6 +26633,12 @@ LEARN_FORMAT = 1
 
 #  آخر حاجة اترسمت في الجلسة دي - `safe_save` بتاخد منها البصمة.
 _LAST_DRAWN = {"tendons": None, "lines": None, "params": None}
+_APP = None                     # 18.127: نافذة البرنامج - للبحث وشاشة "مين رسم ده"
+
+
+def _set_app(app):
+    global _APP
+    _APP = app
 
 
 def _pt_mid(pts):
@@ -37972,7 +37979,7 @@ def run_temp_dir(out_dir, cpt):
     **18.107: كل رن في مجلده.** المجلد اللي فيه الموديل كان بيتملي
     بملفات كل دورة من كل رن (_OSH_bottom_r1, _EFM_r3, لوجات، تقارير...)
     ومحدش عارف الملف النهائي أنهو. دلوقتي كل رن بيكتب كل حاجة في
-    Temp\<اسم الموديل>_<التاريخ والوقت>\ جنب الموديل، والملف النهائي
+    Temp\\<اسم الموديل>_<التاريخ والوقت>\\ جنب الموديل، والملف النهائي
     بس هو اللي بيتنسخ جنب الموديل الأصلي (finish_run_output).
     """
     stem = os.path.splitext(os.path.basename(cpt or "run"))[0] or "run"
@@ -40752,6 +40759,182 @@ def _cost_table(after, before=None, model=""):
     return out
 
 
+class MiniPDF:
+    """
+    18.127: كاتب PDF صغير من غير أي مكتبة - نص Helvetica (WinAnsi، فيه
+    ² و³)، خطوط ومستطيلات، صفحات A4 عرضية. كفاية لتقرير التكلفة.
+    """
+
+    def __init__(self, landscape=True):
+        self.w, self.h = (841.89, 595.28) if landscape else (595.28, 841.89)
+        self.pages = []
+        self._buf = None
+        self.new_page()
+
+    def new_page(self):
+        self._buf = []
+        self.pages.append(self._buf)
+
+    @staticmethod
+    def _enc(text):
+        b = str(text).encode("cp1252", "replace")
+        return b.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
+
+    @staticmethod
+    def text_width(text, size):
+        """عرض تقريبي (Helvetica): 0.52 من الحجم للحرف، الأرقام والحروف الكبيرة أعرض شوية."""
+        w = 0.0
+        for ch in str(text):
+            if ch in "il.,:;'|! ":
+                w += 0.28
+            elif ch.isupper() or ch in "mwMW@%":
+                w += 0.68
+            else:
+                w += 0.52
+        return w * size
+
+    def text(self, x, y, s, size=9, bold=False, align="left", width=None):
+        """y من فوق. align: left / right / center داخل width."""
+        if width and align in ("right", "center"):
+            tw = self.text_width(s, size)
+            x = x + (width - tw if align == "right" else (width - tw) / 2.0)
+        font = b"F2" if bold else b"F1"
+        self._buf.append(b"BT /" + font + (" %.1f Tf %.2f %.2f Td (" % (size, x, self.h - y)).encode()
+                         + self._enc(s) + b") Tj ET")
+
+    def line(self, x1, y1, x2, y2, w=0.5, gray=0.6):
+        self._buf.append(("%.2f w %.2f G %.2f %.2f m %.2f %.2f l S"
+                          % (w, gray, x1, self.h - y1, x2, self.h - y2)).encode())
+
+    def rect(self, x, y, w, h, gray=0.92):
+        self._buf.append(("%.2f g %.2f %.2f %.2f %.2f re f 0 g"
+                          % (gray, x, self.h - y - h, w, h)).encode())
+
+    def save(self, path):
+        objs = []                       # كل عنصر bytes من غير رقمه
+
+        def add(body):
+            objs.append(body)
+            return len(objs)
+        font1 = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+        font2 = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+        pages_id = len(objs) + 1 + 2 * len(self.pages)      # بيتحط بعد الصفحات
+        page_ids = []
+        for buf in self.pages:
+            stream = b"\n".join(buf)
+            cid = add(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+            pid = add(("<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.2f %.2f] "
+                       "/Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> >> /Contents %d 0 R >>"
+                       % (pages_id, self.w, self.h, font1, font2, cid)).encode())
+            page_ids.append(pid)
+        kids = b" ".join(b"%d 0 R" % p for p in page_ids)
+        real_pages = add(b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % len(page_ids))
+        assert real_pages == pages_id
+        catalog = add(b"<< /Type /Catalog /Pages %d 0 R >>" % pages_id)
+        out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = []
+        for i, body in enumerate(objs, start=1):
+            offsets.append(len(out))
+            out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+        xref = len(out)
+        out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+        for off in offsets:
+            out += b"%010d 00000 n \n" % off
+        out += (b"trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%%%EOF\n"
+                % (len(objs) + 1, catalog, xref))
+        with open(path, "wb") as f:
+            f.write(bytes(out))
+        return path
+
+
+def _pdf_cell(v):
+    if isinstance(v, float):
+        return f"{v:,.2f}"
+    if isinstance(v, int) and not isinstance(v, bool):
+        return f"{v:,}"
+    return "" if v is None else str(v)
+
+
+def cost_report_pdf(path, table, title="Quantities and cost report"):
+    """
+    18.127: نفس جدول التقرير (من `_cost_table`) كصفحة PDF: عناوين
+    الأقسام على شريط، رؤوس الأعمدة بخط عريض، الأرقام على اليمين،
+    والإجماليات بخط عريض. صفحات إضافية لو الجدول طويل.
+    """
+    pdf = MiniPDF(landscape=True)
+    margin, row_h = 36.0, 13.5
+    usable = pdf.w - 2 * margin
+    widths6 = [28, 0, 40, 78, 86, 96]
+    widths10 = [24, 0, 34, 56, 64, 78, 56, 64, 78, 78]
+    for ws in (widths6, widths10):
+        ws[1] = usable - sum(ws)
+    sections = {"Quantities and cost report", "BILL OF QUANTITIES",
+                "RATES PER SQUARE METRE", "UNIT PRICES USED"}
+    y = margin
+    pdf.text(margin, y + 12, title, size=15, bold=True)
+    y += 26
+
+    def cols_for(n):
+        return widths10 if n > 6 else widths6
+
+    def new_page():
+        nonlocal y
+        pdf.new_page()
+        y = margin
+        pdf.text(margin, y + 9, f"{title} (continued)", size=9, bold=True)
+        y += 18
+
+    for row in table:
+        if y + row_h > pdf.h - margin:
+            new_page()
+        if not row:
+            y += row_h * 0.6
+            continue
+        first = str(row[0]) if row else ""
+        second = str(row[1]) if len(row) > 1 else ""
+        if first in sections:
+            pdf.rect(margin, y, usable, row_h + 2, gray=0.86)
+            pdf.text(margin + 4, y + 10.5, first if first != "Quantities and cost report" else "MODEL", size=9.5, bold=True)
+            #  عناوين قبل/بعد فوق مجموعات الأعمدة
+            if len(row) > 2:
+                ws = cols_for(len(row))
+                x = margin
+                for i, v in enumerate(row):
+                    if i and v:
+                        pdf.text(x, y + 10.5, str(v), size=8.5, bold=True, align="center", width=ws[i])
+                    x += ws[i]
+            elif len(row) == 2 and row[1]:
+                pdf.text(margin, y + 10.5, str(row[1]), size=9.5, bold=True,
+                         align="right", width=usable - 4)
+            y += row_h + 3
+            continue
+        if len(row) == 2 and first not in sections and second and not first.startswith("No"):
+            pdf.text(margin + 4, y + 10, f"{first}:", size=8.5, bold=True)
+            pdf.text(margin + 150, y + 10, _pdf_cell(row[1]), size=8.5)
+            y += row_h
+            continue
+        ws = cols_for(len(row))
+        header = first == "No" or (first == "" and second == "Item")
+        total = second.endswith("subtotal") or second in ("FLOOR TOTAL", "Saving (%)")
+        if header:
+            pdf.rect(margin, y, usable, row_h, gray=0.93)
+            row = [str(v).replace("Unit price", "Rate") for v in row]
+        if total:
+            pdf.line(margin, y, margin + usable, y, w=0.6, gray=0.4)
+        x = margin
+        for i, v in enumerate(row):
+            if i >= len(ws):
+                break
+            num = isinstance(v, (int, float)) and not isinstance(v, bool)
+            pdf.text(x + 2, y + 10, _pdf_cell(v), size=8.3, bold=header or total,
+                     align="right" if (num and not header) else "left",
+                     width=ws[i] - 4 if num and not header else None)
+            x += ws[i]
+        y += row_h
+        pdf.line(margin, y, margin + usable, y, w=0.25, gray=0.82)
+    return pdf.save(path)
+
+
 def write_cost_report(path_base, after, before=None, model="", job=None):
     """
     **18.126: تقرير التكلفة في ملف منفصل مع ملفات الـ Temp.** حصر كل
@@ -40772,6 +40955,13 @@ def write_cost_report(path_base, after, before=None, model="", job=None):
     except Exception as e:
         if job:
             job.warn(f"The cost report CSV could not be written: {e}")
+    try:
+        written.append(cost_report_pdf(path_base + "_cost_report.pdf", table,
+                                       title=f"Quantities and cost report - {model}" if model
+                                       else "Quantities and cost report"))
+    except Exception as e:
+        if job:
+            job.warn(f"The cost report PDF could not be written: {e}")
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -48250,7 +48440,7 @@ AR_UI.update({
     'Rebar estimate when the model has none designed (kg/m²)': 'تقدير الحديد عندما لا يوجد حديد مصمم في النموذج (كجم/م²)',
     'Used only when the saved model carries no designed rebar - a model drawn but not analysed, for example.': 'يُستخدم فقط عندما لا يحمل النموذج المحفوظ حديداً مصمماً - نموذج مرسوم ولم يُحلَّل مثلاً.',
     'Report quantities and cost after every run': 'اذكر الكميات والتكلفة بعد كل تشغيل',
-    "A separate cost report (<model>_cost_report.csv and .xlsx) goes into the run's Temp folder: every item with its quantity, unit price and amount, the subtotals, the slab area, the strand kg/m² and the cost per m², and before/after with the saving whenever the run starts from a model.": 'تقرير تكلفة منفصل (<model>_cost_report.csv و .xlsx) بينزل في مجلد Temp بتاع الرن: كل بند بكميته وسعر وحدته وإجماليه، الإجماليات الفرعية، مساحة السقف، معدل الاسترند كجم/م² وتكلفة المتر المسطح، وقبل/بعد مع التوفير كل ما الرن يبدأ من موديل.',
+    "A separate cost report (<model>_cost_report.csv, .pdf and .xlsx) goes into the run's Temp folder: every item with its quantity, unit price and amount, the subtotals, the slab area, the strand kg/m² and the cost per m², and before/after with the saving whenever the run starts from a model.": 'تقرير تكلفة منفصل (<model>_cost_report.csv و .pdf و .xlsx) بينزل في مجلد Temp بتاع الرن: كل بند بكميته وسعر وحدته وإجماليه، الإجماليات الفرعية، مساحة السقف، معدل الاسترند كجم/م² وتكلفة المتر المسطح، وقبل/بعد مع التوفير كل ما الرن يبدأ من موديل.',
     'Optimum solution H': 'Optimum solution H',
     'Make every section pass, then take out what it does not need': 'اجعل كل قطاع يجتاز، ثم أخرج ما لا يحتاجه',
     'Works on a model that already has tendons - drawn a moment ago from the DXF, or a model you open. Three stages, each saved in its own file: (1) bottom sections: a tendon whose spans are mostly failing gets strands; otherwise a copy of the tendon over that span only, placed in the free lane nearest the column line (the strip between the slab edge and the first tendon counts). (2) top sections, only after the bottom ones: a high point at a drop-panel edge, the peak moved onto the support face where the mid-span has room, then strands or a tendon - the low points stay at mid-span, at the bottom, unless the setting below says otherwise. (3) the optimisation: groups with reserve give strands back to the one span at the limit, tendons in line are joined, and short pieces covering most of an axis become one tendon. The file handed back is never worse than the one saved at the end of stage 2.': 'يعمل على نموذج به كابلات بالفعل - رُسمت للتو من DXF، أو نموذج تفتحه. ثلاث مراحل، كل منها محفوظة في ملفها: (1) القطاعات السفلية: الكابل الذي معظم بحوره راسبة يأخذ استرندات؛ وإلا نسخة من الكابل فوق ذلك البحر فقط، توضع في أقرب مكان فاضٍ لخط الأعمدة (والفراغ بين حافة البلاطة وأول كابل يُحتسب). (2) القطاعات العلوية، بعد السفلية فقط: نقطة عالية عند حافة الدروب، ونقل القمة إلى وجه الركيزة حيث في منتصف البحر متسع، ثم استرندات أو كابل - النقاط المنخفضة تبقى في منتصف البحر وفي الأسفل ما لم يقل الإعداد أدناه غير ذلك. (3) التحسين: المجموعات التي لها احتياطي تعيد استرندات إلى البحر الوحيد الذي عند الحد، والكابلات المتوالية تُربط، والقطع القصيرة التي تغطي معظم محور تصير كابلاً واحداً. الملف المُعاد لا يكون أبداً أسوأ من المحفوظ في نهاية المرحلة 2.',
@@ -49128,6 +49318,279 @@ AR_UI.update({
     'Checks, analysis, reports': 'الفحوصات والتحليل والتقارير',
 })
 #  --- AR_UI_CHUNKS ---
+#  18.127: البحث في الإعدادات وشاشة "مين رسم ده"
+AR_UI.update({
+    'This tendon belongs to a banded group along a column line.': 'الكابل ده ضمن مجموعة باند على خط أعمدة.',
+    'The banded direction.': 'الاتجاه المجمّع (الباند).',
+    'How many tendons a band carries.': 'عدد الكابلات في الباند.',
+    'Spacing between the tendons of a band.': 'المسافة بين كابلات الباند.',
+    "Distance of the band's outer tendon from the column face.": 'بعد الكابل الخارجي في الباند عن وش العمود.',
+    'Spacing of the bands.': 'المسافة بين الباندات.',
+    'Upper limit on the band width.': 'الحد الأعلى لعرض الباند.',
+    'Pitch of the tendons inside the band.': 'خطوة الكابلات داخل الباند.',
+    "The band's profile follows the run of the columns.": 'بروفايل الباند بيتبع مسار الأعمدة.',
+    'Share of the load the band run carries.': 'نصيب مسار الباند من الحمل.',
+    "The band's high point sits at the column face.": 'النقطة العالية للباند عند وش العمود.',
+    'The floor system decides whether this direction is banded or distributed.': 'نظام السقف هو اللي بيحدد الاتجاه ده باند ولا موزّع.',
+    'Which directions get tendons at all.': 'الاتجاهات اللي بتاخد كابلات أصلاً.',
+    'Spacing between neighbouring distributed tendons.': 'المسافة بين الكابلات الموزّعة المتجاورة.',
+    'Whether the spacing is held exactly or adjusted to fit the bay.': 'المسافة ثابتة بالظبط ولا بتتظبط على عرض البحر.',
+    'The spacing is capped at this distance.': 'المسافة مش بتزيد عن الرقم ده.',
+    'The spacing is capped at this multiple of the slab thickness.': 'المسافة مش بتزيد عن الرقم ده مضروب في سمك البلاطة.',
+    'Minimum clear distance to the tendon beside it.': 'أقل مسافة صافية للكابل اللي جنبه.',
+    'The first tendon sits this far from the slab edge.': 'أول كابل بيبعد المسافة دي عن حافة البلاطة.',
+    'Cap on the number of X tendon lines.': 'الحد الأقصى لعدد خطوط كابلات X.',
+    'Cap on the number of Y tendon lines.': 'الحد الأقصى لعدد خطوط كابلات Y.',
+    'Tendons keep clear of parallel beams and walls.': 'الكابلات بتبعد عن الكمرات والحوائط الموازية.',
+    'A tendon that would clash with a crossing member is moved.': 'الكابل اللي هيتعارض مع عنصر عابر بيتحرّك.',
+    'How far a clashing tendon is moved.': 'مسافة تحريك الكابل المتعارض.',
+    "The layout follows the code's spacing rules.": 'التوزيع بيتبع قواعد المسافات في الكود.',
+    'The code layout style.': 'أسلوب توزيع الكود.',
+    'Code limit on the distributed spacing.': 'حد الكود للمسافة بين الكابلات الموزّعة.',
+    'Code balanced-load ratio.': 'نسبة الحمل المتوازن حسب الكود.',
+    'This tendon runs in a beam.': 'الكابل ده ماشي في كمرة.',
+    'Tendons per beam.': 'عدد الكابلات في الكمرة.',
+    'Gap between beam tendons.': 'المسافة بين كابلات الكمرة.',
+    'Beams shallower than this get no tendon.': 'الكمرة الأقل عمقاً من كده مابتاخدش كابل.',
+    'How beams are treated: support, stiffener or ignored.': 'معاملة الكمرات: ركيزة، أو تقوية، أو تتجاهل.',
+    'Beam depth used for the profile in the beam.': 'عمق الكمرة المستخدم للبروفايل جواها.',
+    'A short band over a column (column band).': 'باند قصير فوق عمود (باند العمود).',
+    'Column-band tendons per metre.': 'كابلات باند العمود لكل متر.',
+    'Strands per column-band tendon.': 'استرندات كابل باند العمود.',
+    'Minimum column-band length.': 'أقل طول لباند العمود.',
+    'Maximum column-band length.': 'أكبر طول لباند العمود.',
+    'Optimum solution H added this tendon for a failing span.': 'Optimum solution H زوّد الكابل ده لبحر مش مسيّف.',
+    'How the added tendon was sized.': 'طريقة تحديد استرندات الكابل المضاف.',
+    'The added tendon runs this far past the failing spans.': 'الكابل المضاف بيمتد المسافة دي بعد البحور الفاشلة.',
+    'A tendon takes strands itself when its failing spans cover more than this share of it; otherwise a tendon is added.': 'الكابل بياخد استرندات بنفسه لو بحوره الفاشلة بتغطي أكتر من النسبة دي من طوله، وإلا بيتزوّد كابل.',
+    'The lane search width beside the column line.': 'عرض البحث عن حارة فاضية جنب خط الأعمدة.',
+    'Short tendons on the axis are replaced rather than topped up.': 'الكابلات القصيرة على المحور بتتبدّل بدل ما تتزوّد.',
+    'The EFM loop added this tendon.': 'حلقة EFM زوّدت الكابل ده.',
+    'The added tendon extends this far past the span.': 'الكابل المضاف بيمتد المسافة دي بعد البحر.',
+    'It snaps to the nearest lane.': 'بيتزحلق لأقرب حارة.',
+    'Clearance kept from the tendon beside it.': 'الخلوص المحفوظ من الكابل اللي جنبه.',
+    'Minimum gap to the next tendon.': 'أقل مسافة للكابل اللي بعده.',
+    'Added as an infill between two tendons that were too far apart.': 'اتضاف كحشو بين كابلين كانوا بعاد عن بعض.',
+    'Infill is added when the gap exceeds this ratio of the spacing.': 'الحشو بيتضاف لما الفجوة تعدّي النسبة دي من المسافة.',
+    'Margin of the infill from the neighbours.': 'هامش الحشو عن الكابلات اللي جنبه.',
+    'Reinforcing tendons extend this far past the span.': 'كابلات التقوية بتمتد المسافة دي بعد البحر.',
+    'What the reinforcing count is based on.': 'عدد كابلات التقوية مبني على إيه.',
+    'Stage 3 took strands off this tendon.': 'المرحلة 3 قلّلت استرندات الكابل ده.',
+    'Largest strand step per analysis.': 'أكبر خطوة استرندات في التحليل الواحد.',
+    'Number of optimisation rounds.': 'عدد جولات التحسين.',
+    'Strands are sized by the program (on) or fixed (off).': 'الاسترندات بيحددها البرنامج (مفتوح) أو ثابتة (مقفول).',
+    'The fixed strand count used when sizing is off.': 'عدد الاسترندات الثابت لما التحديد مقفول.',
+    'The strand counts a tendon may have.': 'أعداد الاسترندات المسموحة للكابل.',
+    'Lower limit on the strands.': 'الحد الأدنى للاسترندات.',
+    'Upper limit on the strands.': 'الحد الأقصى للاسترندات.',
+    'Strand size: its area sets the force per strand.': 'مقاس الاسترند: مساحته بتحدد القوة لكل استرند.',
+    'The balanced share of the load the tendons aim for.': 'نصيب الحمل المتوازن اللي الكابلات بتستهدفه.',
+    'Balanced-load ratio used for sizing.': 'نسبة الحمل المتوازن المستخدمة في تحديد الاسترندات.',
+    'Share of the balanced load carried in this direction.': 'نصيب الاتجاه ده من الحمل المتوازن.',
+    'Share of the tendons placed in the column strip.': 'نصيب شريحة الأعمدة من الكابلات.',
+    'How the prestress losses are taken.': 'طريقة حساب فواقد الإجهاد.',
+    'Effective prestress ratio after losses.': 'نسبة الإجهاد الفعّال بعد الفواقد.',
+    'Jacking force ratio.': 'نسبة قوة الشد.',
+    'Strands are sized from the drape actually drawn.': 'الاسترندات بتتحدد من الترخيم المرسوم فعلاً.',
+    'A drape below this ratio is not counted.': 'الترخيم الأقل من النسبة دي مابيتحسبش.',
+    'The drape is limited by the minimum radius.': 'الترخيم محدود بأقل نصف قطر.',
+    'A tendon shorter than this is not drawn.': 'الكابل الأقصر من كده مابيترسمش.',
+    'Two anchorages cannot share a point.': 'مرساتين مايقدروش يقعدوا على نفس النقطة.',
+    'Two tendons on one line closer than this are joined.': 'كابلين على نفس الخط أقرب من كده بيتوصّلوا.',
+    'A short stub is extended over a gap this size.': 'الجزء القصير بيتمد فوق فجوة بالمقاس ده.',
+    'A route turning more than this is split into two tendons.': 'المسار اللي بيلف أكتر من كده بيتقسم لكابلين.',
+    'A route longer than this is split.': 'المسار الأطول من كده بيتقسم.',
+    'The ends snap to the slab edge.': 'الأطراف بتتزحلق على حافة البلاطة.',
+    'The end is set back this far from a wall.': 'الطرف بيرجع المسافة دي عن الحيطة.',
+    'The end keeps this margin from a drop edge.': 'الطرف بيسيب الهامش ده من حافة الدروب.',
+    'Jacks are placed at the ends.': 'الجاكات بتتحط عند الأطراف.',
+    'Both ends are jacked.': 'الشد من الطرفين.',
+    'Tendons longer than this are jacked at both ends.': 'الكابل الأطول من كده بيتشد من الطرفين.',
+    'Separate covers per direction (on) or one pair for both (off).': 'أغطية منفصلة لكل اتجاه (مفتوح) أو زوج واحد للاتنين (مقفول).',
+    'The anchorage sits at mid-depth of the slab.': 'المرساة في نص سمك البلاطة.',
+    'Depth of the anchorage from the top.': 'عمق المرساة من فوق.',
+    'An anchorage in a drop is raised.': 'المرساة اللي في دروب بتترفع.',
+    'Position of the inflection points as a share of the span.': 'مكان نقط الانقلاب كنسبة من البحر.',
+    'Inflection ratio written to RAM.': 'نسبة الانقلاب المكتوبة في رام.',
+    'Minimum radius of curvature at the low points.': 'أقل نصف قطر انحناء عند النقط السفلية.',
+    'A dip is lifted when the radius is below the minimum; a peak is never lowered.': 'الغطسة بتترفع لما نصف القطر يقل عن الأدنى، والقمة عمرها ما تتنزّل.',
+    'The minimum radius is read from the model.': 'أقل نصف قطر بيتقرا من الموديل.',
+    'The drape is pushed to the covers where it can be.': 'الترخيم بيتزوّد لحد الأغطية في الأماكن اللي تسمح.',
+    'The low point sits at mid-span.': 'النقطة السفلية في نص البحر.',
+    'How far from mid-span the low point may sit.': 'المسموح للنقطة السفلية تبعده عن نص البحر.',
+    'Two profile points closer than this are merged.': 'نقطتين في البروفايل أقرب من كده بيندمجوا.',
+    'Heights are measured from this datum.': 'الارتفاعات بتتقاس من المنسوب ده.',
+    'Heights are rounded to this.': 'الارتفاعات بتتقرّب للرقم ده.',
+    'High points vary with the span.': 'النقط العالية بتتغير مع البحر.',
+    'How the high point falls off with a short span.': 'قد إيه النقطة العالية بتنزل مع البحر القصير.',
+    'Long spans get their low point lifted.': 'البحور الطويلة نقطتها السفلية بتترفع.',
+    'Lift given to a long span.': 'الرفع اللي بياخده البحر الطويل.',
+    'A cantilever gets no low point.': 'الكانتليفر مابياخدش نقطة سفلية.',
+    'Short spans get a shallower dip.': 'البحور القصيرة بتاخد غطسة أقل.',
+    'A span shorter than this counts as short.': 'البحر الأقصر من كده بيتعتبر قصير.',
+    'A span shorter than this counts as medium.': 'البحر الأقصر من كده بيتعتبر متوسط.',
+    'A span shorter than this gets no dip.': 'البحر الأقصر من كده مابياخدش غطسة.',
+    'An anchorage sits at mid-depth of the slab.': 'المرساة بتقعد في نص سمك البلاطة.',
+    'The end is pulled back so two anchorages do not share a point.': 'الطرف بيترجع عشان مرساتين مايقعدوش على نفس النقطة.',
+    'The end snaps to the slab edge.': 'الطرف بيتزحلق على حافة البلاطة.',
+    'The end is set in from the edge by this.': 'الطرف داخل من الحافة بالمسافة دي.',
+    'The end is set back from a wall.': 'الطرف بيرجع عن الحيطة.',
+    'Whether a jack is placed here.': 'فيه جاك هنا ولا لأ.',
+    'The tendon runs flat over the drop between two high points.': 'الكابل ماشي مسطّح فوق الدروب بين نقطتين عاليتين.',
+    'A high point is placed at the drop edge.': 'بتتحط نقطة عالية عند حافة الدروب.',
+    'The drop-edge node is set in by this.': 'عقدة حافة الدروب داخلة بالمسافة دي.',
+    'Drop thickness: the profile depth over the drop.': 'سمك الدروب: عمق البروفايل فوق الدروب.',
+    'Optimum solution H moves the drop-edge high point within this tolerance.': 'Optimum solution H بيحرّك النقطة العالية لحافة الدروب في حدود السماحية دي.',
+    'A high point is placed where the tendon crosses a support line within this reach.': 'بتتحط نقطة عالية حيث الكابل يعبر خط ركائز في حدود المدى ده.',
+    'Supports farther apart than this are not treated as one line.': 'الركائز الأبعد من كده عن بعض مابتتعاملش كخط واحد.',
+    'A wide crossing member gets one high point.': 'العنصر العابر العريض بياخد نقطة عالية واحدة.',
+    'A high point with no support under it is removed.': 'النقطة العالية اللي مافيش تحتها ركيزة بتتشال.',
+    "A field tendon does not take the supports' high points.": 'كابل الفيلد مابياخدش نقط الركائز العالية.',
+    'A wall parallel to the tendon within this reach counts as a support.': 'الحيطة الموازية للكابل في حدود المدى ده بتتحسب ركيزة.',
+    'Width over which the hogging moment is averaged for the peak.': 'العرض اللي بيتاخد عليه متوسط العزم السالب للقمة.',
+    'Peaks with a smaller region moment are dropped.': 'القمم اللي عزم منطقتها أصغر بتتشال.',
+    'Beams count as supports (or not).': 'الكمرات بتتحسب ركائز (أو لأ).',
+    'Clearance at the beam end.': 'الخلوص عند طرف الكمرة.',
+    'Grouped tendons share one high point.': 'الكابلات المجمّعة بتشترك في نقطة عالية واحدة.',
+    "Reach used to find the group's supports.": 'المدى المستخدم لإيجاد ركائز المجموعة.',
+    "The high point went to the support: the design strip's end, or the column face when the tendon runs over the footprint.": 'النقطة العالية راحت للركيزة: نهاية شريحة التصميم، أو وش العمود لو الكابل ماشي فوق مسقطه.',
+    'High points closer than this were merged.': 'النقط العالية الأقرب من كده اندمجت.',
+    'Tolerance for the drop-edge high point.': 'سماحية النقطة العالية عند حافة الدروب.',
+    'The EFM loop moved this high point.': 'حلقة EFM حرّكت النقطة العالية دي.',
+    'How far the loop may move a peak.': 'المسموح للحلقة تحرّك القمة.',
+    'A peak this far off the support is flagged.': 'القمة البعيدة عن الركيزة بالمسافة دي بتتعلّم.',
+    'Peaks over drops are handled by the loop.': 'القمم فوق الدروبات بتتعامل معاها الحلقة.',
+    'How much the loop may drop a peak.': 'المسموح للحلقة تنزّل القمة.',
+    'Each point is measured from its own local thickness.': 'كل نقطة بتتقاس من السمك المحلي عندها.',
+    'Two points closer than this are merged.': 'نقطتين أقرب من كده بيندمجوا.',
+    'The dip is pushed to the cover where it can be.': 'الغطسة بتتزوّد لحد الغطاء في الأماكن اللي تسمح.',
+    'Minimum radius of curvature at the dip.': 'أقل نصف قطر انحناء عند الغطسة.',
+    'The dip is lifted when the radius is below the minimum; the peaks are never lowered.': 'الغطسة بتترفع لما نصف القطر يقل عن الأدنى، والقمم عمرها ما تتنزّل.',
+    'In a drop the dip is measured from the drop soffit.': 'في الدروب الغطسة بتتقاس من بطن الدروب.',
+    'A drop shorter than this gets no dip of its own.': 'الدروب الأقصر من كده مابياخدش غطسة لوحده.',
+    'Minimum span for a dip in a drop.': 'أقل بحر لغطسة في دروب.',
+    'Whether Optimum solution H may shift a low point (never by default).': 'هل Optimum solution H مسموح له يزحزح نقطة سفلية (أبداً افتراضياً).',
+    'Steps tried when a shift is allowed.': 'الخطوات اللي بتتجرّب لما الزحزحة مسموحة.',
+    'The moment-driven step may move low points.': 'خطوة العزم ممكن تحرّك النقط السفلية.',
+    'How far a low point may move as a share of the span.': 'المسموح للنقطة السفلية تتحرّك كنسبة من البحر.',
+    'Cap on the low-point move.': 'الحد الأقصى لتحريك النقطة السفلية.',
+    'The EFM loop rebalanced this dip.': 'حلقة EFM أعادت توازن الغطسة دي.',
+    'Cross relief moved the dip.': 'تخفيف الاتجاه العابر حرّك الغطسة.',
+    'How much cross relief may move it.': 'المسموح لتخفيف الاتجاه العابر يحرّكها.',
+    'Thin-section relief.': 'تخفيف القطاع الرفيع.',
+    'Position of the inflection point as a share of the span.': 'مكان نقطة الانقلاب كنسبة من البحر.',
+    'A splitter is placed this far from the overlap it cuts.': 'السبليتر بيتحط بالمسافة دي من التداخل اللي بيقصه.',
+    'Splitters are added where two strips overlap.': 'السبليترز بتتضاف حيث شريحتين يتداخلوا.',
+    'Passes of overlap fixing.': 'عدد مرات إصلاح التداخل.',
+    'Overlaps smaller than this are ignored.': 'التداخلات الأصغر من كده بتتجاهل.',
+    'A splitter is put between a beam and the strip beside it.': 'بيتحط سبليتر بين الكمرة والشريحة اللي جنبها.',
+    'A splitter at the beam section.': 'سبليتر عند قطاع الكمرة.',
+    'Lines follow the guide lines in the drawing.': 'الخطوط بتتبع خطوط الإرشاد في الرسمة.',
+    'A support this close to a guide belongs to it.': 'الركيزة القريبة بالمسافة دي من خط إرشاد بتتبعه.',
+    'Every column gets a line of its own.': 'كل عمود بياخد خط لوحده.',
+    'Base angle of the lines.': 'الزاوية الأساسية للخطوط.',
+    'Largest tilt of a span between two supports.': 'أكبر ميل لبحر بين ركيزتين.',
+    'A line needs at least this many supports (1 = a lone support at a cantilever edge gets a strip to the edge).': 'الخط محتاج على الأقل العدد ده من الركائز (1 = ركيزة لوحدها عند حافة كانتليفر بتاخد شريحة للحافة).',
+    'Ratio used to accept a support on a line.': 'النسبة المستخدمة لقبول ركيزة على خط.',
+    'Supports are found automatically from the geometry.': 'الركائز بتتلقّى تلقائياً من الهندسة.',
+    'Width of the sweep band.': 'عرض شريط الكنس.',
+    'Largest tilt of a span.': 'أكبر ميل لبحر.',
+    'A line needs at least this many supports.': 'الخط محتاج على الأقل العدد ده من الركائز.',
+    'A line moves onto a support this close to it.': 'الخط بيتحرّك على ركيزة قريبة منه بالمسافة دي.',
+    'Every column must end up on a line.': 'كل عمود لازم يبقى على خط.',
+    'A support this close to a line counts as covered by it.': 'الركيزة القريبة من خط بالمسافة دي بتتحسب مغطاة بيه.',
+    'The first span extends to a wall this close.': 'أول بحر بيمتد لحيطة قريبة بالمسافة دي.',
+    'The end span is extended to the slab edge.': 'بحر الطرف بيتمد لحافة البلاطة.',
+    'A new line is refused when a parallel one is closer than this - the near line bends through the support instead.': 'الخط الجديد بيترفض لو فيه خط موازي أقرب من كده، والخط القريب بيلف على الركيزة بداله.',
+    'Two lines closer than this are merged as duplicates.': 'خطين أقرب من كده بيندمجوا كمكرّرين.',
+    'A span shorter than this is pruned.': 'البحر الأقصر من كده بيتشال.',
+    'Skewed spans get a skewed section.': 'البحور المايلة بتاخد قطاع مايل.',
+    'A line end is pulled off an opening.': 'طرف الخط بيتسحب من على الفتحة.',
+    'A span crossing more opening than this is cut.': 'البحر اللي بيعبر فتحة أكتر من كده بيتقص.',
+    'A line stops at the slab centre line.': 'الخط بيقف عند خط منتصف البلاطة.',
+    'A line on a dropped beam moves beside it.': 'الخط اللي على كمرة ساقطة بيتحرّك جنبها.',
+    'How far beside the beam it moves.': 'المسافة اللي بيتحرّكها جنب الكمرة.',
+    'Share of the width given to the beam side.': 'نصيب ناحية الكمرة من العرض.',
+    'Clearance of the section from the beam.': 'خلوص القطاع من الكمرة.',
+    'Lines are offset from walls too.': 'الخطوط بتبعد عن الحوائط كمان.',
+    'Gap kept from a thinner neighbour.': 'المسافة المحفوظة من الجار الأرفع.',
+    'How beams are treated.': 'معاملة الكمرات.',
+    'Slab left without a strip gets a filler line.': 'الجزء من البلاطة اللي من غير شريحة بياخد خط حشو.',
+    'Gaps are closed by extending the lines around them.': 'الفجوات بتتقفل بمد الخطوط اللي حواليها.',
+    'Gaps smaller than this are ignored.': 'الفجوات الأصغر من كده بتتجاهل.',
+    'Gaps shorter than this are ignored.': 'الفجوات الأقصر من كده بتتجاهل.',
+    'Spacing of the filler lines.': 'المسافة بين خطوط الحشو.',
+    'Minimum clearance of a filler from the lines around it.': 'أقل خلوص لخط الحشو من الخطوط اللي حواليه.',
+    'Factor on the gap size.': 'معامل على مقاس الفجوة.',
+    'Rounds of gap filling.': 'عدد جولات حشو الفجوات.',
+    'Minimum number of design sections per span.': 'أقل عدد قطاعات تصميم في البحر.',
+    'Largest spacing between design sections.': 'أكبر مسافة بين قطاعات التصميم.',
+    'Existing lines in the model are replaced.': 'الخطوط الموجودة في الموديل بتتبدّل.',
+    'The strips are checked for gaps and overlaps after the run.': 'الشرائح بتتفحص للفجوات والتداخلات بعد الرن.',
+    'Support lines are drawn at all.': 'خطوط الركائز بتترسم أصلاً.',
+    'Where the supports come from.': 'الركائز جاية منين.',
+    'Set by hand in the editor - the rules did not choose this.': 'اتحدد بالإيد في المحرّر - القواعد ماختارتوش.',
+    'Set by hand in the editor - the rules leave it alone until it is handed back to them.': 'اتحددت بالإيد في المحرّر - القواعد بتسيبها لحد ما تترجع لها.',
+    'A high point sits at the top cover.': 'النقطة العالية عند الغطاء العلوي.',
+    "Forced by the layout (a crossing axis or a neighbour's profile).": 'مفروضة من التوزيع (محور عابر أو بروفايل جار).',
+    'A low point sits at the bottom cover.': 'النقطة السفلية عند الغطاء السفلي.',
+    'The support lines were written exactly as read from the model: no snapping, extending or pruning.': 'خطوط الركائز اتكتبت زي ما اتقرت من الموديل بالظبط: من غير زحلقة ولا مد ولا حذف.',
+    "Optimum solution H: the peak was put at the '{why}'.": "Optimum solution H: القمة اتحطت عند '{why}'.",
+    'The nearer end is {d} m from the slab edge.': 'الطرف الأقرب على بعد {d} م من حافة البلاطة.',
+    'Drawn by this run: a line with {n} support(s) and {m} span(s){src}.': 'اترسم في الرن ده: خط فيه {n} ركيزة و{m} بحر{src}.',
+    '{c} column(s) and {w} wall(s) within {r} m of the line.': '{c} عمود و{w} حيطة في حدود {r} م من الخط.',
+    'Lifted {mm} mm for the minimum radius.': 'اترفعت {mm} مم لأقل نصف قطر.',
+    'Measured {d} m off the nearest support.': 'متقاسة {d} م بعيد عن أقرب ركيزة.',
+    'By hand': 'بالإيد',
+    'Where it runs': 'مكانه',
+    'Added later': 'اتضاف بعدين',
+    'Length and ends': 'الطول والأطراف',
+    'Profile': 'البروفايل',
+    'Strands': 'الاسترندات',
+    'anchorage': 'مرساة',
+    'high point': 'نقطة عالية',
+    'low point': 'نقطة سفلية',
+    'inflection point': 'نقطة انقلاب',
+    'profile point': 'نقطة بروفايل',
+    'Why the point is here': 'ليه النقطة هنا',
+    'Height': 'الارتفاع',
+    'Moved later': 'اتحرّكت بعدين',
+    'Splitter': 'سبليتر',
+    'Support line': 'خط ركائز',
+    'How the line was built': 'الخط اتبنى إزاي',
+    'What the geometry says': 'اللي الهندسة بتقوله',
+    'Snapping, extending and covering': 'الزحلقة والمد والتغطية',
+    'Beams beside the line': 'الكمرات اللي جنب الخط',
+    'Gap filling (this line may be one of the fillers)': 'حشو الفجوات (الخط ده ممكن يكون حشو)',
+    'The strip RAM builds on it': 'الشريحة اللي رام بيبنيها عليه',
+    'Double-click a row to jump to the setting. The main window is behind the editor - close the editor to change it.': 'دبل كليك على السطر يوديك للإعداد. النافذة الرئيسية ورا المحرّر - اقفل المحرّر عشان تغيّره.',
+    'ON': 'مفتوح',
+    'OFF': 'مقفول',
+    'Which settings drew this line?': 'أنهي إعدادات رسمت الخط ده؟',
+    'Click a support line or a splitter on the plan first.': 'اضغط على خط ركائز أو سبليتر في المسقط الأول.',
+    'You drew this one yourself in this screen - no setting decided it.': 'انت اللي رسمت ده بنفسك في الشاشة دي - مافيش إعداد حدده.',
+    'Find a setting': 'دوّر على إعداد',
+    'Search': 'بحث',
+    "ON / OFF is the box's state now; a value is what is typed in it. Grey rows are hidden by the current settings level and will be shown.": 'مفتوح / مقفول هي حالة الصندوق دلوقتي، والقيمة هي المكتوبة فيه. السطور الرمادية مخفية بمستوى الإعدادات الحالي وهتتعرض لما تروح لها.',
+    'Showing the first 400 - type more to narrow it down': 'معروض أول 400 - اكتب أكتر عشان تضيّق البحث',
+    '{n} setting(s)': '{n} إعداد',
+    'Go to the setting': 'روح للإعداد',
+    'Setting': 'الإعداد',
+    'Value now': 'القيمة دلوقتي',
+    'Tab': 'التبويب',
+    'Why it matters here': 'ليه بيفرق هنا',
+    'Now': 'دلوقتي',
+    'Card': 'الكارت',
+    'Which settings drew this point?': 'أنهي إعدادات رسمت النقطة دي؟',
+    'Which settings drew this tendon?': 'أنهي إعدادات رسمت الكابل ده؟',
+    'Which settings drew this design strip?': 'أنهي إعدادات رسمت شريحة التصميم دي؟',
+    'Which settings drew this?': 'أنهي إعدادات رسمت ده؟',
+    'Which settings drew this? Pick a tendon or a point first  (W)': 'أنهي إعدادات رسمت ده؟ اختار كابل أو نقطة الأول  (W)',
+    'Show this setting in the main window': 'اعرض الإعداد ده في النافذة الرئيسية',
+    'Click a tendon (or one point) on the plan first.': 'اضغط على كابل (أو نقطة واحدة) في المسقط الأول.',
+    'Several points are selected - pick one point to see its own settings.': 'فيه أكتر من نقطة مختارة - اختار نقطة واحدة عشان تشوف إعداداتها.',
+    'Find a setting by any word in its name or explanation  (Ctrl+F)': 'دوّر على إعداد بأي كلمة من اسمه أو شرحه  (Ctrl+F)',
+})
 
 
 def _has_arabic(text):
@@ -51069,11 +51532,48 @@ class TendonEditorDialog(ModalDialog):
         btn(g, "invert", "Invert the selection", self._invert_selection)
         btn(g, "heights", "Chair heights on the plan on/off", self._tb_heights)
         btn(g, "fit", "Zoom to fit", self.canvas.fit)
+        sep()
+        g = group()
+        btn(g, "why", "Which settings drew this? Pick a tendon or a point first  (W)", self._why)
+        self.canvas.bind("<KeyPress-w>", lambda e: self._why())
+        self.canvas.bind("<KeyPress-W>", lambda e: self._why())
         self._tb_refresh()
         #  مفاتيح الأوضاع على الرسم نفسه
         for k, mode in (("t", "tendon"), ("p", "point"), ("m", "measure")):
             self.canvas.bind(f"<KeyPress-{k}>", lambda e, mm=mode: self._tb_mode(mm))
             self.canvas.bind(f"<KeyPress-{k.upper()}>", lambda e, mm=mode: self._tb_mode(mm))
+
+    def _why(self):
+        """
+        18.127: "مين رسم ده؟" - نقطة واحدة مختارة = إعدادات النقطة؛ وإلا
+        الكابل اللي عليه الفوكس (آخر كابل اتكلك عليه) = إعدادات الكابل.
+        """
+        sel_p = sorted(self.canvas.sel_p)
+        t = self.canvas.focus_t
+        by_id = {id(x): x for x in self.tendons}
+        if len(sel_p) == 1 and sel_p[0][0] in by_id:
+            t = by_id[sel_p[0][0]]
+            i = sel_p[0][1]
+            try:
+                thick = self.canvas.local_thickness(t["profile"][i]["pos"])
+            except Exception:
+                thick = None
+            desc = [trace_describe_tendon(t, self.tendons),
+                    trace_describe_point(t, i, self.params, thick)]
+            entries = trace_point(t, i, self.params, self.canvas.site)
+            TraceWindow(self, "Which settings drew this point?", desc, entries, self.params)
+            return
+        if t is None and len(self.canvas.sel_t) == 1:
+            t = by_id.get(next(iter(self.canvas.sel_t)))
+        if t is None:
+            messagebox.showinfo(tr("Which settings drew this?"),
+                                tr("Click a tendon (or one point) on the plan first."), parent=self)
+            return
+        desc = [trace_describe_tendon(t, self.tendons)]
+        if len(sel_p) > 1:
+            desc.append(tr("Several points are selected - pick one point to see its own settings."))
+        entries = trace_tendon(t, self.params, self.canvas.site)
+        TraceWindow(self, "Which settings drew this tendon?", desc, entries, self.params)
 
     def _tb_refresh(self):
         active = {"tendon": "sel_tendon", "point": "sel_point", "measure": "measure"}.get(
@@ -52033,6 +52533,714 @@ class PunchingCanvas(PlanCanvas):
                              font=F(8, "bold"))
 
 
+# ==============================================================================
+#  18.127: "مين رسم ده؟" - الإعدادات اللي اتحكمت في كابل، أو نقطة، أو شريحة
+#
+#  كل كابل ونقطة بيشيلوا علامات من مرحلة رسمهم (src, high, sag, band,
+#  field_strip, osh_added, manual...). الدوال دي بتترجم العلامات دي لقائمة
+#  إعدادات مع سبب لكل واحد، والشاشة بتعرض الاسم والقيمة الحالية والتبويب.
+# ==============================================================================
+
+def _tr_add(out, key, why, group):
+    out.append({"key": key, "why": why, "group": group})
+
+
+def _cover_keys(params, direction):
+    if bool(getattr(params, "per_direction_covers", False)) and direction in ("X", "Y"):
+        d = direction.lower()
+        return f"top_cover_{d}", f"bot_cover_{d}"
+    return "top_cover", "bot_cover"
+
+
+def trace_describe_tendon(t, tendons=None):
+    """سطر وصف الكابل."""
+    prof = t.get("profile") or []
+    n = int(t.get("strands") or 0)
+    L = tendon_plan_length(t)
+    idx = ""
+    if tendons:
+        try:
+            idx = f"#{[id(x) for x in tendons].index(id(t)) + 1} "
+        except ValueError:
+            idx = ""
+    flags = [k for k in ("band", "field_strip", "from_model", "from_adapt", "added",
+                         "osh_added", "efm_added", "manual", "on_beam", "governing")
+             if t.get(k)]
+    return (f"Tendon {idx}{t.get('dir', '?')} · {n} strands · {L:.1f} m · "
+            f"{len(prof)} profile points" + (f" · {', '.join(flags)}" if flags else ""))
+
+
+def trace_tendon(t, params, site=None):
+    """الإعدادات اللي اتحكمت في الكابل كله: مكانه، استرنداته، طوله وأطرافه، وبروفايله."""
+    out = []
+    d = t.get("dir") or "?"
+    L = tendon_plan_length(t)
+    G = "Where it runs"
+    if t.get("manual") or t.get("strands_manual"):
+        _tr_add(out, None, "Set by hand in the editor - the rules did not choose this.", "By hand")
+    if t.get("from_model"):
+        _tr_add(out, "layout_source", "Read from the model that was opened: the layout rules did not draw it.", G)
+        _tr_add(out, "thickness_from_model", "Slab and drop thicknesses were taken from the model.", G)
+    if t.get("from_adapt"):
+        _tr_add(out, "adapt_template", "Carried over from the ADAPT model.", G)
+    if t.get("field_strip"):
+        _tr_add(out, "field_from_ram", "A field-strip tendon: it runs between two column rows, not on one.", G)
+        _tr_add(out, "ram_field_layer", "Field-strip tendons are drawn on this RAM layer.", G)
+        _tr_add(out, "ram_field_grid", "Field tendons are spaced by this grid.", G)
+        _tr_add(out, "ram_field_edge", "Set-back of the first field tendon from the column line.", G)
+        _tr_add(out, "min_strands", "A field-strip tendon starts at the minimum strands (18.118).", "Strands")
+    elif t.get("band"):
+        for k, why in (("band_beams", "This tendon belongs to a banded group along a column line."),
+                       ("banded_dir", "The banded direction."),
+                       ("band_tendon_count", "How many tendons a band carries."),
+                       ("band_tendon_spacing", "Spacing between the tendons of a band."),
+                       ("band_tendon_edge", "Distance of the band's outer tendon from the column face."),
+                       ("band_spacing", "Spacing of the bands."),
+                       ("band_max", "Upper limit on the band width."),
+                       ("band_pitch", "Pitch of the tendons inside the band."),
+                       ("band_run_profile", "The band's profile follows the run of the columns."),
+                       ("band_run_share", "Share of the load the band run carries."),
+                       ("band_moment_face", "The band's high point sits at the column face.")):
+            _tr_add(out, k, why, G)
+    else:
+        for k, why in (("system", "The floor system decides whether this direction is banded or distributed."),
+                       ("tendon_directions", "Which directions get tendons at all."),
+                       ("spacing", "Spacing between neighbouring distributed tendons."),
+                       ("exact_spacing", "Whether the spacing is held exactly or adjusted to fit the bay."),
+                       ("max_spacing_m", "The spacing is capped at this distance."),
+                       ("max_spacing_h_ratio", "The spacing is capped at this multiple of the slab thickness."),
+                       ("min_clear_spacing", "Minimum clear distance to the tendon beside it."),
+                       ("edge_offset", "The first tendon sits this far from the slab edge."),
+                       ("max_x_lines", "Cap on the number of X tendon lines."),
+                       ("max_y_lines", "Cap on the number of Y tendon lines."),
+                       ("clear_parallel_members", "Tendons keep clear of parallel beams and walls."),
+                       ("avoid_clash", "A tendon that would clash with a crossing member is moved."),
+                       ("clash_offset", "How far a clashing tendon is moved.")):
+            _tr_add(out, k, why, G)
+        if bool(getattr(params, "code_layout", False)):
+            for k, why in (("code_layout", "The layout follows the code's spacing rules."),
+                           ("code_layout_style", "The code layout style."),
+                           ("code_dist_spacing", "Code limit on the distributed spacing."),
+                           ("code_balance_ratio", "Code balanced-load ratio.")):
+                _tr_add(out, k, why, G)
+    if t.get("on_beam"):
+        for k, why in (("beam_tendons", "This tendon runs in a beam."),
+                       ("beam_tendon_count", "Tendons per beam."),
+                       ("beam_tendon_gap", "Gap between beam tendons."),
+                       ("beam_tendon_min_depth", "Beams shallower than this get no tendon."),
+                       ("beam_role", "How beams are treated: support, stiffener or ignored."),
+                       ("beam_depth", "Beam depth used for the profile in the beam.")):
+            _tr_add(out, k, why, G)
+    if t.get("column_band"):
+        for k, why in (("column_bands", "A short band over a column (column band)."),
+                       ("column_band_per_m", "Column-band tendons per metre."),
+                       ("column_band_strands", "Strands per column-band tendon."),
+                       ("column_band_min", "Minimum column-band length."),
+                       ("column_band_max", "Maximum column-band length.")):
+            _tr_add(out, k, why, G)
+    A = "Added later"
+    if t.get("osh_added") or (t.get("governing") or {}).get("osh_added"):
+        for k, why in (("osh_start", "Optimum solution H added this tendon for a failing span."),
+                       ("osh_sizing", "How the added tendon was sized."),
+                       ("osh_extend_m", "The added tendon runs this far past the failing spans."),
+                       ("osh_span_ratio", "A tendon takes strands itself when its failing spans cover more than this share of it; otherwise a tendon is added."),
+                       ("osh_strip_half", "The lane search width beside the column line."),
+                       ("osh_axis_short_pct", "Short tendons on the axis are replaced rather than topped up.")):
+            _tr_add(out, k, why, A)
+    if t.get("efm_added"):
+        for k, why in (("efm_add_tendons", "The EFM loop added this tendon."),
+                       ("efm_added_extend", "The added tendon extends this far past the span."),
+                       ("efm_added_snap", "It snaps to the nearest lane."),
+                       ("efm_added_clear", "Clearance kept from the tendon beside it."),
+                       ("efm_added_min_gap", "Minimum gap to the next tendon.")):
+            _tr_add(out, k, why, A)
+    if t.get("added") and not (t.get("osh_added") or t.get("efm_added")):
+        for k, why in (("infill_enabled", "Added as an infill between two tendons that were too far apart."),
+                       ("infill_max_ratio", "Infill is added when the gap exceeds this ratio of the spacing."),
+                       ("infill_margin", "Margin of the infill from the neighbours."),
+                       ("reinforce_extension", "Reinforcing tendons extend this far past the span."),
+                       ("reinforce_basis", "What the reinforcing count is based on.")):
+            _tr_add(out, k, why, A)
+    if t.get("_osh_reduced_by") or t.get("_osh_frozen"):
+        for k, why in (("osh_optimise", "Stage 3 took strands off this tendon."),
+                       ("osh_step_max", "Largest strand step per analysis."),
+                       ("osh_rounds", "Number of optimisation rounds.")):
+            _tr_add(out, k, why, A)
+    S = "Strands"
+    for k, why in (("auto_strands", "Strands are sized by the program (on) or fixed (off)."),
+                   ("fixed_strands", "The fixed strand count used when sizing is off."),
+                   ("allowed_strands", "The strand counts a tendon may have."),
+                   ("min_strands", "Lower limit on the strands."),
+                   ("max_strands", "Upper limit on the strands."),
+                   ("strand_type", "Strand size: its area sets the force per strand."),
+                   ("balance_target", "The balanced share of the load the tendons aim for."),
+                   ("balance_ratio", "Balanced-load ratio used for sizing."),
+                   ("balance_share_banded" if t.get("band") else "balance_share_distributed",
+                    "Share of the balanced load carried in this direction."),
+                   ("column_strip_share", "Share of the tendons placed in the column strip."),
+                   ("loss_mode", "How the prestress losses are taken."),
+                   ("fpe_ratio", "Effective prestress ratio after losses."),
+                   ("jack_ratio", "Jacking force ratio."),
+                   ("size_from_real_drape", "Strands are sized from the drape actually drawn."),
+                   ("min_drape_ratio", "A drape below this ratio is not counted."),
+                   ("drape_from_radius", "The drape is limited by the minimum radius.")):
+        _tr_add(out, k, why, S)
+    if t.get("capped"):
+        _tr_add(out, "max_strands", "The strands were capped at the maximum.", S)
+    if t.get("_topped"):
+        _tr_add(out, "topup_by_benefit", "Strands were topped up where they help the failing section most.", S)
+    E = "Length and ends"
+    for k, why in (("max_tendon_length", f"A tendon longer than this is cut at a support (this one is {L:.1f} m)."),
+                   ("min_tendon_length", "A tendon shorter than this is not drawn."),
+                   ("min_anchor_separation", "Two anchorages cannot share a point."),
+                   ("collinear_merge_gap", "Two tendons on one line closer than this are joined."),
+                   ("stub_extend_gap", "A short stub is extended over a gap this size."),
+                   ("split_max_turn_deg", "A route turning more than this is split into two tendons."),
+                   ("split_max_length", "A route longer than this is split."),
+                   ("snap_to_edge", "The ends snap to the slab edge."),
+                   ("wall_end_setback", "The end is set back this far from a wall."),
+                   ("drop_end_margin", "The end keeps this margin from a drop edge."),
+                   ("place_jacks", "Jacks are placed at the ends."),
+                   ("jack_both", "Both ends are jacked."),
+                   ("jack_both_ends_over", "Tendons longer than this are jacked at both ends.")):
+        _tr_add(out, k, why, E)
+    Pg = "Profile"
+    top, bot = _cover_keys(params, d)
+    for k, why in (("per_direction_covers", "Separate covers per direction (on) or one pair for both (off)."),
+                   (top, "Cover to the top of the duct at the high points."),
+                   (bot, "Cover to the bottom of the duct at the low points."),
+                   ("anchor_mid", "The anchorage sits at mid-depth of the slab."),
+                   ("anchor_from_top", "Depth of the anchorage from the top."),
+                   ("anchor_raise_over_drops", "An anchorage in a drop is raised."),
+                   ("inflection_beta", "Position of the inflection points as a share of the span."),
+                   ("ram_inflection_ratio", "Inflection ratio written to RAM."),
+                   ("min_tendon_radius", "Minimum radius of curvature at the low points."),
+                   ("enforce_min_radius", "A dip is lifted when the radius is below the minimum; a peak is never lowered."),
+                   ("radius_from_model", "The minimum radius is read from the model."),
+                   ("maximise_drape", "The drape is pushed to the covers where it can be."),
+                   ("sag_at_midspan", "The low point sits at mid-span."),
+                   ("sag_centre_tolerance", "How far from mid-span the low point may sit."),
+                   ("min_point_gap", "Two profile points closer than this are merged."),
+                   ("elevation_ref", "Heights are measured from this datum."),
+                   ("elevation_rounding", "Heights are rounded to this."),
+                   ("vary_high_point", "High points vary with the span."),
+                   ("high_point_falloff", "How the high point falls off with a short span."),
+                   ("lift_long_spans", "Long spans get their low point lifted."),
+                   ("long_span_lift", "Lift given to a long span."),
+                   ("cantilever_no_sag", "A cantilever gets no low point."),
+                   ("relax_short_sags", "Short spans get a shallower dip."),
+                   ("short_sag_limit", "A span shorter than this counts as short."),
+                   ("medium_sag_limit", "A span shorter than this counts as medium."),
+                   ("min_sag_span", "A span shorter than this gets no dip.")):
+        _tr_add(out, k, why, Pg)
+    return out
+
+
+def trace_describe_point(t, i, params=None, thickness=None):
+    prof = t.get("profile") or []
+    q = prof[i]
+    if i in (0, len(prof) - 1):
+        kind = tr("anchorage")
+    elif q.get("high"):
+        kind = tr("high point")
+    elif q.get("sag"):
+        kind = tr("low point")
+    elif q.get("inflection"):
+        kind = tr("inflection point")
+    else:
+        kind = tr("profile point")
+    x, y = q.get("pos", (0.0, 0.0))
+    depth = float(q.get("depth") or 0.0)
+    chair = (f" · chair {max(float(thickness) - depth, 0.0):.0f} mm" if thickness else "")
+    src = q.get("src")
+    return (f"Point {i + 1} of {len(prof)}: {kind} at ({x:.2f}, {y:.2f}) · "
+            f"depth {depth:.0f} mm from the top{chair}"
+            + (f" · source: {src}" if src else "")
+            + (" · set by hand" if q.get("manual") else ""))
+
+
+def trace_point(t, i, params, site=None):
+    """الإعدادات اللي اتحكمت في نقطة واحدة من البروفايل."""
+    out = []
+    prof = t.get("profile") or []
+    if i < 0 or i >= len(prof):
+        return out
+    q = prof[i]
+    d = t.get("dir") or "?"
+    top, bot = _cover_keys(params, d)
+    src = str(q.get("src") or "")
+    is_end = i in (0, len(prof) - 1)
+    if q.get("manual"):
+        _tr_add(out, None, "Set by hand in the editor - the rules leave it alone until it is handed back to them.", "By hand")
+    G = "Why the point is here"
+    if is_end:
+        for k, why in (("anchor_mid", "An anchorage sits at mid-depth of the slab."),
+                       ("anchor_from_top", "Depth of the anchorage from the top."),
+                       ("anchor_raise_over_drops", "An anchorage in a drop is raised."),
+                       ("min_anchor_separation", "The end is pulled back so two anchorages do not share a point."),
+                       ("snap_to_edge", "The end snaps to the slab edge."),
+                       ("edge_offset", "The end is set in from the edge by this."),
+                       ("wall_end_setback", "The end is set back from a wall."),
+                       ("drop_end_margin", "The end keeps this margin from a drop edge."),
+                       ("place_jacks", "Whether a jack is placed here."),
+                       ("jack_both", "Both ends are jacked.")):
+            _tr_add(out, k, why, G)
+        if src.startswith("osh"):
+            _tr_add(out, "osh_extend_m", "Optimum solution H put this end this far past the failing span.", G)
+        return out
+    if q.get("high"):
+        _tr_add(out, top, "A high point sits at the top cover.", "Height")
+        _tr_add(out, "per_direction_covers", "Which cover pair applies (per direction or shared).", "Height")
+        if src == "drop" or q.get("is_drop") or q.get("in_drop") or q.get("drop_idx", -1) >= 0:
+            for k, why in (("drop_top_run", "The tendon runs flat over the drop between two high points."),
+                           ("drop_edge_nodes", "A high point is placed at the drop edge."),
+                           ("drop_node_inset", "The drop-edge node is set in by this."),
+                           ("drop_thickness", "Drop thickness: the profile depth over the drop."),
+                           ("osh_drop_edge_tol", "Optimum solution H moves the drop-edge high point within this tolerance.")):
+                _tr_add(out, k, why, G)
+        if src in ("axis", "column", "wall", "beam", "crossing", "group", "md", ""):
+            for k, why in (("support_line_reach", "A high point is placed where the tendon crosses a support line within this reach."),
+                           ("axis_max_gap", "Supports farther apart than this are not treated as one line."),
+                           ("support_crossing_wide", "A wide crossing member gets one high point."),
+                           ("veto_unsupported_highs", "A high point with no support under it is removed."),
+                           ("field_vetoes_supports", "A field tendon does not take the supports' high points."),
+                           ("wall_parallel_reach", "A wall parallel to the tendon within this reach counts as a support."),
+                           ("hog_average_width", "Width over which the hogging moment is averaged for the peak."),
+                           ("min_region_moment", "Peaks with a smaller region moment are dropped.")):
+                _tr_add(out, k, why, G)
+        if src == "beam" or q.get("on_beam"):
+            for k, why in (("beam_role", "Beams count as supports (or not)."),
+                           ("beam_end_clear", "Clearance at the beam end.")):
+                _tr_add(out, k, why, G)
+        if src == "band" or q.get("band"):
+            for k, why in (("band_moment_face", "The band's high point sits at the column face."),
+                           ("band_group_clear_high", "Grouped tendons share one high point."),
+                           ("band_group_support_reach", "Reach used to find the group's supports.")):
+                _tr_add(out, k, why, G)
+        if src == "field":
+            _tr_add(out, "field_from_ram", "A field-strip tendon borrows the support lines of its column-line neighbours (18.118).", G)
+        if src in ("osh_face", "osh_join", "osh_drop", "osh_anchor"):
+            for k, why in (("osh_strip_half", "The high point went to the support: the design strip's end, or the column face when the tendon runs over the footprint."),
+                           ("osh_merge_gap_m", "High points closer than this were merged."),
+                           ("osh_drop_edge_tol", "Tolerance for the drop-edge high point.")):
+                _tr_add(out, k, why, G)
+            if t.get("_osh_face_why"):
+                _tr_add(out, None, tr("Optimum solution H: the peak was put at the '{why}'.").replace("{why}", str(t["_osh_face_why"])), G)
+        if src == "efm" or q.get("efm_rebalance"):
+            for k, why in (("efm_rebalance", "The EFM loop moved this high point."),
+                           ("peak_move", "How far the loop may move a peak."),
+                           ("peak_off_frac", "A peak this far off the support is flagged."),
+                           ("efm_drop_peaks", "Peaks over drops are handled by the loop."),
+                           ("peak_drop_mm", "How much the loop may drop a peak.")):
+                _tr_add(out, k, why, G)
+        if q.get("_peak_off_support") is not None:
+            _tr_add(out, "veto_unsupported_highs", tr("Measured {d} m off the nearest support.").replace("{d}", f"{q['_peak_off_support']:.2f}"), G)
+        if q.get("forced"):
+            _tr_add(out, None, "Forced by the layout (a crossing axis or a neighbour's profile).", G)
+        for k, why in (("vary_high_point", "High points vary with the span."),
+                       ("high_point_falloff", "How the high point falls off with a short span."),
+                       ("per_point_datum", "Each point is measured from its own local thickness."),
+                       ("min_point_gap", "Two points closer than this are merged.")):
+            _tr_add(out, k, why, "Height")
+        return out
+    if q.get("sag"):
+        _tr_add(out, bot, "A low point sits at the bottom cover.", "Height")
+        _tr_add(out, "per_direction_covers", "Which cover pair applies (per direction or shared).", "Height")
+        for k, why in (("sag_at_midspan", "The low point sits at mid-span."),
+                       ("sag_centre_tolerance", "How far from mid-span the low point may sit."),
+                       ("cantilever_no_sag", "A cantilever gets no low point."),
+                       ("relax_short_sags", "Short spans get a shallower dip."),
+                       ("short_sag_limit", "A span shorter than this counts as short."),
+                       ("medium_sag_limit", "A span shorter than this counts as medium."),
+                       ("min_sag_span", "A span shorter than this gets no dip."),
+                       ("lift_long_spans", "Long spans get their low point lifted."),
+                       ("long_span_lift", "Lift given to a long span."),
+                       ("maximise_drape", "The dip is pushed to the cover where it can be."),
+                       ("min_tendon_radius", "Minimum radius of curvature at the dip."),
+                       ("enforce_min_radius", "The dip is lifted when the radius is below the minimum; the peaks are never lowered."),
+                       ("radius_from_model", "The minimum radius is read from the model.")):
+            _tr_add(out, k, why, "Why the point is here")
+        if q.get("in_drop") or q.get("is_drop") or q.get("drop_idx", -1) >= 0:
+            for k, why in (("drop_sag_from_soffit", "In a drop the dip is measured from the drop soffit."),
+                           ("drop_sag_min_length", "A drop shorter than this gets no dip of its own."),
+                           ("drop_sag_min_span", "Minimum span for a dip in a drop.")):
+                _tr_add(out, k, why, "Why the point is here")
+        if q.get("_osh_lifted_mm") or q.get("_lowered") or q.get("_relieved") or q.get("_s") is not None:
+            for k, why in (("osh_low_shift", "Whether Optimum solution H may shift a low point (never by default)."),
+                           ("osh_low_shift_steps", "Steps tried when a shift is allowed."),
+                           ("md_move_lows", "The moment-driven step may move low points."),
+                           ("low_move_frac", "How far a low point may move as a share of the span."),
+                           ("low_move_max_m", "Cap on the low-point move.")):
+                _tr_add(out, k, why, "Moved later")
+            if q.get("_osh_lifted_mm"):
+                _tr_add(out, "enforce_min_radius", tr("Lifted {mm} mm for the minimum radius.").replace("{mm}", f"{float(q['_osh_lifted_mm']):.0f}"), "Moved later")
+        if q.get("efm_rebalance") or src == "efm":
+            for k, why in (("efm_rebalance", "The EFM loop rebalanced this dip."),
+                           ("efm_cross_relief", "Cross relief moved the dip."),
+                           ("efm_cross_relief_mm", "How much cross relief may move it."),
+                           ("efm_thin", "Thin-section relief.")):
+                _tr_add(out, k, why, "Moved later")
+        _tr_add(out, "min_point_gap", "Two points closer than this are merged.", "Height")
+        return out
+    if q.get("inflection"):
+        for k, why in (("inflection_beta", "Position of the inflection point as a share of the span."),
+                       ("ram_inflection_ratio", "Inflection ratio written to RAM."),
+                       ("min_point_gap", "Two points closer than this are merged.")):
+            _tr_add(out, k, why, "Why the point is here")
+        return out
+    for k, why in (("min_point_gap", "Two points closer than this are merged."),
+                   (top, "Top cover."), (bot, "Bottom cover.")):
+        _tr_add(out, k, why, "Height")
+    return out
+
+
+def _seg_near_supports(a, b, site, reach):
+    """الأعمدة والحيطان اللي على بعد reach من الخط a-b."""
+    cols, walls = 0, 0
+    for c in (site or {}).get("columns") or []:
+        p = (c.get("center") or c.get("pos")) if isinstance(c, dict) else c
+        try:
+            if p is not None and _pt_seg_dist(p, a, b) <= reach:
+                cols += 1
+        except Exception:
+            continue
+    for w in (site or {}).get("walls") or []:
+        if isinstance(w, dict):
+            pts = [q for q in (w.get("p1"), w.get("p2")) if q] or list(w.get("points") or [])
+        else:
+            pts = list(w)
+        try:
+            near = any(_pt_seg_dist(p, a, b) <= reach for p in pts)
+            if not near and len(pts) >= 2:
+                near = any(_pt_seg_dist(e, p, q) <= reach
+                           for e in (a, b) for p, q in zip(pts, pts[1:]))
+            if near:
+                walls += 1
+        except Exception:
+            continue
+    return cols, walls
+
+
+def trace_describe_strip(kind, direction, a, b, name=""):
+    L = dist(a, b)
+    what = tr("Splitter") if kind == "split" else tr("Support line")
+    nm = f" {name}" if name else ""
+    return f"{what}{nm} · {SPAN_SET_NAME.get(direction, direction)} · {L:.1f} m · from ({a[0]:.1f}, {a[1]:.1f}) to ({b[0]:.1f}, {b[1]:.1f})"
+
+
+def trace_strip(kind, direction, a, b, params, site=None, lines=None):
+    """
+    الإعدادات اللي اتحكمت في خط ركائز (أو سبليتر): طريقة البناء، الركائز
+    اللي الخط لمّها، الامتدادات، التنضيف، والقطاعات. والحقايق اللي نقدر
+    نقيسها من الهندسة (ركائز قريبة، حافة البلاطة، كمرة موازية).
+    """
+    out = []
+    G = "How the line was built"
+    facts = "What the geometry says"
+    if bool(getattr(params, "strips_as_read", False)):
+        _tr_add(out, None, "The support lines were written exactly as read from the model: no snapping, extending or pruning.", G)
+    if not bool(getattr(params, "write_design_strips", True)):
+        _tr_add(out, "write_design_strips", "Design strips are not written by the program on this run; RAM's own lines are in the model.", G)
+    if kind == "split":
+        for k, why in (("strip_splitter_margin", "A splitter is placed this far from the overlap it cuts."),
+                       ("strip_fix_overlaps", "Splitters are added where two strips overlap."),
+                       ("strip_overlap_passes", "Passes of overlap fixing."),
+                       ("strip_overlap_min_area", "Overlaps smaller than this are ignored."),
+                       ("beam_strip_splitter", "A splitter is put between a beam and the strip beside it."),
+                       ("beam_section_splitter", "A splitter at the beam section.")):
+            _tr_add(out, k, why, G)
+        return out
+    reach = float(getattr(params, "strip_cover_snap", 2.5) or 2.5)
+    cols, walls = _seg_near_supports(a, b, site, reach)
+    _tr_add(out, None, tr("{c} column(s) and {w} wall(s) within {r} m of the line.").replace("{c}", str(cols))
+            .replace("{w}", str(walls)).replace("{r}", f"{reach:.1f}"), facts)
+    edge = None
+    try:
+        b_ = (site or {}).get("boundary") or []
+        if len(b_) >= 3:
+            ring = list(b_) + [b_[0]]
+            edge = min(min(_pt_seg_dist(a, p, q), _pt_seg_dist(b, p, q)) for p, q in zip(ring, ring[1:]))
+    except Exception:
+        edge = None
+    if edge is not None:
+        _tr_add(out, None, tr("The nearer end is {d} m from the slab edge.").replace("{d}", f"{edge:.2f}"), facts)
+    drawn = None
+    want = {"latitude": "X", "longitude": "Y"}.get(str(direction), str(direction).upper())
+    for L in (lines or []):
+        if str(L.get("dir", "")).upper() not in ("", want):
+            continue
+        for sp in L.get("spans") or []:
+            try:
+                if (_pt_seg_dist(a, sp["p1"], sp["p2"]) < 0.3 and _pt_seg_dist(b, sp["p1"], sp["p2"]) < 0.3) or \
+                   (_pt_seg_dist(sp["p1"], a, b) < 0.3 and _pt_seg_dist(sp["p2"], a, b) < 0.3):
+                    drawn = L
+                    break
+            except Exception:
+                continue
+        if drawn:
+            break
+    if drawn is not None:
+        _tr_add(out, None, tr("Drawn by this run: a line with {n} support(s) and {m} span(s){src}.")
+                .replace("{n}", str(drawn.get("supports", "?"))).replace("{m}", str(len(drawn.get("spans") or [])))
+                .replace("{src}", f" ({drawn['src']})" if drawn.get("src") else ""), facts)
+    layout = str(getattr(params, "strip_layout", "frames"))
+    if layout == "frames":
+        _tr_add(out, "strip_layout", "Lines are built from the supports themselves (frames of columns and walls).", G)
+        for k, why in (("strip_follow_guides", "Lines follow the guide lines in the drawing."),
+                       ("strip_guide_reach", "A support this close to a guide belongs to it."),
+                       ("strip_line_per_column", "Every column gets a line of its own."),
+                       ("strip_base_angle", "Base angle of the lines."),
+                       ("strip_search_angle", "Largest tilt of a span between two supports."),
+                       ("strip_min_supports", "A line needs at least this many supports (1 = a lone support at a cantilever edge gets a strip to the edge)."),
+                       ("strip_support_ratio", "Ratio used to accept a support on a line."),
+                       ("strip_auto_support", "Supports are found automatically from the geometry.")):
+            _tr_add(out, k, why, G)
+    else:
+        _tr_add(out, "strip_layout", "Lines are found by sweeping a band across the slab.", G)
+        for k, why in (("strip_band_width", "Width of the sweep band."),
+                       ("strip_search_angle", "Largest tilt of a span."),
+                       ("strip_min_supports", "A line needs at least this many supports.")):
+            _tr_add(out, k, why, G)
+    T = "Snapping, extending and covering"
+    for k, why in (("strip_cover_snap", "A line moves onto a support this close to it."),
+                   ("strip_cover_columns", "Every column must end up on a line."),
+                   ("strip_cover_reach", "A support this close to a line counts as covered by it."),
+                   ("strip_wall_reach", "The first span extends to a wall this close."),
+                   ("strip_edge_extend", "The end span is extended to the slab edge."),
+                   ("strip_min_gap", "A new line is refused when a parallel one is closer than this - the near line bends through the support instead."),
+                   ("strip_dup_gap", "Two lines closer than this are merged as duplicates."),
+                   ("strip_min_span", "A span shorter than this is pruned."),
+                   ("strip_skew_sections", "Skewed spans get a skewed section."),
+                   ("strip_end_off_void", "A line end is pulled off an opening."),
+                   ("strip_span_void_limit", "A span crossing more opening than this is cut."),
+                   ("strip_stop_at_centre", "A line stops at the slab centre line.")):
+        _tr_add(out, k, why, T)
+    B = "Beams beside the line"
+    for k, why in (("beam_strip_offset_on", "A line on a dropped beam moves beside it."),
+                   ("beam_strip_offset", "How far beside the beam it moves."),
+                   ("beam_strip_side_share", "Share of the width given to the beam side."),
+                   ("beam_section_clear", "Clearance of the section from the beam."),
+                   ("strip_offset_walls", "Lines are offset from walls too."),
+                   ("thin_neighbour_gap", "Gap kept from a thinner neighbour."),
+                   ("beam_role", "How beams are treated.")):
+        _tr_add(out, k, why, B)
+    if bool(getattr(params, "strip_fill_gaps", False)) or bool(getattr(params, "strip_close_gaps", False)):
+        Gp = "Gap filling (this line may be one of the fillers)"
+        for k, why in (("strip_fill_gaps", "Slab left without a strip gets a filler line."),
+                       ("strip_close_gaps", "Gaps are closed by extending the lines around them."),
+                       ("strip_gap_min_area", "Gaps smaller than this are ignored."),
+                       ("strip_gap_min_length", "Gaps shorter than this are ignored."),
+                       ("strip_gap_line_spacing", "Spacing of the filler lines."),
+                       ("strip_gap_min_clear", "Minimum clearance of a filler from the lines around it."),
+                       ("strip_gap_factor", "Factor on the gap size."),
+                       ("strip_gap_rounds", "Rounds of gap filling.")):
+            _tr_add(out, k, why, Gp)
+    Sx = "The strip RAM builds on it"
+    for k, why in (("strip_min_divisions", "Minimum number of design sections per span."),
+                   ("strip_max_div_spacing", "Largest spacing between design sections."),
+                   ("strip_replace_existing", "Existing lines in the model are replaced."),
+                   ("strip_check", "The strips are checked for gaps and overlaps after the run."),
+                   ("draw_support_lines", "Support lines are drawn at all."),
+                   ("support_source", "Where the supports come from.")):
+        _tr_add(out, k, why, Sx)
+    return out
+
+
+class TraceWindow(tk.Toplevel):
+    """
+    18.127: شاشة "مين رسم ده؟". بتاخد وصف العنصر وقائمة {key, why, group}
+    وبتعرض لكل إعداد اسمه في الواجهة، قيمته الحالية، التبويب، والسبب.
+    دبل كليك أو الزرار بيفتح الإعداد في النافذة الرئيسية (ورا المحرّر).
+    """
+
+    def __init__(self, parent, title, description, entries, params=None):
+        super().__init__(parent)
+        self.title(tr(title))
+        self.configure(bg=PALETTE["bg"])
+        self._parent = parent
+        self.params = params
+        try:
+            w, h = min(S(980), self.winfo_screenwidth() - 60), min(S(640), self.winfo_screenheight() - 90)
+            px, py = parent.winfo_rootx() + 40, parent.winfo_rooty() + 40
+            self.geometry(f"{int(w)}x{int(h)}+{max(0, px)}+{max(0, py)}")
+        except Exception:
+            pass
+        head = tk.Frame(self, bg=PALETTE["brand"])
+        head.pack(fill="x")
+        tk.Label(head, text=tr(title), bg=PALETTE["brand"], fg="white",
+                 font=F(13, "bold")).pack(anchor="e", padx=18, pady=(10, 0))
+        for line in (description if isinstance(description, (list, tuple)) else [description]):
+            tk.Label(head, text=line, bg=PALETTE["brand"], fg="#c9dcea", font=F(9),
+                     anchor="e", justify="right", wraplength=S(900)).pack(anchor="e", padx=18)
+        tk.Frame(head, bg=PALETTE["brand"], height=8).pack()
+        body = tk.Frame(self, bg=PALETTE["bg"])
+        body.pack(fill="both", expand=True, padx=12, pady=10)
+        cols = ("setting", "value", "tab", "why")
+        self.tree = ttk.Treeview(body, columns=cols, show="tree headings")
+        for c, w, lbl in (("#0", 150, ""), ("setting", 240, "Setting"), ("value", 110, "Value now"),
+                          ("tab", 120, "Tab"), ("why", 380, "Why it matters here")):
+            self.tree.heading(c, text=tr(lbl))
+            self.tree.column(c, width=S(w), anchor="w", stretch=(c == "why"))
+        sb = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.tag_configure("on", foreground="#1b7a3a")
+        self.tree.tag_configure("off", foreground="#a33a3a")
+        self.tree.tag_configure("note", foreground=PALETTE["muted"])
+        self._keys = {}
+        self._fill(entries)
+        foot = tk.Frame(self, bg=PALETTE["bg"])
+        foot.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(foot, text="Close", command=self._close).pack(side="left")
+        ttk.Button(foot, text="Show this setting in the main window",
+                   command=self._goto).pack(side="left", padx=8)
+        tk.Label(foot, text=tr("Double-click a row to jump to the setting. The main window "
+                               "is behind the editor - close the editor to change it."),
+                 bg=PALETTE["bg"], fg=PALETTE["muted"], font=F(8), anchor="e",
+                 justify="right", wraplength=S(520)).pack(side="right")
+        self.tree.bind("<Double-1>", lambda e: self._goto())
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.bind("<Escape>", lambda e: self._close())
+        try:
+            self.transient(parent)
+            self.grab_set()
+        except Exception:
+            pass
+        self.focus_set()
+
+    @staticmethod
+    def value_text(key, params=None):
+        """القيمة الحالية: من متغيرات الواجهة لو موجودة، وإلا من الـ params."""
+        app = _APP
+        if app is not None:
+            var = (getattr(app, "v", None) or {}).get(key)
+            if var is not None:
+                try:
+                    val = var.get()
+                except Exception:
+                    val = None
+                if isinstance(val, bool):
+                    return (tr("ON") if val else tr("OFF")), ("on" if val else "off")
+                if val is not None:
+                    return str(val), ""
+        if params is not None and hasattr(params, key):
+            val = getattr(params, key)
+            if isinstance(val, bool):
+                return (tr("ON") if val else tr("OFF")), ("on" if val else "off")
+            return str(val), ""
+        return "", ""
+
+    @staticmethod
+    def label_for(key):
+        app = _APP
+        if app is not None:
+            e = (getattr(app, "_settings_lookup", None) or {}).get(key)
+            if e:
+                return tr(e.get("label") or key), tr(e.get("tab_title") or "")
+        return str(key).replace("_", " "), ""
+
+    def _fill(self, entries):
+        groups = {}
+        for e in entries:
+            groups.setdefault(e.get("group") or "", []).append(e)
+        for g, items in groups.items():
+            node = self.tree.insert("", "end", text=tr(g), open=True)
+            for e in items:
+                key = e.get("key")
+                if key is None:
+                    self.tree.insert(node, "end", text="", values=("", "", "", tr(e.get("why") or "")),
+                                     tags=("note",))
+                    continue
+                label, tab = self.label_for(key)
+                val, tag = self.value_text(key, self.params)
+                iid = self.tree.insert(node, "end", text="", values=(label, val, tab, tr(e.get("why") or "")),
+                                       tags=((tag,) if tag else ()))
+                self._keys[iid] = key
+
+    def _goto(self):
+        sel = self.tree.selection()
+        key = self._keys.get(sel[0]) if sel else None
+        if key and _APP is not None:
+            try:
+                _APP._goto_setting(key)
+            except Exception:
+                pass
+
+    def _close(self):
+        try:
+            self.destroy()
+        finally:
+            try:
+                self._parent.grab_set()
+            except Exception:
+                pass
+
+
+def _strip_why(dlg, canvas, params, hit=None):
+    """يفتح شاشة "مين رسم الشريحة دي" لخط مختار أو لأقرب خط لآخر كليك."""
+    if hit is None:
+        lc = getattr(canvas, "last_click", None)
+        if lc:
+            hit = nearest_strip_line(canvas, lc[0], lc[1])
+    if hit is None:
+        messagebox.showinfo(tr("Which settings drew this line?"),
+                            tr("Click a support line or a splitter on the plan first."), parent=dlg)
+        return
+    kind, span_set, a, b, name = hit
+    if params is None:
+        params = _LAST_DRAWN.get("params")
+    if params is None and _APP is not None:
+        try:
+            params = _APP.collect_params(strict=False)
+        except Exception:
+            params = None
+    desc = [trace_describe_strip(kind, span_set, a, b, name)]
+    entries = trace_strip(kind, span_set, a, b, params or TendonDesignParams(),
+                          getattr(dlg, "site", None) or canvas.site, _LAST_DRAWN.get("lines"))
+    TraceWindow(dlg, "Which settings drew this design strip?", desc, entries, params)
+
+
+def nearest_strip_line(canvas, x, y, tol=14.0):
+    """أقرب خط ركائز أو سبليتر لنقطة على الشاشة: ("seg"/"split", direction, a, b, name)."""
+    best, bd = None, tol
+    for span_set, items in (getattr(canvas, "segments", None) or {}).items():
+        for a, b, name, _uid in items:
+            d = _pt_seg_dist((x, y), canvas.t(a), canvas.t(b))
+            if d < bd:
+                bd, best = d, ("seg", span_set, a, b, name)
+    for span_set, items in (getattr(canvas, "splitters", None) or {}).items():
+        for sp in items:
+            pts = sp.get("pts") or []
+            for p, q in zip(pts, pts[1:]):
+                d = _pt_seg_dist((x, y), canvas.t(p), canvas.t(q))
+                if d < bd:
+                    bd, best = d, ("split", span_set, p, q, sp.get("name", ""))
+    if best is not None:
+        return best
+    #  شاشة الفحص بتعرض الشرايح نفسها (مضلّعات) مش الخطوط: الكليك جوّه
+    #  شريحة بيرجّع محورها (a-b من الموديل، أو نص الحافتين).
+    try:
+        mx = (x - canvas.off[0]) / max(canvas.scale_f, 1e-9)
+        my = (canvas.off[1] - y) / max(canvas.scale_f, 1e-9)
+    except Exception:
+        return None
+    for span_set, items in (getattr(canvas, "strips", None) or {}).items():
+        for st in items:
+            try:
+                if not point_in_polygon(mx, my, strip_polygon_points(st)):
+                    continue
+                a, b = st.get("a"), st.get("b")
+                if not (a and b):
+                    l, r = st["left"], st["right"]
+                    a = ((l[0][0] + r[0][0]) / 2.0, (l[0][1] + r[0][1]) / 2.0)
+                    b = ((l[-1][0] + r[-1][0]) / 2.0, (l[-1][1] + r[-1][1]) / 2.0)
+                return ("seg", span_set, tuple(a), tuple(b), st.get("name", ""))
+            except Exception:
+                continue
+    return None
+
+
 class PunchingWindow(tk.Toplevel):
     """
     شاشة الثقب (18.121): المسقط والأعمدة الراسبة بالأحمر، وجدول بالأرقام.
@@ -52189,6 +53397,8 @@ class StripCanvas(PlanCanvas):
 
     def _up(self, e):
         d0, self._down = self._down, None
+        if d0 and abs(e.x - d0[0]) + abs(e.y - d0[1]) <= 4:
+            self.last_click = (e.x, e.y)                     # 18.127
         if not d0 or abs(e.x - d0[0]) + abs(e.y - d0[1]) > 4 or not self.on_pick:
             return
         best, bd = None, 18.0
@@ -52247,6 +53457,8 @@ class StripCheckDialog(ModalDialog):
     def __init__(self, parent, site, res, params, title="Design strips"):
         super().__init__(parent, f"Design strips — {title}", 1280, 840)
         self.res = res
+        self.params = params
+        self.site = site
         head = tk.Frame(self, bg=PALETTE["brand"], height=S(58))
         head.pack(fill="x")
         head.pack_propagate(False)
@@ -52283,6 +53495,8 @@ class StripCheckDialog(ModalDialog):
                             command=self._filter).pack(side="right", padx=3)
         ttk.Button(bar, text="Zoom to fit",
                    command=self.canvas.fit).pack(side="left")
+        ttk.Button(bar, text="Which settings drew this line?",
+                   command=self._why).pack(side="left", padx=6)
 
         self.sumv = tk.StringVar()
         tk.Label(rail, textvariable=self.sumv, bg=PALETTE["panel"],
@@ -52361,6 +53575,10 @@ class StripCheckDialog(ModalDialog):
         self.canvas.which = self.whichv.get()
         self.canvas.redraw()
 
+    def _why(self):
+        """18.127: الإعدادات اللي رسمت أقرب خط لآخر كليك على المسقط."""
+        _strip_why(self, self.canvas, self.params if hasattr(self, "params") else None)
+
     def _row(self):
         sel = self.tree.selection()
         self.canvas.sel = self._items.get(sel[0]) if sel else None
@@ -52427,6 +53645,7 @@ class StripEditCanvas(StripCanvas):
             self.redraw()
 
     def _click(self, e):
+        self.last_click = (e.x, e.y)                         # 18.127
         if self.mode == "select":
             self.pick = self._hit(e.x, e.y)
             self.sel = None
@@ -52578,6 +53797,8 @@ class StripEditorDialog(ModalDialog):
     def __init__(self, parent, site, res, params, title="", can_apply=True):
         super().__init__(parent, f"Design strips — {title}", 1320, 860)
         self.res = res
+        self.params = params
+        self.site = site
         self.can_apply = can_apply
         head = tk.Frame(self, bg=PALETTE["brand"], height=S(58))
         head.pack(fill="x")
@@ -52620,6 +53841,8 @@ class StripEditorDialog(ModalDialog):
                             command=self._filter).pack(side="right", padx=3)
         ttk.Button(bar, text="Zoom to fit",
                    command=self.canvas.fit).pack(side="left")
+        ttk.Button(bar, text="Which settings drew this line?",
+                   command=self._why).pack(side="left", padx=6)
 
         box = tk.Frame(rail, bg=PALETTE["panel"], highlightthickness=1,
                        highlightbackground=PALETTE["line"])
@@ -52756,6 +53979,28 @@ class StripEditorDialog(ModalDialog):
                 "Nothing selected",
                 "Switch to 'Select and delete' and click the line or splitter "
                 "you want gone.", parent=self)
+
+    def _why(self):
+        """18.127: الخط المختار (أو أقرب خط لآخر كليك) - الإعدادات اللي رسمته."""
+        pick = getattr(self.canvas, "pick", None)
+        hit = None
+        if pick and pick[0] in ("seg", "split"):
+            uid = pick[1]
+            for span_set, items in (self.canvas.segments or {}).items():
+                for a, b, name, u in items:
+                    if u == uid:
+                        hit = ("seg", span_set, a, b, name)
+            for span_set, items in (self.canvas.splitters or {}).items():
+                for sp in items:
+                    if sp.get("uid") == uid and len(sp.get("pts") or []) >= 2:
+                        hit = ("split", span_set, sp["pts"][0], sp["pts"][-1], sp.get("name", ""))
+        elif pick and pick[0] == "add":
+            kind, direction, a, b = self.canvas.adds[pick[1]]
+            messagebox.showinfo(tr("Which settings drew this line?"),
+                                tr("You drew this one yourself in this screen - no setting decided it."),
+                                parent=self)
+            return
+        _strip_why(self, self.canvas, self.params, hit=hit)
 
     def _row(self):
         sel = self.tree.selection()
@@ -56709,6 +57954,9 @@ def draw_tool_icon(cv, key, colour, size, bg):
         cv.create_text(size / 2, size / 2, text="H", fill=colour, font=F(10, "bold"))
     elif key == "by_strands":
         cv.create_text(size / 2, size / 2, text="nS", fill=colour, font=F(8, "bold"))
+    elif key == "why":
+        cv.create_oval(*P(3, 3, 21, 21), outline=colour, width=lw)
+        cv.create_text(size / 2, size / 2 + 0.5, text="?", fill=colour, font=F(10, "bold"))
     else:
         cv.create_text(size / 2, size / 2, text="•", fill=colour, font=F(12))
 
@@ -57457,6 +58705,111 @@ PARAM_INFO = {
 }
 
 
+class SettingsSearchDialog(tk.Toplevel):
+    """
+    18.127: البحث في الإعدادات. اكتب أي كلمة (بالإنجليزي أو العربي)
+    وتلاقي كل إعداد اسمه أو شرحه فيه الكلمة، مع التبويب وحالته دلوقتي
+    (مفتوح / مقفول أو قيمته). دبل كليك بيوديك له ويعلّمه.
+    """
+
+    def __init__(self, app, initial=""):
+        super().__init__(app.root)
+        self.app = app
+        self.title(tr("Find a setting"))
+        self.configure(bg=PALETTE["bg"])
+        try:
+            w, h = min(S(900), self.winfo_screenwidth() - 60), min(S(560), self.winfo_screenheight() - 90)
+            self.geometry(f"{int(w)}x{int(h)}+{app.root.winfo_rootx() + 60}+{app.root.winfo_rooty() + 60}")
+        except Exception:
+            pass
+        top = tk.Frame(self, bg=PALETTE["bg"])
+        top.pack(fill="x", padx=12, pady=(12, 6))
+        self.qv = tk.StringVar(value=initial)
+        ent = ttk.Entry(top, textvariable=self.qv, justify="right", font=F(11))
+        ent.pack(side="right", fill="x", expand=True)
+        tk.Label(top, text=tr("Search"), bg=PALETTE["bg"], fg=PALETTE["ink"],
+                 font=F(10, "bold")).pack(side="right", padx=(0, 8))
+        self.countv = tk.StringVar()
+        tk.Label(self, textvariable=self.countv, bg=PALETTE["bg"], fg=PALETTE["muted"],
+                 font=F(8), anchor="e").pack(fill="x", padx=12)
+        body = tk.Frame(self, bg=PALETTE["bg"])
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+        cols = ("setting", "state", "tab", "card")
+        self.tree = ttk.Treeview(body, columns=cols, show="headings")
+        for c, w, lbl in (("setting", 330, "Setting"), ("state", 140, "Now"),
+                          ("tab", 130, "Tab"), ("card", 200, "Card")):
+            self.tree.heading(c, text=tr(lbl))
+            self.tree.column(c, width=S(w), anchor="w", stretch=(c == "setting"))
+        sb = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.tag_configure("on", foreground="#1b7a3a")
+        self.tree.tag_configure("off", foreground="#a33a3a")
+        self.tree.tag_configure("hidden", foreground=PALETTE["muted"])
+        foot = tk.Frame(self, bg=PALETTE["bg"])
+        foot.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(foot, text="Close", command=self.destroy).pack(side="left")
+        ttk.Button(foot, text="Go to the setting", style="Primary.TButton",
+                   command=self._go).pack(side="left", padx=8)
+        tk.Label(foot, text=tr("ON / OFF is the box's state now; a value is what is typed in it. "
+                               "Grey rows are hidden by the current settings level and will be shown."),
+                 bg=PALETTE["bg"], fg=PALETTE["muted"], font=F(8), anchor="e",
+                 justify="right", wraplength=S(480)).pack(side="right")
+        self._iids = {}
+        self.qv.trace_add("write", lambda *a: self._refill())
+        self.tree.bind("<Double-1>", lambda e: self._go())
+        self.tree.bind("<Return>", lambda e: self._go())
+        ent.bind("<Return>", lambda e: self._go())
+        ent.bind("<Down>", lambda e: self.tree.focus_set())
+        self.bind("<Escape>", lambda e: self.destroy())
+        self._refill()
+        ent.focus_set()
+        ent.icursor("end")
+
+    def _refill(self):
+        q = (self.qv.get() or "").strip().lower()
+        words = [w for w in q.split() if w]
+        self.tree.delete(*self.tree.get_children())
+        self._iids = {}
+        keep = None
+        try:
+            keep = self.app._level_keep()
+        except Exception:
+            keep = None
+        n = 0
+        for e in self.app.settings_entries():
+            hay = " ".join((e.get("label") or "", e.get("hint") or "", e.get("key") or "",
+                            e.get("card") or "", e.get("tab_title") or "",
+                            tr(e.get("label") or ""), tr(e.get("hint") or ""),
+                            tr(e.get("card") or ""))).lower()
+            if words and not all(w in hay for w in words):
+                continue
+            state, tag = self.app.setting_state(e["key"])
+            hidden = keep is not None and e["key"] not in keep
+            tags = [tag] if tag else []
+            if hidden:
+                tags.append("hidden")
+            iid = self.tree.insert("", "end", values=(tr(e.get("label") or e["key"]), state,
+                                                     tr(e.get("tab_title") or ""),
+                                                     tr(e.get("card") or "")),
+                                   tags=tuple(tags))
+            self._iids[iid] = e["key"]
+            n += 1
+            if n >= 400:
+                break
+        self.countv.set(tr("{n} setting(s)").replace("{n}", str(n)) if n < 400
+                        else tr("Showing the first 400 - type more to narrow it down"))
+
+    def _go(self):
+        sel = self.tree.selection() or self.tree.get_children()[:1]
+        if not sel:
+            return
+        key = self._iids.get(sel[0])
+        if key:
+            self.app._goto_setting(key)
+
+
 class InfoPopup(tk.Toplevel):
     """One setting, one drawing, one paragraph."""
 
@@ -57638,6 +58991,7 @@ class Card(ttk.Frame):
         return btn
 
     def field(self, label, widget, hint=None, info=None):
+        raw_label, raw_hint = label, hint
         hint = tr(hint)
         label = tr(label)
         box = ttk.Frame(self.body, style="Card.TFrame")
@@ -57660,20 +59014,26 @@ class Card(ttk.Frame):
         # A row is a label, a widget and often a hint. Hiding a setting means
         # hiding all of them, so they travel together.
         widget._row_parts = parts
+        #  18.127: بطاقة الإعداد - للبحث ولشاشة "مين رسم ده"
+        meta = getattr(widget, "_setting", None) or {}
+        meta.update(label=str(raw_label or ""), hint=str(raw_hint or ""),
+                    card=str(self.title_text or ""), label_widget=lab, flash=lab)
+        widget._setting = meta
         return widget
 
     def entry(self, label, var, hint=None, width=14, info=None):
-        hint = tr(hint)
         e = ttk.Entry(self.body, textvariable=var, justify="right")
+        e._setting = {"var": var}
         return self.field(label, e, hint, info=info)
 
     def combo(self, label, var, values, hint=None, width=34, info=None):
-        hint = tr(hint)
         c = ttk.Combobox(self.body, textvariable=var, values=list(values),
                          state="readonly", justify="right")
+        c._setting = {"var": var}
         return self.field(label, c, hint, info=info)
 
     def check(self, label, var, hint=None, info=None):
+        raw_label, raw_hint = label, hint
         hint = tr(hint)
         label = tr(label)
         box = ttk.Frame(self.body, style="Card.TFrame")
@@ -57693,6 +59053,8 @@ class Card(ttk.Frame):
             parts.append(h)
             self._row += 1
         c._row_parts = parts
+        c._setting = {"var": var, "label": str(raw_label or ""), "hint": str(raw_hint or ""),
+                      "card": str(self.title_text or ""), "label_widget": c, "flash": c}
         return c
 
     def note(self, text_var):
@@ -57839,6 +59201,7 @@ class AutoPTApp:
 
         apply_theme(root)
         self._make_vars()
+        _set_app(self)
         self.v["ui_lang"].trace_add("write", self._refresh_ui_language)
         set_ui_language(self.v["ui_lang"].get())
         install_ui_translation()
@@ -57858,6 +59221,8 @@ class AutoPTApp:
         r.bind("<Shift-F5>", lambda e: self.stop())
         r.bind("<Control-s>", lambda e: self.save_config())
         r.bind("<Control-S>", lambda e: self.save_config())
+        r.bind("<Control-f>", lambda e: self._open_settings_search())     # 18.127
+        r.bind("<Control-F>", lambda e: self._open_settings_search())
         #  18.25: عشر صفحات - Ctrl+1 ... Ctrl+9 وبعدين Ctrl+0
         for i, item in enumerate(self.NAV, start=1):
             key = i % 10
@@ -58367,12 +59732,12 @@ class AutoPTApp:
 
         self.pages["project"] = self._page_project(self.stage)
         self.pages["geometry"] = self._page_settings_group(
-            self.stage, ("geometry", "loads"), "geometry")
+            self.stage, ("geometry", "loads"), "geometry", nav="geometry")
         self.pages["design"] = self._page_settings_group(
             self.stage,
             ("profile", "layout", "bands", "ai", "osh", "strands", "strips",
-             "output"),
-            "profile")
+             "output", "costs"),
+            "profile", nav="design")
         self.pages["banks"] = self._page_banks(self.stage)
         self.pages["shop"] = self._page_shop(self.stage)
         self.pages["efm"] = self._page_efm(self.stage)
@@ -58462,12 +59827,12 @@ class AutoPTApp:
             self.stage.pack(side="right", fill="both", expand=True)
             self.pages["project"] = self._page_project(self.stage)
             self.pages["geometry"] = self._page_settings_group(
-                self.stage, ("geometry", "loads"), "geometry")
+                self.stage, ("geometry", "loads"), "geometry", nav="geometry")
             self.pages["design"] = self._page_settings_group(
                 self.stage,
                 ("profile", "layout", "bands", "ai", "osh", "strands", "strips",
                  "output", "costs"),
-                "profile")
+                "profile", nav="design")
             self.pages["banks"] = self._page_banks(self.stage)
             self.pages["shop"] = self._page_shop(self.stage)
             self.pages["efm"] = self._page_efm(self.stage)
@@ -58946,18 +60311,25 @@ class AutoPTApp:
         return self._page_settings_group(parent, [k for k, _t, _s in self.SETTINGS_TABS],
                                          "geometry")
 
-    def _page_settings_group(self, parent, keys, first):
+    def _page_settings_group(self, parent, keys, first, nav=None):
         """
         صفحة إعدادات بمجموعة تبويبات (18.25): "الهندسة والأحمال" بتاخد
         geometry + loads، و"التصميم" بياخد الباقي. التبويبات كلها بتتسجّل
         في نفس القاموسين فمستوى الإعدادات والبحث بيشتغلوا على الكل.
         """
         outer = tk.Frame(parent, bg=PALETTE["bg"])
+        if nav is None:
+            nav = "geometry" if "geometry" in keys else "design"
 
         bar = tk.Frame(outer, bg=PALETTE["bg"])
         bar.pack(fill="x", pady=(0, 12))
         holder = tk.Frame(outer, bg=PALETTE["bg"])
         holder.pack(fill="both", expand=True)
+        #  18.127: البحث في الإعدادات - زرار على شمال شريط التبويبات (Ctrl+F كمان)
+        fb = ttk.Button(bar, text="Find a setting",
+                        command=lambda: self._open_settings_search())
+        fb.pack(side="left", padx=(0, 6))
+        _Tip(fb, tr("Find a setting by any word in its name or explanation  (Ctrl+F)"))
 
         builders = {
             "geometry": self._set_geometry, "profile": self._set_profile,
@@ -58974,6 +60346,7 @@ class AutoPTApp:
             if key not in keys:
                 continue
             self._set_pages[key] = builders[key](holder)
+            self._index_settings_page(key, self._set_pages[key], nav)
             chip = tk.Frame(bar, bg=PALETTE["chip"], cursor="hand2")
             chip.pack(side="right", padx=(0, 6))
             lbl = tk.Label(chip, text=title, bg=PALETTE["chip"],
@@ -59007,6 +60380,159 @@ class AutoPTApp:
                     pass
         self._apply_settings_level()
         return outer
+
+    # ---------------- 18.127: فهرس الإعدادات، البحث، والقفز لإعداد ----------------
+
+    def _index_settings_page(self, tab, page, nav):
+        """يمشي على الصفحة ويسجّل كل إعداد: المفتاح، الاسم، الشرح، الكارت، التبويب، الويدجت."""
+        if not hasattr(self, "_settings_index"):
+            self._settings_index, self._settings_lookup = [], {}
+        self._settings_index = [e for e in self._settings_index if e.get("tab") != tab]
+        names = {}
+        for k, var in (self.v or {}).items():
+            try:
+                names[str(var)] = k
+            except Exception:
+                continue
+        titles = {k: t for k, t, _s in self.SETTINGS_TABS}
+
+        def walk(w):
+            for c in w.winfo_children():
+                meta = getattr(c, "_setting", None)
+                if meta:
+                    key = None
+                    var = meta.get("var")
+                    if var is not None:
+                        key = names.get(str(var))
+                    if key is None:
+                        for opt in ("textvariable", "variable"):
+                            try:
+                                nm = str(c.cget(opt))
+                            except Exception:
+                                continue
+                            if nm in names:
+                                key = names[nm]
+                                break
+                    if key:
+                        e = {"key": key, "label": meta.get("label") or key, "hint": meta.get("hint") or "",
+                             "card": meta.get("card") or "", "tab": tab, "tab_title": titles.get(tab, tab),
+                             "nav": nav, "widget": c, "flash": meta.get("flash") or c, "page": page}
+                        self._settings_index.append(e)
+                        self._settings_lookup[key] = e
+                walk(c)
+        try:
+            walk(page)
+        except Exception:
+            pass
+
+    def settings_entries(self):
+        return list(getattr(self, "_settings_index", None) or [])
+
+    def setting_state(self, key):
+        """(نص الحالة، tag): ON/OFF للصناديق، والقيمة المكتوبة لغيرها."""
+        var = (self.v or {}).get(key)
+        if var is None:
+            return "", ""
+        try:
+            val = var.get()
+        except Exception:
+            return "", ""
+        if isinstance(val, bool):
+            return (tr("ON") if val else tr("OFF")), ("on" if val else "off")
+        return str(val), ""
+
+    def _open_settings_search(self, initial=""):
+        try:
+            dlg = getattr(self, "_search_dlg", None)
+            if dlg is not None and dlg.winfo_exists():
+                dlg.qv.set(initial or dlg.qv.get())
+                dlg.lift()
+                dlg.focus_set()
+                return dlg
+            self._search_dlg = SettingsSearchDialog(self, initial)
+            return self._search_dlg
+        except Exception as e:
+            self.log(f"The settings search could not be opened: {e}", "warn")
+            return None
+
+    def _goto_setting(self, key):
+        """يفتح الصفحة والتبويب اللي فيهم الإعداد، يلفّ له، ويعلّمه لثانيتين."""
+        e = (getattr(self, "_settings_lookup", None) or {}).get(key)
+        if not e:
+            self.log(f"Setting '{key}' is not on any settings page.", "warn")
+            return False
+        try:
+            keep = self._level_keep()
+            if keep is not None and key not in keep:
+                for label, lvl in SETTINGS_LEVELS.items():
+                    if lvl == "expert":
+                        self.v["settings_level"].set(label)
+                        break
+        except Exception:
+            pass
+        try:
+            self.nav.select(e["nav"])
+        except Exception:
+            try:
+                self._show_page(e["nav"])
+            except Exception:
+                pass
+        try:
+            self._show_settings_tab(e["tab"])
+        except Exception:
+            pass
+        try:
+            self.root.update_idletasks()
+            self.root.after(80, lambda: self._scroll_to_widget(e["widget"]))
+            self.root.after(120, lambda: self._flash_widget(e.get("flash") or e["widget"]))
+        except Exception:
+            pass
+        try:
+            self.root.lift()
+        except Exception:
+            pass
+        return True
+
+    def _scroll_to_widget(self, widget):
+        w = widget
+        while w is not None and not isinstance(getattr(w, "master", None), tk.Canvas):
+            w = getattr(w, "master", None)
+        if w is None:
+            return
+        inner, canvas = w, w.master
+        try:
+            self.root.update_idletasks()
+            y = widget.winfo_rooty() - inner.winfo_rooty()
+            h = max(inner.winfo_height(), 1)
+            canvas.yview_moveto(max(0.0, min(1.0, (y - 70) / h)))
+        except Exception:
+            pass
+
+    def _flash_widget(self, widget, times=3):
+        """يعلّم الإعداد بلون لثواني: ستايل مؤقت على ليبل/صندوق ttk."""
+        try:
+            st = ttk.Style()
+            st.configure("Flash.TLabel", background="#ffe58a", foreground=PALETTE["ink"])
+            st.configure("Flash.TCheckbutton", background="#ffe58a", foreground=PALETTE["ink"])
+            cls = widget.winfo_class()
+            flash = {"TLabel": "Flash.TLabel", "TCheckbutton": "Flash.TCheckbutton"}.get(cls)
+            if not flash:
+                return
+            old = str(widget.cget("style") or "")
+            base = old or {"TLabel": "Card.TLabel", "TCheckbutton": "TCheckbutton"}[cls]
+
+            def step(i):
+                try:
+                    widget.configure(style=flash if i % 2 == 0 else base)
+                    if i < times * 2 - 1:
+                        self.root.after(350, lambda: step(i + 1))
+                    else:
+                        widget.configure(style=base)
+                except Exception:
+                    pass
+            step(0)
+        except Exception:
+            pass
 
     def _level_keep(self):
         """مفاتيح الإعدادات اللي هتفضل ظاهرة - أو None يعني كله."""
@@ -59794,7 +61320,7 @@ class AutoPTApp:
                 "Used only when the saved model carries no designed rebar - "
                 "a model drawn but not analysed, for example.")
         d.check("Report quantities and cost after every run", self.v["cost_report"])
-        d.text("A separate cost report (<model>_cost_report.csv and .xlsx) goes into the "
+        d.text("A separate cost report (<model>_cost_report.csv, .pdf and .xlsx) goes into the "
                "run's Temp folder: every item with its quantity, unit price and amount, "
                "the subtotals, the slab area, the strand kg/m² and the cost per m², "
                "and before/after with the saving whenever the run starts from a model.")
