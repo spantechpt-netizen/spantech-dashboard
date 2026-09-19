@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.128"
+APP_VERSION = "18.129"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3167,6 +3167,9 @@ class TendonDesignParams:
         # امتداد خط الركائز خارج آخر ركيزة عليه (بروز كابولي). الكابل اللي
         # برّه الامتداد ده مش بياخد قمة عند المحور.
         self.support_line_reach = float(kw.get("support_line_reach", 2.0))
+        #  18.129: القمة عند محور الركائز اختيارية (مقفولة = قمم فوق الأعمدة
+        #  والحيطان والدروبات اللي الكابل بيعبرها فعلاً بس)
+        self.support_line_peaks = bool(kw.get("support_line_peaks", True))
         #  18.26: الكابل اللي استلف بروفايل جاره بيترجع يتحسب عليه.
         #  عدده القديم اتحسب وهو بحر واحد بطوله كله.
         self.resize_filled_from_profile = bool(
@@ -5636,6 +5639,10 @@ class PTEngine(SiteModel):
                                       max(self._axis_node_reach, 1e-6),
                                       src="field")
                 continue
+            #  18.129: القاعدة دي اختيارية - مقفولة، الكابل بياخد قممه من
+            #  الأعمدة والحيطان والدروبات اللي بيعبرها بنفسه بس.
+            if not bool(getattr(p, "support_line_peaks", True)):
+                continue
 
             # الشرط الحاسم: الكابل لازم يقع **داخل امتداد خط الركائز**،
             # مش مجرد قريب من أي ركيزة. الشرط القديم كان مسافة لأقرب ركيزة
@@ -6468,6 +6475,10 @@ class PTEngine(SiteModel):
         fill_bare_runs(tendons, p, self.job, engine=self)
         #  18.118: وكابل الشريط الأوسط اللي وصله بعض المحاور بس بياخد
         #  محاور جيرانه كلها وأقل عدد استرندات.
+        if not bool(getattr(p, "support_line_peaks", True)):
+            self.job.info("High points at support-line crossings are off: a "
+                          "tendon takes a peak only over a column, wall or "
+                          "drop it actually crosses.")
         if bool(getattr(p, "field_borrow_profiles", True)):
             for along_x, label in ((True, "X"), (False, "Y")):
                 if label in dirs:
@@ -17232,6 +17243,8 @@ class MomentProfileDesigner:
         if path is None:
             path = TendonPath.straight(p1, p2)
         L = path.length
+        if not bool(getattr(p, "support_line_peaks", True)):        # 18.129
+            return []
         gap = p.min_point_gap
         axis_i = 0 if along_x else 1
         perp = 1 - axis_i
@@ -49328,6 +49341,12 @@ AR_UI.update({
     'Checks, analysis, reports': 'الفحوصات والتحليل والتقارير',
 })
 #  --- AR_UI_CHUNKS ---
+#  18.129
+AR_UI.update({
+    'Put a high point where a support line reaches the tendon': 'حط نقطة عالية حيث خط الركائز يوصل للكابل',
+    'On, every tendon takes a peak at each support line it crosses inside the line\'s extent, whether or not a column sits right under it - the flat-slab detailing rule. Off, a tendon takes a peak only over a column, wall or drop it actually crosses.': 'مفتوح: كل كابل بياخد قمة عند كل خط ركائز بيعبره داخل امتداد الخط، سواء فيه عمود تحته بالظبط أو لأ - قاعدة تفصيل البلاطات المسطحة. مقفول: الكابل بياخد قمة بس فوق عمود أو حيطة أو دروب بيعبرها فعلاً.',
+    'Whether a support line the tendon crosses puts a high point on it at all.': 'هل خط الركائز اللي الكابل بيعبره بيحط عليه نقطة عالية أصلاً.',
+})
 #  18.128
 AR_UI.update({
     'Insert inflection points between a high point and a low point': 'أدخل نقط انقلاب بين النقطة العالية والنقطة السفلية',
@@ -52822,7 +52841,8 @@ def trace_point(t, i, params, site=None):
                            ("osh_drop_edge_tol", "Optimum solution H moves the drop-edge high point within this tolerance.")):
                 _tr_add(out, k, why, G)
         if src in ("axis", "column", "wall", "beam", "crossing", "group", "md", ""):
-            for k, why in (("support_line_reach", "A high point is placed where the tendon crosses a support line within this reach."),
+            for k, why in (("support_line_peaks", "Whether a support line the tendon crosses puts a high point on it at all."),
+                           ("support_line_reach", "A high point is placed where the tendon crosses a support line within this reach."),
                            ("axis_max_gap", "Supports farther apart than this are not treated as one line."),
                            ("support_crossing_wide", "A wide crossing member gets one high point."),
                            ("veto_unsupported_highs", "A high point with no support under it is removed."),
@@ -57634,6 +57654,7 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "top_cover_x", "bot_cover_x", "per_direction_covers", "min_clear_spacing",
     "min_tendon_length", "edge_offset", "exact_spacing",
     "inflection_points", "inflection_beta", "field_borrow_profiles",
+    "support_line_peaks",
     "plan_rules", "stub_extend_gap", "collinear_merge_gap",
     "min_anchor_separation",
     "strip_band_width", "strip_min_gap", "strip_min_span",
@@ -59667,6 +59688,7 @@ class AutoPTApp:
             "balance_share_distributed": V(value="1.00"),
             "drop_top_run": V(value="1.80"),
             "support_line_reach": V(value="2.0"),
+            "support_line_peaks": B(value=True),
             "axis_max_gap": V(value="10.0"),
             "max_x_lines": V(value="0"),
             "max_y_lines": V(value="0"),
@@ -61186,6 +61208,13 @@ class AutoPTApp:
             self.v["axis_max_gap"], info="axis_max_gap",
             hint="0 = no limit. Two supports further apart than this do not make "
                  "one support line, so the empty middle lifts nothing."))
+        c.check("Put a high point where a support line reaches the tendon",
+                self.v["support_line_peaks"],
+                "On, every tendon takes a peak at each support line it "
+                "crosses inside the line's extent, whether or not a column "
+                "sits right under it - the flat-slab detailing rule. Off, a "
+                "tendon takes a peak only over a column, wall or drop it "
+                "actually crosses.")
         self._tag("loadbal", c.entry("Support line reach beyond the last support",
                                      self.v["support_line_reach"],
                                      info="support_line_reach",
@@ -65474,6 +65503,7 @@ class AutoPTApp:
                                                 1.0),
             drop_top_run=self._num("drop_top_run", 1.80),
             support_line_reach=self._num("support_line_reach", 2.0),
+            support_line_peaks=v["support_line_peaks"].get(),
             axis_max_gap=self._num("axis_max_gap", 10.0),
             layout_mode=self._layout_mode(),
             inflection_beta=self._num("inflection_beta", 0.20),
