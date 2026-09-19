@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.130"
+APP_VERSION = "18.131"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2961,6 +2961,7 @@ class TendonDesignParams:
         self.rc_top_spacing_max = float(kw.get("rc_top_spacing_max", 300.0) or 300.0)
         self.rc_top_min_bars = int(kw.get("rc_top_min_bars", 4) or 4)
         self.rc_drop_extra_m = float(kw.get("rc_drop_extra_m", 1.0) or 1.0)
+        self.rc_drop_max_m = float(kw.get("rc_drop_max_m", 6.0) or 6.0)          # 18.131
         self.rc_top_from_model = bool(kw.get("rc_top_from_model", True))
         self.rc_bottom_from_model = bool(kw.get("rc_bottom_from_model", True))
         self.rc_bottom_dia = int(kw.get("rc_bottom_dia", 16) or 16)
@@ -2979,6 +2980,17 @@ class TendonDesignParams:
         self.rc_punch_dia = int(kw.get("rc_punch_dia", 10) or 10)
         self.rc_punch_from_u = float(kw.get("rc_punch_from_u", 1.0) or 1.0)
         self.rc_beam_prefix = str(kw.get("rc_beam_prefix", "RCB") or "RCB")
+        #  18.131: الكمرات من تصميم رام، أحمال الموديل، الحواف كتفصيلة
+        self.rc_beam_design = bool(kw.get("rc_beam_design", True))
+        self.rc_beam_design_as_pt = bool(kw.get("rc_beam_design_as_pt", False))
+        self.rc_beam_bar_dias = str(kw.get("rc_beam_bar_dias", "16,20,25") or "16,20,25")
+        self.rc_beam_top_min = str(kw.get("rc_beam_top_min", "2T16") or "2T16")
+        self.rc_beam_link_dia = int(kw.get("rc_beam_link_dia", 10) or 10)
+        self.rc_beam_link_max = float(kw.get("rc_beam_link_max", 300.0) or 300.0)
+        self.rc_beam_side_bar = str(kw.get("rc_beam_side_bar", "T12@200") or "T12@200")
+        self.rc_beam_side_from_depth = float(kw.get("rc_beam_side_from_depth", 750.0) or 750.0)
+        self.rc_loads_from_model = bool(kw.get("rc_loads_from_model", True))
+        self.rc_edge_on_plan = bool(kw.get("rc_edge_on_plan", False))
         #  18.121: فحص الثقب بعد رسم الكابلات
         self.punch_check = bool(kw.get("punch_check", True))
         self.punch_code = str(kw.get("punch_code", list(PUNCH_CODES)[0]) or list(PUNCH_CODES)[0])
@@ -49378,6 +49390,30 @@ AR_UI.update({
     'Checks, analysis, reports': 'الفحوصات والتحليل والتقارير',
 })
 #  --- AR_UI_CHUNKS ---
+#  18.131: الكمرات، أحمال الموديل، التشطيب
+AR_UI.update({
+    "Loads plan from the model's own loads": 'لوحة الأحمال من أحمال الموديل نفسه',
+    "The area, line and point loads on the model's loading layers (Finishing, Live Loading, Block Wall ...) are drawn and labelled; off = the Loads page values over the whole slab.": 'الأحمال المساحية والخطية والمركزة على طبقات تحميل الموديل (Finishing, Live Loading, Block Wall ...) بتترسم وتتكتب؛ مقفول = قيم صفحة الأحمال على السقف كله.',
+    'Draw the edge U-bars on the plan': 'ارسم أسياخ U بتاعة الحافة على المسقط',
+    "Off = one typical-detail note, the way the competitor's sheet does it; the plan stays clean.": 'مقفول = ملاحظة تفصيلة نمطية واحدة، زي لوحة المنافس؛ المسقط بيفضل نضيف.',
+    'Beams': 'الكمرات',
+    'RAM designs every beam on its own design strip': 'رام بيصمّم كل كمرة على شريحة تصميم خاصة بيها',
+    'Design the beams in RAM': 'صمّم الكمرات في رام',
+    "A design strip is drawn on the centreline of every beam with a splitter on each edge, so the strip is the beam alone. RAM computes its moments and shears and designs it; the bars are read from the saved model into the beam schedule on the GA sheet. Done when a model is built from a DXF, or on a model you have with 'Design the beams' on the Project page.": 'بتترسم شريحة تصميم على سنتر كل كمرة وسبليتر على كل حد من حدودها، فالشريحة تبقى الكمرة لوحدها. رام بيحسب عزومها وقصّها ويصمّمها؛ والحديد بيتقرا من الموديل المحفوظ لجدول الكمرات على لوحة GA. بيتعمل لما يتبني موديل من DXF، أو على موديل عندك بـ "صمّم الكمرات" في صفحة المشروع.',
+    'Design the beam strips as PT (tendons in the beam count)': 'صمّم شرائح الكمرات كـ PT (الكابلات اللي في الكمرة بتتحسب)',
+    'Off = the beam is designed as plain RC: every bar comes from the reinforcement.': 'مقفول = الكمرة بتتصمّم خرسانة مسلحة عادية: كل الحديد من التسليح.',
+    'Bar sizes allowed (mm)': 'الأقطار المسموح بيها (مم)',
+    "RAM's designed area is turned into the smallest size here that keeps a sensible count.": 'مساحة رام المصمّمة بتتحوّل لأصغر قطر هنا بيدي عدد معقول.',
+    'Fewest top bars': 'أقل عدد أسياخ علوية',
+    'Widest link spacing (mm)': 'أكبر تباعد للكانات (مم)',
+    'And never more than d/2. The tightest spacing RAM asked for goes over the supports, the widest in the middle.': 'ومش أكتر من d/2 أبداً. أضيق تباعد طلبه رام بيروح فوق الركائز، وأوسع واحد في المنتصف.',
+    'Side bars each face': 'حديد جوانب كل وش',
+    '... for beams deeper than (mm)': '... للكمرات الأعمق من (مم)',
+    '═   Design the beams in RAM now': '═   صمّم الكمرات في رام دلوقتي',
+    'A drop panel is at most (m)': 'الدروب على الأكتر (م)',
+    'A thickened area longer than this on either side is a band, not a drop: the code rule sets its bars, not the drop cover.': 'منطقة متخنة أطول من كده في أي اتجاه دي باند مش دروب: قاعدة الكود بتحدد حديدها، مش تغطية الدروب.',
+    'Design the beams': 'صمّم الكمرات',
+})
 #  18.130: لوحات RC
 AR_UI.update({
     'RC drawings': 'لوحات الخرسانة والتسليح',
@@ -53419,7 +53455,7 @@ BAR_AREA = {8: 50.3, 10: 78.5, 12: 113.1, 14: 153.9, 16: 201.1, 18: 254.5,
 RC_LAYER_COLOURS = {
     "GA-SLAB": 8, "GA-DROP": 3, "GA-COLUMN": 4, "GA-COLUMN-HATCH": 8, "GA-WALL": 4,
     "GA-BEAM": 3, "GA-BEAM-TEXT": 1, "GA-OPENING": 23, "GA-TEXT": 7, "GA-TABLE": 7,
-    "LOAD-ZONE": 30, "LOAD-TEXT": 7, "LOAD-LINE": 1,
+    "LOAD-ZONE": 30, "LOAD-TEXT": 7, "LOAD-LINE": 1, "LOAD-POINT": 6,
     "RC-MESH-TEXT": 3, "RC-TOP": 1, "RC-TOP-TEXT": 1, "RC-BOT": 5, "RC-BOT-TEXT": 5,
     "RC-EDGE": 6, "RC-EDGE-TEXT": 6, "RC-OPENING": 2, "RC-OPENING-TEXT": 2,
     "RC-PUNCH": 1, "RC-PUNCH-TEXT": 1, "RC-NOTES": 7, "RC-TABLE": 7,
@@ -53468,17 +53504,27 @@ def _rc_neighbours(cols, i, axis, across=1.5):
     c = cols[i]
     cx, cy = c["center"]
     best = {1: None, -1: None}
+    cone = {1: None, -1: None}
     for j, o in enumerate(cols):
         if j == i:
             continue
         ox, oy = o["center"]
         d_along = (ox - cx) if axis == 0 else (oy - cy)
         d_across = abs(oy - cy) if axis == 0 else abs(ox - cx)
-        if d_across > across or abs(d_along) < 0.5:
+        if abs(d_along) < 0.5:
             continue
         sgn = 1 if d_along > 0 else -1
-        if best[sgn] is None or abs(d_along) < abs(best[sgn][0]):
-            best[sgn] = (d_along, o)
+        if d_across <= across:
+            if best[sgn] is None or abs(d_along) < abs(best[sgn][0]):
+                best[sgn] = (d_along, o)
+        elif d_across <= abs(d_along):
+            #  18.131: مافيش عمود على نفس الخط - أقرب عمود جوّه مخروط 45°
+            #  (الشبكة مش منتظمة في الموديل الحقيقي)
+            if cone[sgn] is None or abs(d_along) < abs(cone[sgn][0]):
+                cone[sgn] = (d_along, o)
+    for sgn in (1, -1):
+        if best[sgn] is None and cone[sgn] is not None:
+            best[sgn] = cone[sgn]
     return best
 
 
@@ -53532,14 +53578,23 @@ def _rc_span_info(cols, i, site):
                 o = nb[sgn][1]
                 osize = float(o.get("b" if axis == 0 else "d") or 400.0) / 1000.0
                 spans[sgn] = ("span", abs(nb[sgn][0]) - size / 2.0 - osize / 2.0, abs(nb[sgn][0]))
-            else:
-                e = _rc_edge_distance(c["center"], axis, sgn, site.get("boundary") or [])
-                spans[sgn] = ("edge", (e - size / 2.0) if e is not None else 0.0, e or 0.0)
+        cap = max([abs(nb[s_][0]) for s_ in (1, -1) if nb[s_] is not None] + [0.0])
+        for sgn in (1, -1):
+            if sgn in spans:
+                continue
+            e = _rc_edge_distance(c["center"], axis, sgn,
+                                  _rc_outline_at([pc for pc in (site.get("pieces") or []) if pc and len(pc) >= 3],
+                                                 c["center"], site.get("boundary") or []))
+            #  18.131: الحافة أبعد من البحر المجاور = مش ناتئ، ده فراغ في
+            #  الشبكة؛ المساهم بيتقفل على البحر (أو 6 م لو مافيش بحر)
+            if e is not None:
+                e = min(e, 0.75 * cap if cap > 0 else 6.0)
+            spans[sgn] = ("edge", (e - size / 2.0) if e is not None else 0.0, e or 0.0)
         out[axis] = (spans, size)
     return out
 
 
-def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
+def rc_design(site, params, steel=None, punching=None, tendons=None, job=None, model_loads=None, beams=None):
     """
     التصميم التفصيلي للحديد من الهندسة (والموديل والثقب لو موجودين).
     بيرجّع {"bars": [...], "zones": [...], "beams": [...], "beam_marks": {...},
@@ -53550,6 +53605,10 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
     log = job.info if job else (lambda *a, **k: None)
     warn = job.warn if job else (lambda *a, **k: None)
     h = float(getattr(p, "slab_thickness", 260.0) or 260.0)
+    h_model = _rc_base_thickness(site, 0.0)                       # 18.131: الموديل بيحكم
+    if h_model > 0 and abs(h_model - h) > 0.5:
+        log(f"Slab thickness {h_model:.0f} mm taken from the model's slab areas (the setting says {h:.0f}).")
+        h = h_model
     h_drop = float(getattr(p, "drop_thickness", 0.0) or 0.0)
     cover = float(getattr(p, "punch_cover", 30.0) or 30.0)
     fc = float(getattr(p, "punch_fc", 30.0) or 30.0)
@@ -53564,6 +53623,8 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
     bars, notes = [], []
     cols = [c for c in (site.get("columns") or []) if c.get("center")]
     boundary = site.get("boundary") or []
+    #  18.131: كل قطعة خرسانة بحدودها - الحواف والأحمال والمسافة للحافة
+    outlines = [pc for pc in (site.get("pieces") or []) if pc and len(pc) >= 3] or ([boundary] if len(boundary) >= 3 else [])
 
     # ---------- شبكة سفلية (وعلوية اختيارية) ----------
     g = _rc_add(bars, kind="mesh_bottom", at=None, dir="XY", n=None, dia=mesh_dia, spacing=mesh_s,
@@ -53580,12 +53641,29 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
 
     # ---------- الحديد العلوي فوق الأعمدة ----------
     steel_rows = list((steel or {}).get("rebar") or [])
+    n_raw = len(steel_rows)
+    steel_rows = rc_merge_model_rows(steel_rows)                   # 18.131: الصفوف المكررة بتتدمج
+    n_beam_rows = 0
+    if site.get("beams"):
+        keep = []
+        for r in steel_rows:
+            if _rc_row_in_beam(site, r.get("a"), r.get("b")):
+                n_beam_rows += 1
+            else:
+                keep.append(r)
+        steel_rows = keep
+        if n_beam_rows:
+            log(f"{n_beam_rows} of RAM's designed rows run inside a beam: they belong to the beam schedule, not the slab.")
+    if n_raw and len(steel_rows) < n_raw:
+        log(f"RAM's designed bars: {n_raw} rows merged into {len(steel_rows)} groups (parallel rows on neighbouring strips).")
     use_model = bool(getattr(p, "rc_top_from_model", True)) and any(r.get("designed") for r in steel_rows)
     a_top = rc_bar_area(top_dia)
     for i, c in enumerate(cols):
         cx, cy = c["center"]
         dp = _rc_drop_at(site, (cx, cy))
-        h_here = h_drop if (dp is not None and h_drop > h) else h
+        h_here = _rc_zone_thickness(site, dp, h_drop) if dp is not None else h   # 18.131: سُمك الدروب من الموديل
+        if h_here <= h:
+            h_here = h
         info = _rc_span_info(cols, i, site)
         #  Acf: أكبر عرض مساهم عمودي على اتجاه الأسياخ × السُمك
         #  عرض الإطار المكافئ: نص البحر (من المحور للمحور) كل ناحية، ولحد
@@ -53617,17 +53695,25 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
                    ("rc_top_min_bars", "Never fewer bars than this over a support."),
                    ("punch_cover", "Cover to the top bars, from the punching settings.")]
             n, spread, L, src = n_code, spread_code, L_code, "code"
+            drop_max = float(getattr(p, "rc_drop_max_m", 6.0) or 6.0)
             if dp is not None and rule in ("drop", "both"):
                 xs = [q[0] for q in dp]; ys = [q[1] for q in dp]
                 dl = (max(xs) - min(xs)) if axis == 0 else (max(ys) - min(ys))
                 dw = (max(ys) - min(ys)) if axis == 0 else (max(xs) - min(xs))
+            if dp is not None and rule in ("drop", "both") and max(dl, dw) > drop_max:
+                why.append(("rc_drop_max_m", f"The thickened area here is {dl:.1f} × {dw:.1f} m - larger than a drop panel, so the code rule governs the bars, not the drop cover."))
+            elif dp is not None and rule in ("drop", "both"):
                 L_drop = dl + 2.0 * extra
-                spread_drop = dw + 2.0 * extra
+                spread_drop = dw                                    # 18.131: الانتشار على عرض الدروب بس
                 n_drop = max(n_min, int(math.ceil(spread_drop * 1000.0 / s_max)) + 1)
-                if rule == "drop" or (n_drop * a_top >= n * a_top and L_drop >= L):
-                    n, spread, L, src = max(n, n_drop) if rule == "both" else n_drop, spread_drop, max(L, L_drop) if rule == "both" else L_drop, "drop"
-                why.append(("rc_drop_extra_m", f"The bars cover the whole drop panel ({dl:.2f} × {dw:.2f} m) plus {extra:.2f} m each way."))
-                why.append(("drop_thickness", "The drop thickness sets the slab depth over the column here."))
+                if rule == "drop":
+                    n, spread, L, src = n_drop, spread_drop, L_drop, "drop"
+                else:                                               # الأكبر من الاتنين، عدداً وطولاً
+                    if n_drop > n or L_drop > L:
+                        src = "drop"
+                    n, spread, L = max(n, n_drop), max(spread, spread_drop), max(L, L_drop)
+                why.append(("rc_drop_extra_m", f"The bars run the drop panel's length ({dl:.2f} m) plus {extra:.2f} m each way, spread over its width ({dw:.2f} m)."))
+                why.append(("drop_thickness", f"The drop here is {h_here:.0f} mm thick (from the model's slab areas when it has them)."))
             #  التباعد الأقصى بيحكم العدد
             n = max(n, int(math.ceil(spread * 1000.0 / s_max)) + 1)
             #  حديد رام المصمّم فوق العمود
@@ -53640,10 +53726,13 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
                     as_model = max(float(r.get("area") or 0.0) for r in near)
                     n_model = max(int(math.ceil(as_model / a_top)), 1)
                     L_model = max(float(r.get("len") or 0.0) for r in near)
-                    why.append(("rc_top_from_model", f"RAM's designed top bars here: {as_model:.0f} mm² over {L_model:.2f} m; the larger of that and the rule is drawn."))
+                    local = L_model <= max(2.5 * L_code, 6.0)
+                    why.append(("rc_top_from_model", f"RAM's designed top bars here: {as_model:.0f} mm² over {L_model:.2f} m; "
+                                + ("the larger of that and the rule is drawn." if local
+                                   else "that row runs the length of the strip, so only its area counts here - the length follows the rule.")))
                     if n_model > n:
                         n, src = n_model, "model"
-                    if L_model > L:
+                    if local and L_model > L:
                         L = L_model
             spacing = min(s_max, math.floor(spread * 1000.0 / max(n - 1, 1) / 25.0) * 25.0)
             spacing = max(spacing, 75.0)
@@ -53710,11 +53799,14 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
                          ("rc_bottom_dia", "The bar size the designed area is converted into.")])
 
     # ---------- أسياخ U على الحافة ----------
-    if bool(getattr(p, "rc_edge_bars_on", True)) and len(boundary) >= 3:
+    if bool(getattr(p, "rc_edge_bars_on", True)) and outlines:
         e_dia, e_s = rc_parse_bar(getattr(p, "rc_edge_bar", "T10@200"))
         e_len = float(getattr(p, "rc_edge_len_mm", 2000.0) or 2000.0) / 1000.0
-        ring = list(boundary) + [boundary[0]]
-        for a_, b_ in zip(ring, ring[1:]):
+        edges = []
+        for pc in outlines:
+            ring = list(pc) + [pc[0]]
+            edges += list(zip(ring, ring[1:]))
+        for a_, b_ in edges:
             Ls = dist(a_, b_)
             if Ls < 0.6:
                 continue
@@ -53836,7 +53928,7 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
     for dp in (site.get("drops") or []):
         if len(dp) >= 3 and not any(z["is_drop"] and z["points"] is dp for z in zones):
             zones.append({"points": dp, "thickness": h_drop or h, "is_drop": True})
-    beams, marks = [], {}
+    beams_geo, marks = [], {}
     prefix = str(getattr(p, "rc_beam_prefix", "RCB") or "RCB")
     sizes = sorted({(round(float(b.get("width") or 0)), round(float(b.get("depth") or 0))) for b in (site.get("beams") or [])
                     if b.get("p1") and b.get("p2")}, key=lambda s: (s[1], s[0]))
@@ -53846,28 +53938,58 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
         if not (b.get("p1") and b.get("p2")):
             continue
         key = (round(float(b.get("width") or 0)), round(float(b.get("depth") or 0)))
-        beams.append({"p1": b["p1"], "p2": b["p2"], "width": key[0], "depth": key[1], "mark": marks[key],
-                      "band": bool(b.get("band"))})
-    loads = []
+        beams_geo.append({"p1": b["p1"], "p2": b["p2"], "width": key[0], "depth": key[1], "mark": marks[key],
+                          "band": bool(b.get("band"))})
+    loads, line_loads, point_loads = [], [], []
+    ml = model_loads or {}
+    ob = bbox_of([q for pc in outlines for q in pc]) if outlines else None
+    for al in (ml.get("area") or []):                              # 18.131: أحمال الموديل نفسه
+        pts = al.get("points") or []
+        if len(pts) < 3:
+            continue
+        polys = [pts]
+        if ob is not None:
+            lb = bbox_of(pts)
+            if lb[0] <= ob[0] + 0.05 and lb[1] <= ob[1] + 0.05 and lb[2] >= ob[2] - 0.05 and lb[3] >= ob[3] - 0.05:
+                polys = list(outlines)                              # المنطقة بتغطي السقف كله: تتظلّل على حدوده
+        for pl in polys:
+            loads.append({"points": pl, "kind": str(al.get("kind") or "other"),
+                          "value": float(al.get("value") or 0.0), "layer": str(al.get("layer") or "")})
+    for ll in (ml.get("line") or []):
+        line_loads.append({"points": ll["points"], "value": float(ll.get("value") or 0.0), "what": str(ll.get("layer") or "line")})
+    point_loads = [dict(pl) for pl in (ml.get("point") or []) if abs(float(pl.get("value") or 0.0)) >= 0.5]
     for al in (site.get("area_loads") or []):
         pts = al.get("points") or al.get("poly") or []
         if len(pts) >= 3:
-            loads.append({"points": pts, "kind": str(al.get("kind") or "dead"), "value": float(al.get("value") or 0.0)})
-    if not loads and len(boundary) >= 3:
-        loads.append({"points": boundary, "kind": "dead", "value": float(getattr(p, "sdl", 0.0) or 0.0)})
-        loads.append({"points": boundary, "kind": "live", "value": float(getattr(p, "live_load", 0.0) or 0.0)})
-    line_loads = []
-    if float(getattr(p, "edge_line_load", 0.0) or 0.0) > 0 and len(boundary) >= 3:
-        line_loads.append({"points": boundary, "value": float(p.edge_line_load), "what": "edge"})
+            loads.append({"points": pts, "kind": str(al.get("kind") or "dead"), "value": float(al.get("value") or 0.0), "layer": ""})
+    if not loads:
+        for pc in outlines:
+            loads.append({"points": pc, "kind": "dead", "value": float(getattr(p, "sdl", 0.0) or 0.0), "layer": ""})
+            loads.append({"points": pc, "kind": "live", "value": float(getattr(p, "live_load", 0.0) or 0.0), "layer": ""})
+    if float(getattr(p, "edge_line_load", 0.0) or 0.0) > 0 and not (ml.get("line")):
+        for pc in outlines:
+            line_loads.append({"points": pc, "value": float(p.edge_line_load), "what": "edge"})
     wl = float(getattr(p, "arch_wall_density", 0.0) or 0.0) * float(getattr(p, "arch_wall_height", 0.0) or 0.0) / 1000.0 \
         * float(getattr(p, "arch_wall_thickness", 0.0) or 0.0) / 1000.0
     for w in (site.get("arch_walls") or []):
         if w.get("p1") and w.get("p2") and wl > 0:
             line_loads.append({"points": [w["p1"], w["p2"]], "value": wl, "what": "arch wall"})
 
+    # ---------- الكمرات من تصميم رام (18.131) ----------
+    if beams and beams.get("beams"):
+        bars_beam = rc_beam_groups(beams)
+        for g in bars_beam:
+            _rc_add(bars, **g)
+        log(f"Beam schedule: {len(bars_beam)} beam(s) in {len(beams.get('marks') or {})} mark(s), "
+            f"RAM's design on {beams.get('designed', 0)} of them.")
+
     # ---------- الحصر ----------
     sched = {}
     for g in bars:
+        if g["kind"] == "beam":
+            g["length_total_m"] = 0.0
+            g["kg"] = float((g.get("beam") or {}).get("kg") or 0.0)
+            continue
         if g["kind"].startswith("mesh"):
             area = slab_area_m2(site) if site.get("boundary") else 0.0
             per_m = 1000.0 / float(g["spacing"] or 200.0)
@@ -53884,6 +54006,10 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
         d = sched.setdefault(int(g["dia"]), {"m": 0.0, "kg": 0.0})
         d["m"] += L
         d["kg"] += g["kg"]
+    for dia, v in ((beams or {}).get("schedule") or {}).items():
+        d = sched.setdefault(int(dia), {"m": 0.0, "kg": 0.0})
+        d["m"] += v["m"]
+        d["kg"] += v["kg"]
     total_kg = sum(v["kg"] for v in sched.values())
     log(f"RC design: {len(bars)} bar groups, {total_kg:,.0f} kg of reinforcement"
         + (f" = {total_kg / slab_area_m2(site):.1f} kg/m²" if site.get("boundary") and slab_area_m2(site) else "") + ".")
@@ -53895,9 +54021,732 @@ def rc_design(site, params, steel=None, punching=None, tendons=None, job=None):
         notes.append("No punching check result was available for this model: run the model once with the punching check on, or open the RC drawings right after a run, to get the links.")
     if not steel_rows:
         notes.append("The saved model carries no designed reinforcement: the top bars follow the rule on the RC page; run the model in RAM to read its designed bars as well.")
-    return {"bars": bars, "zones": zones, "beams": beams, "beam_marks": marks, "loads": loads,
-            "line_loads": line_loads, "notes": notes, "schedule": sched, "total_kg": total_kg,
-            "h": h, "h_drop": h_drop}
+    return {"bars": bars, "zones": zones, "beams": beams_geo, "beam_marks": marks, "loads": loads,
+            "line_loads": line_loads, "point_loads": point_loads, "notes": notes, "schedule": sched,
+            "total_kg": total_kg, "h": h, "h_drop": h_drop, "outlines": outlines, "beam_design": beams}
+
+
+# ---------------------------------------------------------------------------
+#  18.131: أحمال الموديل، تصميم الكمرات من رام، وتشطيب اللوحة
+# ---------------------------------------------------------------------------
+
+def _rc_load_kind(layer_name):
+    s = str(layer_name or "").lower()
+    if "live" in s:
+        return "live"
+    if "finish" in s or "superimposed" in s or "sdl" in s or s.startswith("dead"):
+        return "dead"
+    return "other"
+
+
+def rc_read_model_loads(cpt_path, job=None):
+    """
+    أحمال الموديل من الملف: AreaLoad / LineLoad / PointLoad مع اسم طبقة
+    التحميل (Finishing, Live Loading, Block Wall ...). طبقات الموازنة
+    والوزن الذاتي والهايبرستاتيك بتتعدّى - دي مش أحمال مخطط.
+    ALFz في الملف بوحدة N/(0.1 mm)²، فـ ×1e8 = N/m² و×1e5 = kN/m².
+    """
+    import sqlite3
+    out = {"area": [], "line": [], "point": [], "layers": []}
+    try:
+        con = sqlite3.connect(f"file:{cpt_path}?mode=ro", uri=True)
+    except Exception as e:
+        if job:
+            job.warn(f"The model loads could not be read: {e}")
+        return out
+    try:
+        layers = {uid: nm for uid, nm in con.execute("select UID,Name from LoadingLayer")}
+        parent = {}
+        for t in ("LoadingLevel", "AreaLoadCategory", "PointLoadCategory", "LineLoadCategory"):
+            try:
+                for uid, pu in con.execute(f"select UID,ParentUID from {t}"):
+                    parent[uid] = pu
+            except Exception:
+                pass
+
+        def layer_of(uid):
+            n = 0
+            while uid not in layers and uid in parent and n < 12:
+                uid = parent[uid]
+                n += 1
+            return layers.get(uid)
+
+        skip = ("balance", "self-dead", "self dead", "hyperstatic", "temporary", "mass",
+                "shrinkage", "temperature", "stressing")
+
+        def wanted(nm):
+            s = str(nm or "").lower()
+            return bool(nm) and not any(k in s for k in skip)
+
+        for pu, fz0, fz1, fz2, mp in con.execute("select ParentUID,ALFz0,ALFz1,ALFz2,MultiPoint from AreaLoad"):
+            nm = layer_of(pu)
+            if not wanted(nm):
+                continue
+            pts = _ram_pts(mp)
+            if len(pts) < 3:
+                continue
+            q = -(float(fz0 or 0.0) + float(fz1 or 0.0) + float(fz2 or 0.0)) / 3.0 * 1e5
+            out["area"].append({"points": pts, "kind": _rc_load_kind(nm), "layer": str(nm), "value": q})
+        try:
+            for pu, p0, p1, fz0, fz1 in con.execute("select ParentUID,Point0,Point1,LLFz0,LLFz1 from LineLoad"):
+                nm = layer_of(pu)
+                if not wanted(nm):
+                    continue
+                a, b = _ram_pts(p0), _ram_pts(p1)
+                if not a or not b:
+                    continue
+                w = -(float(fz0 or 0.0) + float(fz1 or 0.0)) / 2.0 * 10.0        # N/(0.1 mm) -> kN/m
+                out["line"].append({"points": [a[0], b[0]], "kind": _rc_load_kind(nm), "layer": str(nm), "value": w})
+        except Exception:
+            pass
+        for pu, p0, fz in con.execute("select ParentUID,Point0,PLFz from PointLoad"):
+            nm = layer_of(pu)
+            if not wanted(nm):
+                continue
+            a = _ram_pts(p0)
+            if not a:
+                continue
+            out["point"].append({"at": a[0], "kind": _rc_load_kind(nm), "layer": str(nm), "value": -float(fz or 0.0) / 1000.0})
+        out["layers"] = sorted({d["layer"] for k in ("area", "line", "point") for d in out[k]})
+    except Exception as e:
+        if job:
+            job.warn(f"The model loads could not be read: {e}")
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+    if job and (out["area"] or out["point"] or out["line"]):
+        job.info(f"Model loads: {len(out['area'])} area, {len(out['line'])} line, {len(out['point'])} point "
+                 f"load(s) on {', '.join(out['layers'])}.")
+    return out
+
+
+def _rc_row_in_beam(site, a, b, tol=0.15):
+    """الصف ماشي جوّه عرض كمرة وموازي ليها؟ (حديد الكمرة مش حديد البلاطة)"""
+    if not a or not b:
+        return False
+    L = dist(a, b)
+    if L < 1e-6:
+        return False
+    ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+    for bm in site.get("beams") or []:
+        p1, p2 = bm.get("p1"), bm.get("p2")
+        if not p1 or not p2:
+            continue
+        Lb = dist(p1, p2)
+        if Lb < 0.3:
+            continue
+        vx, vy = (p2[0] - p1[0]) / Lb, (p2[1] - p1[1]) / Lb
+        if abs(ux * vx + uy * vy) < 0.9:
+            continue
+        hw = float(bm.get("width") or 300.0) / 2000.0 + tol
+        nx, ny = -vy, vx
+        if abs((a[0] - p1[0]) * nx + (a[1] - p1[1]) * ny) > hw or abs((b[0] - p1[0]) * nx + (b[1] - p1[1]) * ny) > hw:
+            continue
+        s0, s1 = sorted(((a[0] - p1[0]) * vx + (a[1] - p1[1]) * vy, (b[0] - p1[0]) * vx + (b[1] - p1[1]) * vy))
+        if min(s1, Lb) - max(s0, 0.0) > 0.5 * L:
+            return True
+    return False
+
+
+def _rc_outline_at(outlines, pt, default=None):
+    for o in outlines or []:
+        try:
+            if point_in_polygon(pt[0], pt[1], o):
+                return o
+        except Exception:
+            continue
+    return default if default is not None else (outlines[0] if outlines else [])
+
+
+def _rc_zone_thickness(site, poly, fallback):
+    """سُمك المنطقة (الدروب) من الموديل نفسه لو موجود - مش من الإعداد."""
+    for sl in (site.get("slabs") or []):
+        pts = sl.get("points")
+        if pts is poly or pts == poly:
+            th = float(sl.get("thickness") or 0.0)
+            if th > 0:
+                return th
+    return fallback
+
+
+def _rc_base_thickness(site, h_param):
+    """سُمك البلاطة الأساسي: أكبر منطقة مش دروب في الموديل، وإلا الإعداد."""
+    best, best_a = 0.0, 0.0
+    for sl in (site.get("slabs") or []):
+        if sl.get("is_drop") or sl.get("is_band"):
+            continue
+        pts = sl.get("points") or []
+        th = float(sl.get("thickness") or 0.0)
+        if len(pts) >= 3 and th > 0:
+            try:
+                a = abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                            for i in range(len(pts)))) / 2.0
+            except Exception:
+                a = 0.0
+            if a > best_a:
+                best, best_a = th, a
+    return best if best > 0 else h_param
+
+
+def rc_merge_model_rows(rows, across=1.2, overlap=0.5):
+    """
+    صفوف حديد رام المصمّم بتتكرر: نفس الوش ونفس الاتجاه على شرائح جنب
+    بعض (عمود/وسط) أو نفس البحر مقسوم. اللي متوازي وقريب عرضياً ومتداخل
+    طولياً بيتدمج في صف واحد بأكبر مساحة وأطول امتداد.
+    """
+    rows = [dict(r) for r in rows if r.get("a") and r.get("b")]
+    rows.sort(key=lambda r: -float(r.get("area") or 0.0))
+    out = []
+    for r in rows:
+        a, b = r["a"], r["b"]
+        ux, uy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(ux, uy) or 1.0
+        ux, uy = ux / L, uy / L
+        merged = False
+        for o in out:
+            if o.get("face") != r.get("face") or o.get("dir") != r.get("dir"):
+                continue
+            oa, ob = o["a"], o["b"]
+            #  المسافة العرضية لمحور المجموعة الموجودة
+            d1 = abs((a[0] - oa[0]) * (-uy) + (a[1] - oa[1]) * ux)
+            d2 = abs((b[0] - oa[0]) * (-uy) + (b[1] - oa[1]) * ux)
+            if max(d1, d2) > across:
+                continue
+            s0, s1 = sorted(((a[0] - oa[0]) * ux + (a[1] - oa[1]) * uy, (b[0] - oa[0]) * ux + (b[1] - oa[1]) * uy))
+            t0, t1 = sorted((0.0, (ob[0] - oa[0]) * ux + (ob[1] - oa[1]) * uy))
+            inter = min(s1, t1) - max(s0, t0)
+            if inter <= overlap * min(s1 - s0, t1 - t0, 1e9) and inter <= 0.5:
+                continue
+            lo, hi = min(s0, t0), max(s1, t1)
+            o["a"] = (oa[0] + ux * lo, oa[1] + uy * lo)
+            o["b"] = (oa[0] + ux * hi, oa[1] + uy * hi)
+            o["len"] = hi - lo
+            o["mid"] = ((o["a"][0] + o["b"][0]) / 2.0, (o["a"][1] + o["b"][1]) / 2.0)
+            o["area"] = max(float(o.get("area") or 0.0), float(r.get("area") or 0.0))
+            o["bars"] = max(int(o.get("bars") or 0), int(r.get("bars") or 0))
+            o["merged"] = int(o.get("merged") or 1) + 1
+            merged = True
+            break
+        if not merged:
+            out.append(r)
+    return out
+
+
+# ---------- الكمرات ----------
+
+def beam_strip_plan(site, params, existing=None, min_len=0.5):
+    """
+    شريحة تصميم على محور كل كمرة وسبليتر على حدودها الاتنين.
+    `existing` = [(p1, p2, dir)] الـ span segments الموجودة: الكمرة اللي
+    عليها واحد موازي جوّه عرضها بتتعدّى (عشان مانرسمش اتنين).
+    """
+    plan = []
+    for k, b in enumerate(site.get("beams") or []):
+        p1, p2 = b.get("p1"), b.get("p2")
+        if not p1 or not p2:
+            continue
+        L = dist(p1, p2)
+        if L < min_len:
+            continue
+        w = float(b.get("width") or 300.0) / 1000.0
+        ux, uy = (p2[0] - p1[0]) / L, (p2[1] - p1[1]) / L
+        nx, ny = -uy, ux
+        direction = "X" if abs(ux) >= abs(uy) else "Y"
+        hw = w / 2.0
+        item = {"beam": k, "p1": tuple(p1), "p2": tuple(p2), "dir": direction, "width": w,
+                "depth": float(b.get("depth") or 0.0), "length": L,
+                "splitters": [((p1[0] - nx * hw, p1[1] - ny * hw), (p2[0] - nx * hw, p2[1] - ny * hw)),
+                              ((p1[0] + nx * hw, p1[1] + ny * hw), (p2[0] + nx * hw, p2[1] + ny * hw))],
+                "skipped": None}
+        for (a, c, d) in (existing or []):
+            if d != direction:
+                continue
+            da = abs((a[0] - p1[0]) * nx + (a[1] - p1[1]) * ny)
+            dc = abs((c[0] - p1[0]) * nx + (c[1] - p1[1]) * ny)
+            if max(da, dc) > hw + 0.05:
+                continue
+            s0, s1 = sorted(((a[0] - p1[0]) * ux + (a[1] - p1[1]) * uy, (c[0] - p1[0]) * ux + (c[1] - p1[1]) * uy))
+            if min(s1, L) - max(s0, 0.0) > 0.5 * L:
+                item["skipped"] = "a span segment already runs along this beam"
+                break
+        plan.append(item)
+    return plan
+
+
+_LAST_BEAM_STRIPS = {"plan": []}
+
+
+def write_beam_strips_to_ram(session, site, params, job, cpt_path=None, existing=None):
+    """
+    18.131: شريحة تصميم على سنتر كل كمرة (span segment) وسبليتر على
+    حدودها، بخصائص الشرائح + DesignAsPT حسب الإعداد - رام بيحسب العزوم
+    ويصمّم الكمرة، والحديد بيتقرا من الملف المحفوظ لجدول الكمرات.
+    """
+    access = DesignStripAccess(session, job)
+    if not access.available:
+        job.error("This model has no design strip layer, so no beam strip was drawn.")
+        return {"beams": 0, "spans": 0, "splitters": 0, "kept": 0}
+    if existing is None:
+        existing = []
+        if cpt_path:
+            try:
+                book = read_strips_from_cpt(cpt_path, None)
+                for ss, segs in (book.get("segments") or {}).items():
+                    d = "X" if ss == "latitude" else "Y"
+                    existing += [(s[0], s[1], d) for s in segs]
+            except Exception:
+                existing = []
+    plan = beam_strip_plan(site, params, existing)
+    _LAST_BEAM_STRIPS["plan"] = plan
+    if not plan:
+        job.info("No beams in the model, so no beam strip was drawn.")
+        return {"beams": 0, "spans": 0, "splitters": 0, "kept": 0}
+    props = strip_span_props(params)
+    props["DesignAsPT"] = _bool_prop(bool(getattr(params, "rc_beam_design_as_pt", False)))
+    job.step(0.30, "Drawing a design strip on every beam")
+    spans, splits, kept, failed = 0, 0, 0, 0
+    for item in plan:
+        job.check()
+        if item["skipped"]:
+            kept += 1
+            continue
+        try:
+            access.add_span(item["p1"], item["p2"], item["dir"], props)
+            spans += 1
+        except Exception as e:
+            failed += 1
+            job.warn(f"Beam {item['beam'] + 1}: the span segment was not drawn: {str(e)[:90]}")
+            continue
+        for sp in item["splitters"]:
+            try:
+                access.add_splitter(sp[0], sp[1], item["dir"])
+                splits += 1
+            except Exception as e:
+                job.warn(f"Beam {item['beam'] + 1}: a splitter on its edge was not drawn: {str(e)[:80]}")
+    job.ok(f"Beam design strips: {spans} span segment(s) on the beam centrelines with {splits} splitter(s) "
+           f"on the beam edges (DesignAsPT = {props['DesignAsPT']})"
+           + (f"; {kept} beam(s) already had a span segment along them" if kept else "")
+           + (f"; {failed} failed" if failed else "") + ".")
+    return {"beams": len(plan), "spans": spans, "splitters": splits, "kept": kept, "failed": failed}
+
+
+def _rc_allowed_dias(text, default=(16, 20, 25)):
+    out = sorted({int(x) for x in re.findall(r"\d{1,2}", str(text or ""))} & set(BAR_AREA)) or list(default)
+    return out
+
+
+def _rc_bars_for_area(as_mm2, dias, n_min=2, n_max=8, fit=None):
+    """
+    أقل قطر مسموح بيه اللي بيدي عدد معقول، وإلا الأكبر.
+    `fit(dia)` = أكبر عدد يركب في عرض الكمرة (طبقتين) - لو اتبعت بيحكم.
+    """
+    if as_mm2 <= 0:
+        return n_min, dias[0]
+    for d in dias:
+        n = max(n_min, int(math.ceil(as_mm2 / rc_bar_area(d))))
+        if n <= min(n_max, fit(d) if fit else n_max):
+            return n, d
+    d = dias[-1]
+    return max(n_min, int(math.ceil(as_mm2 / rc_bar_area(d)))), d
+
+
+def _rc_beam_fit(bw_mm, cover, link_dia, layers=2):
+    """كام سيخ بيركب في عرض الكمرة (فراغ 25 مم أو القطر بين الأسياخ) × عدد الطبقات."""
+    def fit(d):
+        clear = bw_mm - 2.0 * cover - 2.0 * link_dia
+        gap = max(25.0, float(d))
+        return max(2, int((clear + gap) // (d + gap))) * layers
+    return fit
+
+
+def beam_design_from_model(cpt_path, site, params, job=None):
+    """
+    جدول الكمرات من تصميم رام: كل ConcentratedRebar وTransverseRebarRegion
+    واقعين جوّه عرض الكمرة وماشيين معاها بيتقروا، ويتحوّلوا لـ:
+    BOT1 (سفلي مستمر)، BOT2 (سفلي إضافي في المنتصف)، TOP1 (علوي مستمر)،
+    TOP2 (علوي إضافي عند الركائز)، كانات عند الركائز/في المنتصف، الأرجل،
+    وحديد الجوانب للكمرة الأعمق من الحد. كل كمرة عارفة ليه (why).
+    """
+    import sqlite3
+    p = params
+    log = job.info if job else (lambda *a, **k: None)
+    dias = _rc_allowed_dias(getattr(p, "rc_beam_bar_dias", "16,20,25"))
+    link_dia = int(getattr(p, "rc_beam_link_dia", 10) or 10)
+    s_max = float(getattr(p, "rc_beam_link_max", 300.0) or 300.0)
+    side_from = float(getattr(p, "rc_beam_side_from_depth", 750.0) or 750.0)
+    side_bar = str(getattr(p, "rc_beam_side_bar", "T12@200") or "T12@200")
+    top_min_n, top_min_d = rc_parse_bar_count(getattr(p, "rc_beam_top_min", "2T16"), (2, 16))
+    cover = float(getattr(p, "punch_cover", 30.0) or 30.0)
+    fc = float(getattr(p, "punch_fc", 30.0) or 30.0)
+    fy = float(getattr(p, "rc_fy", 420.0) or 420.0)
+    prefix = str(getattr(p, "rc_beam_prefix", "RCB") or "RCB")
+    rows, links, names = [], [], {}
+    try:
+        con = sqlite3.connect(f"file:{cpt_path}?mode=ro", uri=True)
+        try:
+            for uid, nm, a in con.execute('select UID,Name,"As" from Rebar'):
+                names[uid] = (str(nm or ""), (a or 0.0) / 100.0)
+            for p0, p1, face, bt, cnt, by in con.execute(
+                    "select Point0,Point1,BarFace,BarType,BarCount,DesignedBy from ConcentratedRebar"):
+                a, b = _ram_pts(p0), _ram_pts(p1)
+                if not a or not b:
+                    continue
+                nm, a1 = names.get(bt, ("?", 0.0))
+                rows.append({"a": a[0], "b": b[0], "face": "top" if face == 1 else "bot", "n": int(cnt or 0),
+                             "dia": rc_parse_dia(nm, 16), "area": (cnt or 0) * a1, "designed": by == 2})
+            try:
+                for p0, p1, bt, legs, sp, by in con.execute(
+                        "select Point0,Point1,BarType,StirrupLegs,StirrupSpacing,DesignedBy from TransverseRebarRegion"):
+                    a, b = _ram_pts(p0), _ram_pts(p1)
+                    if not a or not b:
+                        continue
+                    nm, _a1 = names.get(bt, ("?", 0.0))
+                    links.append({"a": a[0], "b": b[0], "legs": int(legs or 2), "s": float(sp or 0.0),
+                                  "dia": rc_parse_dia(nm, link_dia), "designed": by == 2})
+            except Exception:
+                pass
+        finally:
+            con.close()
+    except Exception as e:
+        if job:
+            job.warn(f"The beam design could not be read from the model: {e}")
+    cols = [c for c in (site.get("columns") or []) if c.get("center")]
+    beams_out, marks = [], {}
+    sizes = sorted({(round(float(b.get("width") or 0)), round(float(b.get("depth") or 0)))
+                    for b in (site.get("beams") or []) if b.get("p1") and b.get("p2")}, key=lambda s: (s[1], s[0]))
+    for k, (bw, bd) in enumerate(sizes, start=1):
+        marks[(bw, bd)] = f"{prefix}{k:02d}-{bw}X{bd}"
+    for k, b in enumerate(site.get("beams") or []):
+        p1, p2 = b.get("p1"), b.get("p2")
+        if not p1 or not p2:
+            continue
+        L = dist(p1, p2)
+        if L < 0.3:
+            continue
+        bw = float(b.get("width") or 300.0)
+        bd = float(b.get("depth") or 0.0)
+        hw = bw / 2000.0
+        ux, uy = (p2[0] - p1[0]) / L, (p2[1] - p1[1]) / L
+        nx, ny = -uy, ux
+        d_eff = max(bd - cover - link_dia - 10.0, 100.0) if bd > 0 else 200.0
+        why = [("rc_beam_design", "A design strip was drawn on this beam's centreline with a splitter on each edge; RAM designed it and the bars here are read from that design."),
+               ("rc_beam_design_as_pt", "Whether RAM designed the beam strip as a PT member (the tendons in it count) or as plain RC."),
+               ("rc_beam_bar_dias", f"RAM's designed areas are turned into bars from the sizes allowed here: {', '.join(f'T{d}' for d in dias)}."),
+               ("rc_beam_top_min", "Never fewer top (hanger) bars than this."),
+               ("rc_beam_link_dia", "The link bar size."),
+               ("rc_beam_link_max", f"Links are never further apart than this or d/2 = {d_eff / 2:.0f} mm (ACI 318-19 §9.7.6.2.2)."),
+               ("rc_beam_side_from_depth", "Side (skin) bars on both faces when the beam is deeper than this."),
+               ("rc_beam_side_bar", "The side bar size and spacing."),
+               ("rc_fy", f"fy = {fy:.0f} MPa; As,min = max(0.25√f'c, 1.4)/fy × bw × d (ACI 318-19 §9.6.1.2)."),
+               ("punch_cover", f"Cover {cover:.0f} mm gives d ≈ {d_eff:.0f} mm.")]
+        ram_bars, ram_links = [], []
+        for r in rows:
+            a, c = r["a"], r["b"]
+            da = abs((a[0] - p1[0]) * nx + (a[1] - p1[1]) * ny)
+            dc = abs((c[0] - p1[0]) * nx + (c[1] - p1[1]) * ny)
+            if max(da, dc) > hw + 0.15:
+                continue
+            Lr = dist(a, c) or 1e-9
+            if abs(((c[0] - a[0]) * ux + (c[1] - a[1]) * uy) / Lr) < 0.9:
+                continue
+            s0, s1 = sorted(((a[0] - p1[0]) * ux + (a[1] - p1[1]) * uy, (c[0] - p1[0]) * ux + (c[1] - p1[1]) * uy))
+            if min(s1, L) - max(s0, 0.0) < 0.3:
+                continue
+            ram_bars.append(dict(r, s0=max(s0, 0.0), s1=min(s1, L)))
+        for lk in links:
+            a, c = lk["a"], lk["b"]
+            da = abs((a[0] - p1[0]) * nx + (a[1] - p1[1]) * ny)
+            dc = abs((c[0] - p1[0]) * nx + (c[1] - p1[1]) * ny)
+            if max(da, dc) > hw + 0.15:
+                continue
+            Lr = dist(a, c) or 1e-9
+            if abs(((c[0] - a[0]) * ux + (c[1] - a[1]) * uy) / Lr) < 0.9:
+                continue
+            s0, s1 = sorted(((a[0] - p1[0]) * ux + (a[1] - p1[1]) * uy, (c[0] - p1[0]) * ux + (c[1] - p1[1]) * uy))
+            if min(s1, L) - max(s0, 0.0) < 0.2:
+                continue
+            ram_links.append(dict(lk, s0=max(s0, 0.0), s1=min(s1, L)))
+        supports = [c for c in cols if abs((c["center"][0] - p1[0]) * nx + (c["center"][1] - p1[1]) * ny) <= hw + 0.6
+                    and -0.3 <= (c["center"][0] - p1[0]) * ux + (c["center"][1] - p1[1]) * uy <= L + 0.3]
+        as_min = max(0.25 * math.sqrt(fc), 1.4) / fy * bw * d_eff
+        designed = bool(ram_bars) or bool(ram_links)
+
+        def pick(face, through):
+            """أكبر مجموعة على الوش: المستمرة (بتغطي ≥60% من الطول) أو الإضافية."""
+            best = None
+            for r in ram_bars:
+                if r["face"] != face:
+                    continue
+                cov = (r["s1"] - r["s0"]) / L
+                if through and cov < 0.6:
+                    continue
+                if best is None or r["area"] > best["area"]:
+                    best = r
+            return best
+
+        fit = _rc_beam_fit(bw, cover, link_dia)
+
+        def bars_of(r, n_min=2):
+            if r is None:
+                return None
+            if r["dia"] in dias and r["n"] <= fit(r["dia"]):
+                return (max(n_min, r["n"]), r["dia"], r["area"])
+            n, d = _rc_bars_for_area(r["area"], dias, n_min, fit=fit)
+            return (n, d, r["area"])
+
+        def face_max(face):
+            """أكبر مساحة مجمّعة على الوش في أي نقطة على الطول (المجموعات المتراكبة بتتجمع)."""
+            best = 0.0
+            for i in range(int(L / 0.1) + 2):
+                x = min(i * 0.1, L)
+                best = max(best, sum(r["area"] for r in ram_bars if r["face"] == face and r["s0"] - 0.05 <= x <= r["s1"] + 0.05))
+            return best
+
+        def extra_of(face, main, need):
+            """الإضافي: مجموعة رام غير المستمرة لو بتغطي الفرق، وإلا من المساحة بنفس قطر المستمر."""
+            if need <= 1.0:
+                return None
+            cands = [r for r in ram_bars if r["face"] == face and r is not main]
+            if cands:
+                big = max(cands, key=lambda r: r["area"])
+                if big["area"] >= need - 1.0 and big["dia"] in dias and big["n"] <= fit(big["dia"]):
+                    return (big["n"], big["dia"], big["area"])
+            main_dia = bot1[1] if face == "bot" else top1[1]
+            n_same = int(math.ceil(need / rc_bar_area(main_dia)))
+            if n_same <= min(4, fit(main_dia) // 2):
+                return (max(1, n_same), main_dia, need)
+            return _rc_bars_for_area(need, dias, 1, fit=fit) + (need,)
+
+        bot_main = pick("bot", True) or pick("bot", False)
+        bot1 = bars_of(bot_main) or (2, dias[0], 0.0)
+        bot2 = extra_of("bot", bot_main, face_max("bot") - bot1[0] * rc_bar_area(bot1[1]))
+        if bot1[0] * rc_bar_area(bot1[1]) + (bot2[0] * rc_bar_area(bot2[1]) if bot2 else 0.0) < as_min:
+            n, d = _rc_bars_for_area(as_min, dias, 2)
+            bot1 = (max(bot1[0], n) if d == bot1[1] else n, d if d != bot1[1] else bot1[1], as_min)
+            why.append(("rc_fy", f"The bottom bars were raised to As,min = {as_min:.0f} mm²."))
+        top_main = pick("top", True)
+        top1 = bars_of(top_main) or (top_min_n, top_min_d if top_min_d in dias else dias[0], 0.0)
+        if top1[0] < top_min_n:
+            top1 = (top_min_n, top1[1], top1[2])
+        top2 = extra_of("top", top_main, face_max("top") - top1[0] * rc_bar_area(top1[1]))
+        #  الكانات: أضيق تباعد عند الركائز، أوسع في المنتصف، كلها ≤ d/2 و≤ الحد
+        s_cap = max(75.0, math.floor(min(s_max, d_eff / 2.0) / 25.0) * 25.0)
+        legs = max([lk["legs"] for lk in ram_links] + [2])
+        ldia = max([lk["dia"] for lk in ram_links] + [link_dia])
+        sp = [lk["s"] for lk in ram_links if lk["s"] > 0]
+        if sp:
+            s1 = max(75.0, min(s_cap, math.floor(min(sp) / 25.0) * 25.0))
+            s2 = max(s1, min(s_cap, math.floor(max(sp) / 25.0) * 25.0))
+        else:
+            s1 = s2 = s_cap
+        side = None
+        if bd > side_from:
+            sd, ss = rc_parse_bar(side_bar, (12, 200))
+            side = (sd, ss)
+        size = (round(bw), round(bd))
+        mark = marks.get(size, f"{prefix}??-{size[0]}X{size[1]}")
+        for r in ram_bars:
+            why.append((None, f"RAM designed {r['n']}T{r['dia']} on the {r['face']} face from {r['s0']:.2f} to {r['s1']:.2f} m along the beam ({r['area']:.0f} mm²)."))
+        for lk in ram_links:
+            why.append((None, f"RAM designed {lk['legs']}-leg T{lk['dia']} links at {lk['s']:.0f} mm from {lk['s0']:.2f} to {lk['s1']:.2f} m."))
+        if not designed:
+            why.append((None, "RAM designed no bars inside this beam: the schedule shows the minimum bars and links only. Run 'Design the beams' on the model to get its design."))
+        beams_out.append({"beam": k, "mark": mark, "size": size, "p1": tuple(p1), "p2": tuple(p2), "length": L,
+                          "supports": len(supports), "d": d_eff, "as_min": as_min,
+                          "bot1": bot1[:2], "bot2": bot2[:2] if bot2 else None, "top1": top1[:2], "top2": top2[:2] if top2 else None,
+                          "st1": (ldia, s1), "st2": (ldia, s2), "legs": legs, "side": side,
+                          "designed": designed, "ram_bars": ram_bars, "ram_links": ram_links, "why": why,
+                          "as_bot": face_max("bot"), "as_top": face_max("top")})
+    #  مغلّف لكل مارك (نفس المقاس = نفس السطر في الجدول، زي لوحة BBR)
+    env = {}
+    for bm in beams_out:
+        e = env.setdefault(bm["mark"], {"mark": bm["mark"], "size": bm["size"], "count": 0, "bot1": None, "bot2": None,
+                                        "top1": None, "top2": None, "st1": None, "st2": None, "legs": 2, "side": None, "designed": False})
+        e["count"] += 1
+        e["designed"] = e["designed"] or bm["designed"]
+
+        def bigger(x, y):
+            if x is None:
+                return y
+            if y is None:
+                return x
+            return x if x[0] * rc_bar_area(x[1]) >= y[0] * rc_bar_area(y[1]) else y
+
+        for key in ("bot1", "bot2", "top1", "top2"):
+            e[key] = bigger(e[key], bm[key])
+        for key in ("st1", "st2"):
+            cur = e[key]
+            e[key] = bm[key] if cur is None else (max(cur[0], bm[key][0]), min(cur[1], bm[key][1]))
+        e["legs"] = max(e["legs"], bm["legs"])
+        e["side"] = e["side"] or bm["side"]
+    total_kg = 0.0
+    sched = {}
+    for bm in beams_out:
+        L = bm["length"]
+        bw, bd = bm["size"]
+        parts = [(bm["bot1"], L + 0.6), (bm["top1"], L + 0.6)]
+        if bm["bot2"]:
+            parts.append((bm["bot2"], 0.7 * L))
+        if bm["top2"]:
+            parts.append((bm["top2"], 0.6 * L))
+        kg = 0.0
+        for (n, d), Lb in parts:
+            m = n * Lb
+            kg += m * rc_bar_area(d) * 1e-6 * STEEL_DENSITY_KG_M3
+            sched.setdefault(d, {"m": 0.0, "kg": 0.0})
+            sched[d]["m"] += m
+            sched[d]["kg"] += m * rc_bar_area(d) * 1e-6 * STEEL_DENSITY_KG_M3
+        ld, s1 = bm["st1"]
+        _ld, s2 = bm["st2"]
+        n_links = int(L * 1000.0 * 0.4 / s1) + int(L * 1000.0 * 0.6 / s2) + 1
+        per = (2 * (bw + bd) - 8 * cover + 20 * ld) / 1000.0 * (bm["legs"] / 2.0)
+        m = n_links * per
+        kg += m * rc_bar_area(ld) * 1e-6 * STEEL_DENSITY_KG_M3
+        sched.setdefault(ld, {"m": 0.0, "kg": 0.0})
+        sched[ld]["m"] += m
+        sched[ld]["kg"] += m * rc_bar_area(ld) * 1e-6 * STEEL_DENSITY_KG_M3
+        if bm["side"]:
+            sd, ss = bm["side"]
+            n_side = 2 * max(1, int((bd - 2 * cover) / ss) - 1)
+            m = n_side * (L + 0.6)
+            kg += m * rc_bar_area(sd) * 1e-6 * STEEL_DENSITY_KG_M3
+            sched.setdefault(sd, {"m": 0.0, "kg": 0.0})
+            sched[sd]["m"] += m
+            sched[sd]["kg"] += m * rc_bar_area(sd) * 1e-6 * STEEL_DENSITY_KG_M3
+        bm["kg"] = kg
+        total_kg += kg
+    n_des = sum(1 for bm in beams_out if bm["designed"])
+    if beams_out:
+        log(f"Beam schedule: {len(beams_out)} beam(s) in {len(env)} mark(s); RAM's design found on {n_des}; "
+            f"{total_kg:,.0f} kg of beam reinforcement.")
+    return {"beams": beams_out, "marks": env, "schedule": sched, "total_kg": total_kg, "designed": n_des}
+
+
+def rc_parse_bar_count(text, default=(2, 16)):
+    m = re.search(r"(\d+)\s*[TtYyHh]\s*(\d{1,2})", str(text or ""))
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return default
+
+
+def rc_beam_row_text(e):
+    """سطر جدول الكمرات: MARK, SIZE, BOT1, BOT2, TOP1, TOP2, LINKS ENDS, LINKS MID, LEGS, SIDE."""
+    def bars(x):
+        return f"{x[0]}T{x[1]}" if x else "-"
+    st1 = f"T{e['st1'][0]}@{e['st1'][1]:.0f}" if e.get("st1") else "-"
+    st2 = f"T{e['st2'][0]}@{e['st2'][1]:.0f}" if e.get("st2") else "-"
+    side = f"T{e['side'][0]}@{e['side'][1]} E.F." if e.get("side") else "-"
+    return (e["mark"], f"{e['size'][0]}x{e['size'][1]}", bars(e.get("bot1")), bars(e.get("bot2")), bars(e.get("top1")),
+            bars(e.get("top2")), st1, st2, f"{e.get('legs', 2)}", side)
+
+
+def rc_beam_groups(bd):
+    """مجموعات الكمرات كمجموعات حديد (kind=beam) لشاشة التسليح والحصر."""
+    out = []
+    for bm in (bd or {}).get("beams") or []:
+        row = rc_beam_row_text(bm)
+        label = f"{bm['mark']}: BOT {row[2]}" + (f"+{row[3]}" if bm.get("bot2") else "") + f"  TOP {row[4]}" \
+            + (f"+{row[5]}" if bm.get("top2") else "") + f"  LINKS {row[6]}/{row[7]} {bm['legs']}L" + (f"  SIDE {row[9]}" if bm.get("side") else "")
+        out.append({"kind": "beam", "at": ((bm["p1"][0] + bm["p2"][0]) / 2.0, (bm["p1"][1] + bm["p2"][1]) / 2.0),
+                    "dir": "X" if abs(bm["p2"][0] - bm["p1"][0]) >= abs(bm["p2"][1] - bm["p1"][1]) else "Y",
+                    "n": bm["bot1"][0], "dia": bm["bot1"][1], "spacing": None, "face": "BEAM", "length_m": bm["length"],
+                    "width_m": bm["size"][0] / 1000.0, "line": (bm["p1"], bm["p2"]), "src": "model" if bm["designed"] else "min",
+                    "support": bm["mark"], "label": label, "as_req": bm.get("as_bot") or bm.get("as_min"),
+                    "as_prov": bm["bot1"][0] * rc_bar_area(bm["bot1"][1]) + (bm["bot2"][0] * rc_bar_area(bm["bot2"][1]) if bm.get("bot2") else 0.0),
+                    "rule": ("RAM designed this beam on its own design strip; the bars are its designed areas as allowed bar sizes, "
+                             "links at the tightest spacing it asked for near the supports and the widest in the middle, never over d/2"
+                             if bm["designed"] else "No RAM design inside this beam - minimum bars and links"),
+                    "why": bm["why"], "kg": bm.get("kg", 0.0), "length_total_m": 0.0, "beam": bm})
+    return out
+
+
+def write_beam_schedule_csv(path, bd):
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["MARK", "SIZE (mm)", "BOT1", "BOT2", "TOP1", "TOP2", "LINKS ENDS", "LINKS MID", "LEGS", "SIDE BARS", "BEAMS", "RAM DESIGN"])
+        for mk, e in sorted((bd.get("marks") or {}).items()):
+            w.writerow(list(rc_beam_row_text(e)) + [e["count"], "yes" if e["designed"] else "no"])
+        w.writerow([])
+        w.writerow(["BEAM", "MARK", "SIZE (mm)", "X1", "Y1", "X2", "Y2", "L (m)", "SUPPORTS", "BOT1", "BOT2", "TOP1", "TOP2",
+                    "LINKS ENDS", "LINKS MID", "LEGS", "SIDE", "As bot RAM (mm2)", "As top RAM (mm2)", "As min (mm2)", "kg", "RAM DESIGN", "WHY"])
+        for bm in bd.get("beams") or []:
+            row = rc_beam_row_text(bm)
+            w.writerow([bm["beam"] + 1, bm["mark"], row[1], round(bm["p1"][0], 3), round(bm["p1"][1], 3), round(bm["p2"][0], 3), round(bm["p2"][1], 3),
+                        round(bm["length"], 2), bm["supports"], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9],
+                        round(bm.get("as_bot") or 0), round(bm.get("as_top") or 0), round(bm["as_min"]), round(bm.get("kg", 0.0), 1),
+                        "yes" if bm["designed"] else "no", " | ".join(t for k, t in bm["why"] if k is None)])
+    return path
+
+
+# ---------- تشطيب اللوحة: ليبل بخلفية، من غير تداخل ----------
+
+class _RCLabelPlacer:
+    """
+    يحط ليبل السيخ بعيد عن الخط وعن باقي الليبلات: بيجرّب مواضع على طول
+    السيخ (0.3, 0.7, 0.5, ...) وعلى الناحيتين، وياخد أول موضع مش
+    بيتداخل مع ليبل اتحط قبله. الصناديق تقريبية (عرض الحرف ≈ 0.72h).
+    """
+
+    def __init__(self, th):
+        self.th = th
+        self.boxes = []
+
+    def size(self, lines, h):
+        w = max(len(s) for s in lines) * 0.72 * h
+        return w, len(lines) * h * 1.55
+
+    def _box(self, c, w, hh, vertical):
+        if vertical:
+            w, hh = hh, w
+        return (c[0] - w / 2.0, c[1] - hh / 2.0, c[0] + w / 2.0, c[1] + hh / 2.0)
+
+    @staticmethod
+    def _hit(a, b, pad=0.0):
+        return not (a[2] + pad < b[0] or b[2] + pad < a[0] or a[3] + pad < b[1] or b[3] + pad < a[1])
+
+    def place(self, a, b, lines, h, vertical, avoid=()):
+        w, hh = self.size(lines, h)
+        ux, uy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(ux, uy) or 1.0
+        ux, uy = ux / L, uy / L
+        nx, ny = -uy, ux
+        off = hh / 2.0 + 0.9 * h
+        best, best_hits = None, 1e9
+        for frac in (0.3, 0.7, 0.5, 0.18, 0.82, 0.4, 0.6):
+            for side in (1.0, -1.0):
+                for k in (1.0, 2.2):
+                    c = (a[0] + ux * L * frac + nx * off * k * side, a[1] + uy * L * frac + ny * off * k * side)
+                    box = self._box(c, w, hh, vertical)
+                    hits = sum(1 for o in self.boxes if self._hit(box, o, pad=0.3 * h)) + sum(1 for o in avoid if self._hit(box, o))
+                    if hits == 0:
+                        self.boxes.append(box)
+                        return c, box
+                    if hits < best_hits:
+                        best, best_hits = (c, box), hits
+        self.boxes.append(best[1])
+        return best
+
+
+def _rc_label(msp, lines, pos, h, layer, rot=0.0, style="SPT-TEXT", mask=True, align="MIDDLE_CENTER"):
+    """ليبل من سطر أو اتنين بخلفية ماسك (زي لوحات BBR) - MTEXT."""
+    try:
+        from ezdxf.enums import MTextEntityAlignment
+        text = "\\P".join(str(s) for s in lines)
+        mt = msp.add_mtext(text, dxfattribs={"layer": layer, "char_height": h, "style": style, "line_spacing_factor": 0.9})
+        mt.set_location(pos, rotation=rot, attachment_point=getattr(MTextEntityAlignment, align))
+        if mask:
+            try:
+                mt.set_bg_color("canvas", scale=1.15)
+            except Exception:
+                pass
+        return mt
+    except Exception:
+        t = None
+        for i, s in enumerate(lines):
+            t = _shop_text(msp, s, (pos[0], pos[1] - i * h * 1.5), h, layer, align=align, rotation=rot, style=style)
+        return t
 
 
 def rc_bar_why_entries(g):
@@ -53942,12 +54791,13 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
     msp = doc.modelspace()
     Lr = lambda n: f"{prefix}-{n}"
     bnd = site.get("boundary") or []
-    if len(bnd) >= 3:
-        x0, y0, x1, y1 = bbox_of(bnd)
+    all_pts = [q for pc in (design.get("outlines") or []) for q in pc] + [q for z in design["zones"] for q in z["points"]] + list(bnd)
+    if len(all_pts) >= 3:
+        x0, y0, x1, y1 = bbox_of(all_pts)
     else:
         x0, y0, x1, y1 = 0.0, 0.0, 10.0, 10.0
     W = (x1 - x0) * M
-    gap = max(W * 0.15, 5000.0)
+    gap = max(W * 0.25, 8000.0)
     offsets = {}
     k = 0
     for s in ("ga", "loads", "rc"):
@@ -53973,7 +54823,10 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
         except Exception:
             pass
 
+    col_boxes = []
+
     def structure(dx, with_marks):
+        col_boxes[:] = []
         for z in design["zones"]:
             poly(z["points"], dx, "GA-DROP" if z["is_drop"] else "GA-SLAB")
         if len(bnd) >= 3 and not any(not z["is_drop"] for z in design["zones"]):
@@ -53988,11 +54841,12 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
             cx, cy = c["center"]
             b = float(c.get("b") or 400.0) / 2000.0
             d = float(c.get("d") or 400.0) / 2000.0
-            a = math.radians(float(c.get("angle_deg") or 0.0))
+            a = math.radians(float(c.get("angle_deg", c.get("angle")) or 0.0))
             ca, sa = math.cos(a), math.sin(a)
             pts = [(cx + ex * ca - ey * sa, cy + ex * sa + ey * ca) for ex, ey in ((-b, -d), (b, -d), (b, d), (-b, d))]
             poly(pts, dx, "GA-COLUMN")
             hatch(pts, dx, "GA-COLUMN-HATCH")
+            col_boxes.append((cx - max(b, d) - 0.3, cy - max(b, d) - 0.3, cx + max(b, d) + 0.3, cy + max(b, d) + 0.3))
         for w in site.get("walls") or []:
             if w.get("p1") and w.get("p2"):
                 pts = band_corners(w["p1"], w["p2"], float(w.get("width") or 250.0))
@@ -54017,8 +54871,11 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                 text(b["mark"], (mx + nx * off, my + ny * off), dx, "GA-BEAM-TEXT", rot=ang)
 
     sheet_titles = {"ga": "CONCRETE SECTIONS (GA)", "loads": "LOADS", "rc": "REINFORCEMENT"}
+    bottoms = {}
     for s, dx in offsets.items():
-        text(sheet_titles[s], ((x0 + x1) / 2.0, y0 - 2.0 * TH / M), dx, "GA-TEXT", h=TH * 1.6)
+        text(sheet_titles[s], ((x0 + x1) / 2.0, y1 + 1.0 + 3.0 * TH / M), dx, "GA-TEXT", h=TH * 1.6)
+        bottoms[s] = y0 * M - 3 * TH
+    table_y = y0 * M - 8 * TH                                        # الجداول تحت المسقط، مش جنبه
 
     # ---------- GA ----------
     if "ga" in offsets:
@@ -54028,15 +54885,34 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
             c = polygon_centroid(z["points"])
             label = (f"DROP TH={z['thickness']:.0f}mm" if z["is_drop"] else f"PT SLAB TH={z['thickness']:.0f}mm")
             text(label, c, dx, "GA-TEXT")
-        #  جدول الكمرات
+        #  جدول الكمرات (18.131: بحديد تصميم رام لما يكون موجود)
         if design["beam_marks"]:
-            tx, ty = x1 * M + dx + 2 * TH, y1 * M
-            rows = [("MARK", "WIDTH x DEPTH (mm)")] + [(mk, f"{bw} x {bd}") for (bw, bd), mk in sorted(design["beam_marks"].items(), key=lambda kv: kv[1])]
-            for i, (a, b) in enumerate(rows):
-                yy = ty - i * TH * 1.8
-                _shop_text(msp, a, (tx, yy), TH, Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
-                _shop_text(msp, b, (tx + 12 * TH, yy), TH, Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
-            _shop_text(msp, "BEAM SCHEDULE - sizes from the model; bars per the beam design", (tx, ty + TH * 1.8), TH, Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+            tx, ty = x0 * M + dx, table_y
+            bd_ = design.get("beam_marks") and design.get("beam_design") or {}
+            heads = ("MARK", "SIZE (mm)", "BOT 1", "BOT 2", "TOP 1", "TOP 2", "LINKS ENDS", "LINKS MID", "LEGS", "SIDE BARS")
+            xs = (0, 13, 21, 28, 35, 42, 49, 58, 67, 71, 84)
+            if bd_.get("marks"):
+                rows = [rc_beam_row_text(e) for _mk, e in sorted(bd_["marks"].items())]
+                title = "BEAM SCHEDULE - sizes from the model, bars from RAM's design of a strip on each beam"
+            else:
+                rows = [(mk, f"{bw}x{bd}", "-", "-", "-", "-", "-", "-", "-", "-") for (bw, bd), mk in sorted(design["beam_marks"].items(), key=lambda kv: kv[1])]
+                title = "BEAM SCHEDULE - sizes from the model; run 'Design the beams' for the bars"
+            rh = TH * 2.0
+            _shop_text(msp, title, (tx, ty + rh), TH, Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+            for i, row in enumerate([heads] + rows):
+                yy = ty - i * rh
+                for j, cell in enumerate(row):
+                    _shop_text(msp, str(cell), (tx + xs[j] * TH + 0.5 * TH, yy), TH * (0.9 if i else 1.0), Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+                msp.add_line((tx, yy - rh / 2.0), (tx + xs[-1] * TH, yy - rh / 2.0), dxfattribs={"layer": Lr("GA-TABLE")})
+            msp.add_line((tx, ty + rh / 2.0), (tx + xs[-1] * TH, ty + rh / 2.0), dxfattribs={"layer": Lr("GA-TABLE")})
+            for xv in xs:
+                msp.add_line((tx + xv * TH, ty + rh / 2.0), (tx + xv * TH, ty - (len(rows) + 0.5) * rh), dxfattribs={"layer": Lr("GA-TABLE")})
+            nb = ty - (len(rows) + 2) * rh
+            bottoms["ga"] = nb - 5 * TH * 1.8
+            for i, s_ in enumerate(("NOTES: bars as scheduled per mark; BOT 2 over the middle 70% of the span, TOP 2 over the supports (0.3 L each side).",
+                                    "LINKS ENDS over 0.2 L from each support, LINKS MID between; side bars each face where scheduled.",
+                                    f"Cover {float(getattr(p, 'punch_cover', 30.0) or 30.0):.0f} mm; fy = {float(getattr(p, 'rc_fy', 420.0) or 420.0):.0f} MPa; f'c = {float(getattr(p, 'punch_fc', 30.0) or 30.0):.0f} MPa.")):
+                _shop_text(msp, s_, (tx, nb - i * TH * 1.8), TH * 0.85, Lr("GA-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
 
     # ---------- LOADS ----------
     if "loads" in offsets:
@@ -54045,19 +54921,31 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
         groups = {}
         for ld in design["loads"]:
             key = tuple(round(v, 3) for q in ld["points"] for v in q)
-            groups.setdefault(key, {"points": ld["points"], "dead": None, "live": None})
-            groups[key][ld["kind"] if ld["kind"] in ("dead", "live") else "dead"] = ld["value"]
+            gz = groups.setdefault(key, {"points": ld["points"], "lines": []})
+            name = {"dead": "SDL", "live": "LL"}.get(ld["kind"]) or (str(ld.get("layer") or "LOAD").upper())
+            gz["lines"].append(f"{name} = {ld['value']:.2f} kN/m²")
+        placer_l = _RCLabelPlacer(TH / M)
         for gz in groups.values():
             poly(gz["points"], dx, "LOAD-ZONE")
             hatch(gz["points"], dx, "LOAD-ZONE", pattern="ANSI31", sc=scale * 6.0)
             c = polygon_centroid(gz["points"])
-            text((f"SDL = {gz['dead']:.2f} kN/m²  " if gz["dead"] is not None else "")
-                 + (f"LL = {gz['live']:.2f} kN/m²" if gz["live"] is not None else ""), c, dx, "LOAD-TEXT")
+            w_, h_ = placer_l.size(gz["lines"], TH / M)
+            placer_l.boxes.append((c[0] - w_ / 2, c[1] - h_ / 2, c[0] + w_ / 2, c[1] + h_ / 2))
+            _rc_label(msp, gz["lines"], T(c, dx), TH, Lr("LOAD-TEXT"))
         for ll in design["line_loads"]:
             pts = ll["points"]
             poly(pts, dx, "LOAD-LINE", close=(ll["what"] == "edge"))
             mid = pts[0] if ll["what"] == "edge" else ((pts[0][0] + pts[1][0]) / 2.0, (pts[0][1] + pts[1][1]) / 2.0)
-            text(f"{ll['what'].upper()} {ll['value']:.2f} kN/m", mid, dx, "LOAD-TEXT")
+            _rc_label(msp, [f"{ll['what'].upper()} {ll['value']:.2f} kN/m"], T(mid, dx), TH * 0.9, Lr("LOAD-TEXT"))
+        for pl in design.get("point_loads") or []:
+            px, py = pl["at"]
+            r = TH * 0.6
+            msp.add_line((px * M + dx - r, py * M - r), (px * M + dx + r, py * M + r), dxfattribs={"layer": Lr("LOAD-POINT")})
+            msp.add_line((px * M + dx - r, py * M + r), (px * M + dx + r, py * M - r), dxfattribs={"layer": Lr("LOAD-POINT")})
+            msp.add_circle((px * M + dx, py * M), r, dxfattribs={"layer": Lr("LOAD-POINT")})
+            name = {"dead": "SDL", "live": "LL"}.get(pl.get("kind")) or str(pl.get("layer") or "P").upper()
+            c, _box = placer_l.place((px - 1.0, py), (px + 1.0, py), [f"{name} P = {pl['value']:.0f} kN"], TH * 0.9 / M, False)
+            _rc_label(msp, [f"{name} P = {pl['value']:.0f} kN"], T(c, dx), TH * 0.9, Lr("LOAD-TEXT"))
 
     # ---------- RC ----------
     n_bars = 0
@@ -54066,10 +54954,18 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
         structure(dx, False)
         tick = TH * 0.6
         mesh_y = y1 + 1.0
+        placer = _RCLabelPlacer(TH / M)
+        edge_on_plan = bool(getattr(p, "rc_edge_on_plan", False))
+        edge_note = None
         for g in design["bars"]:
             kind = g["kind"]
             if kind in ("mesh_bottom", "mesh_top"):
                 text(g["label"], ((x0 + x1) / 2.0, mesh_y + (0.0 if kind == "mesh_bottom" else 0.6 * TH / M * 1.5)), dx, "RC-MESH-TEXT", h=TH * 1.2)
+                continue
+            if kind == "beam":
+                continue                                            # المارك والجدول على لوحة GA
+            if kind == "edge_u" and not edge_on_plan:
+                edge_note = edge_note or g["label"]                 # تفصيلة نمطية، مش على المسقط
                 continue
             n_bars += 1
             layer = {"top_col": "RC-TOP", "top_wall": "RC-TOP", "bot_extra": "RC-BOT", "edge_u": "RC-EDGE",
@@ -54082,7 +54978,9 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                     rr = (g["s0"] + i * g["s"]) / M
                     pts = [(cx - rr, cy - rr), (cx + rr, cy - rr), (cx + rr, cy + rr), (cx - rr, cy + rr)]
                     poly(pts, dx, layer)
-                text(g["label"], (cx, cy - r - 1.5 * TH / M), dx, tl, h=TH * 0.8)
+                pl_lines = [str(g["label"]).split(":")[0] + " PUNCHING LINKS", f"N1={g['n1']} N2={g['n2']} N3={g['n3']} T{g['dia']}", f"S0={g['s0']:.0f} S={g['s']:.0f}"]
+                c, _box = placer.place((cx - r, cy - r - 0.6), (cx + r, cy - r - 0.6), pl_lines, TH * 0.8 / M, False, avoid=col_boxes)
+                _rc_label(msp, pl_lines, T(c, dx), TH * 0.8, Lr(tl))
                 continue
             a, b = g["line"]
             msp.add_line(T(a, dx), T(b, dx), dxfattribs={"layer": Lr(layer)})
@@ -54103,31 +55001,48 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
             for ep in (a, b):
                 msp.add_line((ep[0] * M + dx - nx * tick, ep[1] * M - ny * tick),
                              (ep[0] * M + dx + nx * tick, ep[1] * M + ny * tick), dxfattribs={"layer": Lr(layer)})
+                if kind in ("top_col", "top_wall", "bot_extra"):
+                    msp.add_circle((ep[0] * M + dx, ep[1] * M), tick * 0.35, dxfattribs={"layer": Lr(layer)})
             ang = math.degrees(math.atan2(uy, ux))
             if ang > 90 or ang < -90:
                 ang += 180
             if kind == "opening_corner" and g.get("corner_index", 0) != 0:
                 continue
-            frac = 0.72 if kind in ("top_col", "top_wall", "opening", "bot_extra") else 0.5
-            mx, my = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
-            off = (TH * 0.9) / M
-            side = 1.0 if kind not in ("edge_u",) else -1.0
-            text(g["label"], (mx + nx * off * side, my + ny * off * side), dx, tl, h=TH * 0.8, rot=ang)
-        #  الملاحظات وجدول الثقب
-        tx, ty = x1 * M + dx + 2 * TH, y1 * M
+            #  18.131: الليبل سطرين (الأسياخ / الطول) بخلفية ماسك، في مكان
+            #  فاضي جنب السيخ - مش على الخط ومش فوق ليبل تاني
+            lab = str(g["label"])
+            if " L=" in lab:
+                head_, tail_ = lab.split(" L=", 1)
+                lab_lines = [head_, "L=" + tail_]
+            else:
+                lab_lines = [lab]
+            vertical = abs(uy) > abs(ux)
+            c, _box = placer.place(a, b, lab_lines, TH * 0.8 / M, vertical, avoid=col_boxes)
+            _rc_label(msp, lab_lines, T(c, dx), TH * 0.8, Lr(tl), rot=ang)
+        #  الملاحظات وجدول الحديد - تحت المسقط
+        tx, ty = x0 * M + dx, table_y
         lines = ["NOTES", f"1. Bottom mesh as marked, both ways, lapped 50 bar diameters.",
                  "2. Top bars over columns and walls as marked; extend as shown.",
-                 "3. U-bars along every free slab edge; trim bars round every opening as marked.",
+                 ("3. U-bars along every free slab edge; trim bars round every opening as marked." if edge_on_plan or not edge_note
+                  else f"3. Slab edges: {edge_note} along every free edge (typical detail); trim bars round every opening as marked."),
                  "4. Punching links where marked: N1/N2 lines of links along the long/short column side, N3 links per line, first at S0 from the face then every S.",
                  f"5. Cover {float(getattr(p, 'punch_cover', 30.0) or 30.0):.0f} mm, fy = {float(getattr(p, 'rc_fy', 420.0) or 420.0):.0f} MPa, f'c = {float(getattr(p, 'punch_fc', 30.0) or 30.0):.0f} MPa."]
         lines += [f"{i + 6}. {n}" for i, n in enumerate(design["notes"])]
         for i, s in enumerate(lines):
             _shop_text(msp, s, (tx, ty - i * TH * 1.8), TH * (1.1 if i == 0 else 0.9), Lr("RC-NOTES"), align="MIDDLE_LEFT", style="SPT-TEXT")
-        sy = ty - (len(lines) + 2) * TH * 1.8
-        _shop_text(msp, "BAR SCHEDULE (kg)", (tx, sy), TH * 1.1, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+        sy = ty
+        tx2 = x0 * M + dx + max(W * 0.62, 60 * TH)
+        _shop_text(msp, "BAR SCHEDULE (kg)", (tx2, sy), TH * 1.1, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
         for i, (dia, v) in enumerate(sorted(design["schedule"].items()), start=1):
-            _shop_text(msp, f"T{dia}: {v['m']:,.0f} m = {v['kg']:,.0f} kg", (tx, sy - i * TH * 1.8), TH * 0.9, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
-        _shop_text(msp, f"TOTAL {design['total_kg']:,.0f} kg", (tx, sy - (len(design["schedule"]) + 1) * TH * 1.8), TH, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+            _shop_text(msp, f"T{dia}: {v['m']:,.0f} m = {v['kg']:,.0f} kg", (tx2, sy - i * TH * 1.8), TH * 0.9, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+        _shop_text(msp, f"TOTAL {design['total_kg']:,.0f} kg", (tx2, sy - (len(design["schedule"]) + 1) * TH * 1.8), TH, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
+        bottoms["rc"] = sy - (max(len(lines), len(design["schedule"]) + 2) + 2) * TH * 1.8
+    #  إطار كل لوحة - حوالين المسقط والجداول اللي تحته
+    for s, dx in offsets.items():
+        yb = min(bottoms.get(s, y0 * M - 3 * TH), y0 * M - 3 * TH)
+        msp.add_lwpolyline([(x0 * M + dx - 3 * TH, yb), (x1 * M + dx + 3 * TH, yb),
+                            (x1 * M + dx + 3 * TH, y1 * M + 1000.0 + 6 * TH), (x0 * M + dx - 3 * TH, y1 * M + 1000.0 + 6 * TH)],
+                           close=True, dxfattribs={"layer": Lr("GA-TABLE")})
     doc.saveas(path)
     if job:
         job.ok(f"RC drawings: {os.path.basename(path)} ({', '.join(sheet_titles[s] for s in offsets)}; layers {prefix}-*).")
@@ -54157,7 +55072,7 @@ def write_rc_schedule_csv(path, design):
 class RCCanvas(PlanCanvas):
     """المسقط وعليه مجموعات الحديد بلون نوعها؛ كليك = أقرب مجموعة."""
     COLOURS = {"top_col": "#d9534f", "top_wall": "#d9534f", "bot_extra": "#2f6fd6", "edge_u": "#b04fc9",
-               "opening": "#c9a227", "opening_corner": "#c9a227", "punch": "#ff5c5c"}
+               "opening": "#c9a227", "opening_corner": "#c9a227", "punch": "#ff5c5c", "beam": "#2a9d8f"}
 
     def __init__(self, master, on_pick=None, **kw):
         super().__init__(master, **kw)
@@ -58353,6 +59268,9 @@ MODES = {
            "then optimise",
     "osh_new": "From DXF: structure and tendons, then Optimum solution H",
     "osh_draw": "Existing model: draw the tendons, then Optimum solution H",
+    #  18.131: تصميم الكمرات
+    "beams": "Existing model: a design strip on every beam, RAM designs them, "
+             "the bars go into the beam schedule",
 }
 
 #  ==========================================================================
@@ -58393,6 +59311,7 @@ JOB_EXISTING = {
     "Trim - take steel out": "shave",
     "Make it pass - add steel": "save",
     "Both - add, then trim": "both",
+    "Design the beams": "beams",
 }
 
 JOB_METHODS = {
@@ -58546,6 +59465,20 @@ def job_plan(start, what, method="balance"):
                           "short pieces, and undo anything that breaks a "
                           "section",
                           "save the final copy and report before/after"]}
+    if what == "beams":
+        #  **18.131: الكمرات من تصميم رام.**
+        return {"mode": "beams", "flags": {},
+                "needs": ("cpt",), "method": None,
+                "title": "The model you have: design the beams in RAM",
+                "steps": ["read the model - the beams, the columns, the slab",
+                          "draw a design strip on the centreline of every beam "
+                          "and a splitter on each of its edges",
+                          "generate the mesh and run RAM: the beam moments, "
+                          "shears and the designed bars",
+                          "save a copy with the beam strips",
+                          "read the designed bars and links into the beam "
+                          "schedule, write the RC drawings and open the "
+                          "reinforcement screen"]}
     if what == "hopt":
         #  **18.87: ده اختيار بعد رسم الكابلات، مش طريقة رسمها.**
         #  (18.103: الاختيار ده اتشال من القايمة - Optimum solution H
@@ -60360,7 +61293,7 @@ class AutoPTApp:
             "rc_fy": V(value="420"), "rc_mesh_bottom": V(value="T12@200"),
             "rc_mesh_top": V(value=""), "rc_top_rule": V(value="The larger of the two"),
             "rc_top_dia": V(value="16"), "rc_top_spacing_max": V(value="300"),
-            "rc_top_min_bars": V(value="4"), "rc_drop_extra_m": V(value="1.0"),
+            "rc_top_min_bars": V(value="4"), "rc_drop_extra_m": V(value="1.0"), "rc_drop_max_m": V(value="6.0"),
             "rc_top_from_model": B(value=True), "rc_bottom_from_model": B(value=True),
             "rc_bottom_dia": V(value="16"), "rc_wall_bars": B(value=True),
             "rc_wall_bar": V(value="T12@200"), "rc_edge_bars_on": B(value=True),
@@ -60370,6 +61303,12 @@ class AutoPTApp:
             "rc_opening_bars_n_big": V(value="3"), "rc_opening_corner_bars": B(value=True),
             "rc_punch_links": B(value=True), "rc_punch_dia": V(value="10"),
             "rc_punch_from_u": V(value="1.0"), "rc_beam_prefix": V(value="RCB"),
+            #  18.131
+            "rc_beam_design": B(value=True), "rc_beam_design_as_pt": B(value=False),
+            "rc_beam_bar_dias": V(value="16,20,25"), "rc_beam_top_min": V(value="2T16"),
+            "rc_beam_link_dia": V(value="10"), "rc_beam_link_max": V(value="300"),
+            "rc_beam_side_bar": V(value="T12@200"), "rc_beam_side_from_depth": V(value="750"),
+            "rc_loads_from_model": B(value=True), "rc_edge_on_plan": B(value=False),
             "shop_mark_prefix": V(value=""),
             "shop_live_block": V(value="LiveEnd"),
             "shop_dead_block": V(value="DeadEnd"),
@@ -64247,6 +65186,32 @@ class AutoPTApp:
         c.check("Write the RC drawings after every run", self.v["rc_auto"],
                 "The DXF and the bar schedule go into the run's Temp folder next to the model, "
                 "with the punching result of that run.")
+        c.check("Loads plan from the model's own loads", self.v["rc_loads_from_model"],
+                "The area, line and point loads on the model's loading layers (Finishing, Live Loading, "
+                "Block Wall ...) are drawn and labelled; off = the Loads page values over the whole slab.")
+        c.check("Draw the edge U-bars on the plan", self.v["rc_edge_on_plan"],
+                "Off = one typical-detail note, the way the competitor's sheet does it; the plan stays clean.")
+
+        c = Card(right, "Beams", "RAM designs every beam on its own design strip", icon="═")
+        c.pack(fill="x", pady=(0, 14))
+        c.check("Design the beams in RAM", self.v["rc_beam_design"],
+                "A design strip is drawn on the centreline of every beam with a splitter on each edge, so the "
+                "strip is the beam alone. RAM computes its moments and shears and designs it; the bars are "
+                "read from the saved model into the beam schedule on the GA sheet. Done when a model is built "
+                "from a DXF, or on a model you have with 'Design the beams' on the Project page.")
+        c.check("Design the beam strips as PT (tendons in the beam count)", self.v["rc_beam_design_as_pt"],
+                "Off = the beam is designed as plain RC: every bar comes from the reinforcement.")
+        c.entry("Bar sizes allowed (mm)", self.v["rc_beam_bar_dias"],
+                "RAM's designed area is turned into the smallest size here that keeps a sensible count.")
+        c.entry("Fewest top bars", self.v["rc_beam_top_min"])
+        c.entry("Link bar size (mm)", self.v["rc_beam_link_dia"])
+        c.entry("Widest link spacing (mm)", self.v["rc_beam_link_max"],
+                "And never more than d/2. The tightest spacing RAM asked for goes over the supports, the widest in the middle.")
+        c.entry("Side bars each face", self.v["rc_beam_side_bar"])
+        c.entry("... for beams deeper than (mm)", self.v["rc_beam_side_from_depth"])
+        bb = tk.Frame(right, bg=PALETTE["bg"])
+        bb.pack(fill="x", pady=(0, 14))
+        ttk.Button(bb, text="═   Design the beams in RAM now", command=self._design_beams_now).pack(side="right")
 
         c = Card(right, "Mesh and code", None, icon="⌗")
         c.pack(fill="x", pady=(0, 14))
@@ -64268,6 +65233,9 @@ class AutoPTApp:
         c.entry("Largest spacing (mm)", self.v["rc_top_spacing_max"])
         c.entry("Fewest bars over a support", self.v["rc_top_min_bars"])
         c.entry("Extra length past the drop panel or wall (m)", self.v["rc_drop_extra_m"])
+        c.entry("A drop panel is at most (m)", self.v["rc_drop_max_m"],
+                "A thickened area longer than this on either side is a band, not a drop: the code rule "
+                "sets its bars, not the drop cover.")
         c.check("Read RAM's designed top bars from the model too", self.v["rc_top_from_model"])
         c.check("Top bars across every wall", self.v["rc_wall_bars"])
         c.entry("Smallest bars across a wall", self.v["rc_wall_bar"])
@@ -64328,7 +65296,20 @@ class AutoPTApp:
             job.warn(f"The designed reinforcement could not be read from the model: {e}")
         if punching is None:
             punching = self._rc_punching_for(cpt)
-        design = rc_design(site, params, steel=steel, punching=punching, tendons=tendons, job=job)
+        model_loads, beam_design = None, None                      # 18.131
+        current = bool(cpt and os.path.isfile(cpt) and cpt_is_current_format(cpt))
+        if current and bool(getattr(params, "rc_loads_from_model", True)):
+            try:
+                model_loads = rc_read_model_loads(cpt, job)
+            except Exception as e:
+                job.warn(f"The model loads could not be read: {e}")
+        if current and bool(getattr(params, "rc_beam_design", True)) and site.get("beams"):
+            try:
+                beam_design = beam_design_from_model(cpt, site, params, job)
+            except Exception as e:
+                job.warn(f"The beam design could not be read from the model: {e}")
+        design = rc_design(site, params, steel=steel, punching=punching, tendons=tendons, job=job,
+                           model_loads=model_loads, beams=beam_design)
         sheets = tuple(k for k, on in (("ga", params.rc_sheet_ga), ("loads", params.rc_sheet_loads),
                                        ("rc", params.rc_sheet_rc)) if on) or ("rc",)
         res = export_rc_drawings(out_dxf, site, params, design, job=job, sheets=sheets)
@@ -64336,6 +65317,10 @@ class AutoPTApp:
             csv_path = os.path.splitext(out_dxf)[0] + "_bars.csv"
             write_rc_schedule_csv(csv_path, design)
             job.ok(f"Bar schedule with the reasons: {os.path.basename(csv_path)}")
+            if beam_design and beam_design.get("beams"):
+                bpath = os.path.splitext(out_dxf)[0] + "_beams.csv"
+                write_beam_schedule_csv(bpath, beam_design)
+                job.ok(f"Beam schedule: {os.path.basename(bpath)}")
         except Exception as e:
             job.warn(f"The bar schedule CSV could not be written: {e}")
         for n in design["notes"]:
@@ -66860,7 +67845,7 @@ class AutoPTApp:
             rc_top_rule=v["rc_top_rule"].get(), rc_top_dia=int(self._num("rc_top_dia", 16)),
             rc_top_spacing_max=self._num("rc_top_spacing_max", 300.0),
             rc_top_min_bars=int(self._num("rc_top_min_bars", 4)),
-            rc_drop_extra_m=self._num("rc_drop_extra_m", 1.0),
+            rc_drop_extra_m=self._num("rc_drop_extra_m", 1.0), rc_drop_max_m=self._num("rc_drop_max_m", 6.0),
             rc_top_from_model=v["rc_top_from_model"].get(),
             rc_bottom_from_model=v["rc_bottom_from_model"].get(),
             rc_bottom_dia=int(self._num("rc_bottom_dia", 16)),
@@ -66876,6 +67861,11 @@ class AutoPTApp:
             rc_punch_links=v["rc_punch_links"].get(), rc_punch_dia=int(self._num("rc_punch_dia", 10)),
             rc_punch_from_u=self._num("rc_punch_from_u", 1.0),
             rc_beam_prefix=(v["rc_beam_prefix"].get() or "RCB").strip(),
+            rc_beam_design=v["rc_beam_design"].get(), rc_beam_design_as_pt=v["rc_beam_design_as_pt"].get(),
+            rc_beam_bar_dias=v["rc_beam_bar_dias"].get(), rc_beam_top_min=v["rc_beam_top_min"].get(),
+            rc_beam_link_dia=int(self._num("rc_beam_link_dia", 10)), rc_beam_link_max=self._num("rc_beam_link_max", 300.0),
+            rc_beam_side_bar=v["rc_beam_side_bar"].get(), rc_beam_side_from_depth=self._num("rc_beam_side_from_depth", 750.0),
+            rc_loads_from_model=v["rc_loads_from_model"].get(), rc_edge_on_plan=v["rc_edge_on_plan"].get(),
             punch_check=v["punch_check"].get(),
             punch_code=v["punch_code"].get(),
             punch_fc=self._num("punch_fc", 30.0),
@@ -67344,7 +68334,7 @@ class AutoPTApp:
     #  كلها في الـ .cpt وبتتقرا منه (site_from_cpt). طلب ملف DXF فيها كان
     #  بقايا من فاليداتور واحد لكل الأوضاع، ومحدش بيستعمله - مسار حلقة الـ
     #  EFM مابياخدش الـ dxf أصلاً كوسيط.
-    CPT_ONLY_MODES = ("efm", "moment", "osh")
+    CPT_ONLY_MODES = ("efm", "moment", "osh", "beams")
     #  "رسم الكابلات فقط" معناه إن الموديل جاهز بكل مشتملاته - فملف
     #  الكاد فيه **اختياري**: سبته فاضي يبقى الهندسة من الموديل، حطيت
     #  ملف يبقى فيه مسارات كابلات مرسومة تتّبع. وجود الملف هو الاختيار،
@@ -67515,6 +68505,8 @@ class AutoPTApp:
             target, args = self._moment_pipeline, (cpt, out_dir, params)
         elif mode == "osh":
             target, args = self._osh_pipeline, (cpt, out_dir, params)
+        elif mode == "beams":
+            target, args = self._beams_pipeline, (cpt, out_dir, params)
         elif mode in ("osh_new", "osh_draw"):
             target, args = self._osh_chain_pipeline, (mode, dxf, cpt, out_dir,
                                                       params)
@@ -68346,6 +69338,92 @@ class AutoPTApp:
             job.step(0.0, "Failed")
         finally:
             self.root.after(0, self._finish)
+
+    def _beams_pipeline(self, cpt, out_dir, params: TendonDesignParams):
+        """
+        **18.131: تصميم الكمرات على موديل موجود.** شريحة على سنتر كل كمرة
+        وسبليتر على حدودها، ميش وحساب في رام، حفظ نسخة، وقراية الحديد
+        والكانات اللي رام صمّمها لجدول الكمرات + لوحات التسليح.
+        """
+        job = self.job
+        try:
+            job.log("=" * 62, "head")
+            job.log(f"{APP_NAME} {APP_VERSION} — {MODES['beams']}", "head")
+            job.log("=" * 62, "head")
+            if cpt and os.path.isfile(cpt) and not cpt_is_current_format(cpt):
+                cpt = ensure_current_model_format(
+                    cpt, out_dir, job, api_path=self.v["api_path"].get())
+                if not cpt:
+                    return
+            job.step(0.05, "Reading the model")
+            site = site_from_cpt(cpt, job)
+            if not site.get("beams"):
+                job.error("This model has no beams (its Beam table is empty), so "
+                          "there is nothing to design.")
+                return
+            job.ok(f"{len(site['beams'])} beam(s), {len(site.get('columns') or [])} "
+                   f"column(s) read from the model.")
+            params.rc_beam_design = True
+            stem = os.path.splitext(os.path.basename(cpt))[0]
+            out_file = os.path.join(out_dir or os.path.dirname(cpt), f"{stem}_beams.cpt")
+            mesh = self._num("mesh_size", 0) or None
+            tendons = None
+            with RamSession(job, api_path=self.v["api_path"].get()) as session:
+                session.open(cpt)
+                r = write_beam_strips_to_ram(session, site, params, job, cpt_path=cpt)
+                if not r.get("spans") and not r.get("kept"):
+                    job.error("No beam strip could be drawn - the beams were not designed.")
+                    return
+                res = run_model_analysis(session, job, mesh_size=mesh)
+                if not res.get("ok"):
+                    job.error("The analysis did not run, so RAM designed nothing. "
+                              "The model with the beam strips is saved anyway.")
+                job.step(0.80, "Saving the model with the beam strips")
+                if not safe_save(session, out_file, job):
+                    job.error("The model could not be saved.")
+                    return
+                if res.get("ok"):
+                    try:
+                        tendons = tendons_from_cpt(out_file, params, None)
+                    except Exception:
+                        tendons = None
+                    self._punching_after(session, site, params, job, tendons)
+            job.step(0.88, "Reading the beam design")
+            job.log("Beam schedule and RC drawings", "head")
+            out_dxf = os.path.join(out_dir or os.path.dirname(cpt), f"{stem}_RC.dxf")
+            design, _r2 = self._rc_design_and_write(out_file, site, params, job, out_dxf,
+                                                    tendons=tendons, show=True)
+            bd = design.get("beam_design") or {}
+            if bd.get("beams") and not bd.get("designed"):
+                job.warn("RAM designed no bars inside the beams. Check in RAM Concept that the "
+                         "beam strips were generated (Calc All) and that the beams are meshed "
+                         "as beams.")
+            self._mark_output(out_file)
+            job.step(1.0, "Done")
+            job.log("=" * 62, "head")
+            job.ok(f"Finished. File: {out_file}")
+        except CancelledError:
+            job.warn("Stopped.")
+            job.step(0.0, "Stopped")
+        except Exception as e:
+            job.error(f"The beam design failed: {e}")
+            for line in traceback.format_exc().strip().splitlines()[-12:]:
+                job.log("   " + line, "error")
+            job.step(0.0, "Failed")
+        finally:
+            self.root.after(0, self._finish)
+
+    def _design_beams_now(self):
+        """زرار صفحة RC: نفس شجرة القرار - موديل موجود، صمّم الكمرات."""
+        try:
+            self.v["job_tree"].set(True)
+            self.v["job_start"].set(list(JOB_STARTS)[1])
+            self.v["job_existing"].set("Design the beams")
+            self._job_tree_changed()
+        except Exception:
+            pass
+        self.nav.select("project")
+        self.start()
 
     def _osh_chain_pipeline(self, mode, dxf, cpt, out_dir,
                             params: TendonDesignParams):
@@ -69512,6 +70590,11 @@ class AutoPTApp:
                                  "from the drawing always gets its strips; the "
                                  "box governs the strip check after a run.")
                     write_design_strips_to_ram(session, site, params, job, cpt)
+                    #  18.131: شريحة على كل كمرة عشان رام يصمّمها
+                    if bool(getattr(params, "rc_beam_design", True)) and site.get("beams"):
+                        _ex = [(sp["p1"], sp["p2"], l["dir"]) for l in (_LAST_DRAWN.get("lines") or [])
+                               for sp in (l.get("spans") or [])]
+                        write_beam_strips_to_ram(session, site, params, job, existing=_ex)
                 else:
                     job.info("Tendons-only mode - the existing structure in the model is left untouched.")
 
