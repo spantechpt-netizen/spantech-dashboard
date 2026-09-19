@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.127"
+APP_VERSION = "18.128"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -3177,7 +3177,11 @@ class TendonDesignParams:
         self.axis_max_gap = float(kw.get("axis_max_gap", 10.0))  # m
         self.anchor_from_top = kw.get("anchor_from_top", None)          # mm أو None = منتصف السمك
         self.layout_mode = kw.get("layout_mode", "uniform")             # uniform | banded_x | banded_y
-        self.inflection_beta = float(kw.get("inflection_beta", 0.10))   # نقطة الانقلاب عند β·L
+        #  18.128: نقط الانقلاب اختيارية، والافتراضي β = 0.20
+        self.inflection_points = bool(kw.get("inflection_points", True))
+        self.inflection_beta = float(kw.get("inflection_beta", 0.20))   # نقطة الانقلاب عند β·L
+        if not self.inflection_points:
+            self.inflection_beta = 0.0
         self.losses = kw.get("losses") or LossParameters()
         self.band_spacing = float(kw.get("band_spacing", 0.30))         # m
         # Smallest gap allowed between two tendons. Respected when extra
@@ -3192,6 +3196,8 @@ class TendonDesignParams:
         self.unit_sanity_max = float(kw.get("unit_sanity_max", 500.0))
         #  17.53: من غير خرايط للدور ده، المومنت بيتقرا من رام نفسه
         self.field_from_ram = bool(kw.get("field_from_ram", True))
+        #  18.128: استلاف كابل الشريط الأوسط لمحاور جيرانه (18.118) اختياري
+        self.field_borrow_profiles = bool(kw.get("field_borrow_profiles", True))
         self.ram_field_layer = str(kw.get("ram_field_layer", "All Dead LC"))
         self.ram_field_grid = float(kw.get("ram_field_grid", 0.5))
         self.ram_field_edge = float(kw.get("ram_field_edge", 0.5))
@@ -6462,9 +6468,13 @@ class PTEngine(SiteModel):
         fill_bare_runs(tendons, p, self.job, engine=self)
         #  18.118: وكابل الشريط الأوسط اللي وصله بعض المحاور بس بياخد
         #  محاور جيرانه كلها وأقل عدد استرندات.
-        for along_x, label in ((True, "X"), (False, "Y")):
-            if label in dirs:
-                self._borrow_field_profiles(tendons, label, along_x)
+        if bool(getattr(p, "field_borrow_profiles", True)):
+            for along_x, label in ((True, "X"), (False, "Y")):
+                if label in dirs:
+                    self._borrow_field_profiles(tendons, label, along_x)
+        else:
+            self.job.info("Field-strip tendons keep their own spans (the "
+                          "borrowing of the neighbours' support lines is off).")
 
         # --- Banded groups ---
         #
@@ -49318,6 +49328,18 @@ AR_UI.update({
     'Checks, analysis, reports': 'الفحوصات والتحليل والتقارير',
 })
 #  --- AR_UI_CHUNKS ---
+#  18.128
+AR_UI.update({
+    'Insert inflection points between a high point and a low point': 'أدخل نقط انقلاب بين النقطة العالية والنقطة السفلية',
+    'Off, the profile goes straight from each high point to the low point and RAM shapes the reverse curve from its own inflection ratio.': 'مقفول: البروفايل بيمشي مباشرة من كل نقطة عالية للنقطة السفلية ورام بيشكّل المنحنى العكسي من نسبة الانقلاب بتاعته.',
+    'As a fraction of the run between the two points. 0.20 matches RAM\'s inflection ratio; used only when the box above is on.': 'كنسبة من المسافة بين النقطتين. 0.20 بتطابق نسبة الانقلاب في رام، وبتتستخدم بس لما الصندوق اللي فوق مفتوح.',
+    'Field-strip tendons borrow their neighbours\' support lines': 'كابلات الشريط الأوسط بتستلف خطوط ركائز جيرانها',
+    'A tendon running between two column rows meets few supports of its own, so its spans come out long and it takes the most strands. On, it takes the high points of the nearest column-line tendon on each side and starts at the minimum strands (18.118). Off, it keeps the spans its own supports give it.': 'الكابل الماشي بين صفّين أعمدة بيقابل ركائز قليلة، فبحوره بتطلع طويلة وبياخد أكبر عدد استرندات. مفتوح: بياخد النقط العالية لأقرب كابل على خط أعمدة من كل ناحية ويبدأ بأقل عدد استرندات (18.118). مقفول: بيحتفظ بالبحور اللي ركائزه بتديهاله.',
+    'Whether inflection points are inserted at all.': 'هل نقط الانقلاب بتتحط أصلاً.',
+    'A field-strip tendon: it runs between two column rows, not on one, and borrows its neighbours\' support lines when this is on.': 'كابل شريط أوسط: ماشي بين صفّين أعمدة مش على صف، وبيستلف خطوط ركائز جيرانه لما الاختيار ده مفتوح.',
+    'A field-strip tendon: it runs between two column rows, not on one.': 'كابل شريط أوسط: ماشي بين صفّين أعمدة مش على صف واحد.',
+    'Inflection points are inserted (this box).': 'نقط الانقلاب بتتحط (الصندوق ده).',
+})
 #  18.127: البحث في الإعدادات وشاشة "مين رسم ده"
 AR_UI.update({
     'This tendon belongs to a banded group along a column line.': 'الكابل ده ضمن مجموعة باند على خط أعمدة.',
@@ -52584,7 +52606,7 @@ def trace_tendon(t, params, site=None):
     if t.get("from_adapt"):
         _tr_add(out, "adapt_template", "Carried over from the ADAPT model.", G)
     if t.get("field_strip"):
-        _tr_add(out, "field_from_ram", "A field-strip tendon: it runs between two column rows, not on one.", G)
+        _tr_add(out, "field_borrow_profiles", "A field-strip tendon: it runs between two column rows, not on one, and borrows its neighbours' support lines when this is on.", G)
         _tr_add(out, "ram_field_layer", "Field-strip tendons are drawn on this RAM layer.", G)
         _tr_add(out, "ram_field_grid", "Field tendons are spaced by this grid.", G)
         _tr_add(out, "ram_field_edge", "Set-back of the first field tendon from the column line.", G)
@@ -52712,6 +52734,7 @@ def trace_tendon(t, params, site=None):
                    ("anchor_mid", "The anchorage sits at mid-depth of the slab."),
                    ("anchor_from_top", "Depth of the anchorage from the top."),
                    ("anchor_raise_over_drops", "An anchorage in a drop is raised."),
+                   ("inflection_points", "Whether inflection points are inserted at all."),
                    ("inflection_beta", "Position of the inflection points as a share of the span."),
                    ("ram_inflection_ratio", "Inflection ratio written to RAM."),
                    ("min_tendon_radius", "Minimum radius of curvature at the low points."),
@@ -52818,7 +52841,7 @@ def trace_point(t, i, params, site=None):
                            ("band_group_support_reach", "Reach used to find the group's supports.")):
                 _tr_add(out, k, why, G)
         if src == "field":
-            _tr_add(out, "field_from_ram", "A field-strip tendon borrows the support lines of its column-line neighbours (18.118).", G)
+            _tr_add(out, "field_borrow_profiles", "A field-strip tendon borrows the support lines of its column-line neighbours (18.118).", G)
         if src in ("osh_face", "osh_join", "osh_drop", "osh_anchor"):
             for k, why in (("osh_strip_half", "The high point went to the support: the design strip's end, or the column face when the tendon runs over the footprint."),
                            ("osh_merge_gap_m", "High points closer than this were merged."),
@@ -52883,7 +52906,8 @@ def trace_point(t, i, params, site=None):
         _tr_add(out, "min_point_gap", "Two points closer than this are merged.", "Height")
         return out
     if q.get("inflection"):
-        for k, why in (("inflection_beta", "Position of the inflection point as a share of the span."),
+        for k, why in (("inflection_points", "Inflection points are inserted (this box)."),
+                       ("inflection_beta", "Position of the inflection point as a share of the span."),
                        ("ram_inflection_ratio", "Inflection ratio written to RAM."),
                        ("min_point_gap", "Two points closer than this are merged.")):
             _tr_add(out, k, why, "Why the point is here")
@@ -57609,6 +57633,7 @@ STANDARD_SETTINGS = BASIC_SETTINGS + (
     "auto_strands", "elevation_rounding", "min_point_gap",
     "top_cover_x", "bot_cover_x", "per_direction_covers", "min_clear_spacing",
     "min_tendon_length", "edge_offset", "exact_spacing",
+    "inflection_points", "inflection_beta", "field_borrow_profiles",
     "plan_rules", "stub_extend_gap", "collinear_merge_gap",
     "min_anchor_separation",
     "strip_band_width", "strip_min_gap", "strip_min_span",
@@ -59502,7 +59527,9 @@ class AutoPTApp:
             "bot_cover": V(value="40"),
             "anchor_mid": B(value=True),
             "anchor_from_top": V(value="130"),
-            "inflection_beta": V(value="0.10"),
+            "inflection_beta": V(value="0.20"),
+            "inflection_points": B(value=True),
+            "field_borrow_profiles": B(value=True),
             "elevation_ref": V(value="Top Cover"),
             "elevation_rounding": V(value="5"),
             "clash_offset": V(value="20"),
@@ -60910,10 +60937,24 @@ class AutoPTApp:
         c.entry("Shortest span that still gets a low point (m)",
                 self.v["min_sag_span"], info="min_sag_span",
                 hint="Spans below this stay flat between the two high points.")
+        c.check("Insert inflection points between a high point and a low point",
+                self.v["inflection_points"],
+                "Off, the profile goes straight from each high point to the "
+                "low point and RAM shapes the reverse curve from its own "
+                "inflection ratio.")
         self._tag("loadbal", c.entry("Inflection point position β", self.v["inflection_beta"],
                                      info="inflection_beta",
-                                     hint="As a fraction of the span. 0.10 is "
-                                          "normal practice; 0 disables them."))
+                                     hint="As a fraction of the run between the two "
+                                          "points. 0.20 matches RAM's inflection "
+                                          "ratio; used only when the box above is on."))
+        c.check("Field-strip tendons borrow their neighbours' support lines",
+                self.v["field_borrow_profiles"],
+                "A tendon running between two column rows meets few supports "
+                "of its own, so its spans come out long and it takes the "
+                "most strands. On, it takes the high points of the nearest "
+                "column-line tendon on each side and starts at the minimum "
+                "strands (18.118). Off, it keeps the spans its own supports "
+                "give it.")
 
         return outer
 
@@ -65435,7 +65476,9 @@ class AutoPTApp:
             support_line_reach=self._num("support_line_reach", 2.0),
             axis_max_gap=self._num("axis_max_gap", 10.0),
             layout_mode=self._layout_mode(),
-            inflection_beta=self._num("inflection_beta", 0.10),
+            inflection_beta=self._num("inflection_beta", 0.20),
+            inflection_points=v["inflection_points"].get(),
+            field_borrow_profiles=v["field_borrow_profiles"].get(),
             elevation_reference=ELEVATION_REFERENCES.get(
                 v["elevation_ref"].get(), "ABOVE_TOP_COVER"),
             elevation_rounding=self._num("elevation_rounding", 5.0),
@@ -69122,6 +69165,9 @@ DEFAULT_MOVES_18_27 = (
     ("osh_span_ratio", "50", "70",
      "the axis rule counts the failing length of a tendon, and the "
      "agreed threshold is 70%"),
+    #  **18.128.** نقطة الانقلاب الافتراضية بقت 0.20 زي نسبة رام.
+    ("inflection_beta", "0.10", "0.20",
+     "the inflection point default now matches RAM's 0.20 ratio"),
     #  **18.117.** الموديل الجديد بياخد شرايحه دايماً، والخانة مفتوحة.
     ("write_design_strips", False, True,
      "a model built from the drawing always gets its design strips"),
