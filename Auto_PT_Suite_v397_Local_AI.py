@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.131"
+APP_VERSION = "18.132"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2990,6 +2990,10 @@ class TendonDesignParams:
         self.rc_beam_side_bar = str(kw.get("rc_beam_side_bar", "T12@200") or "T12@200")
         self.rc_beam_side_from_depth = float(kw.get("rc_beam_side_from_depth", 750.0) or 750.0)
         self.rc_loads_from_model = bool(kw.get("rc_loads_from_model", True))
+        #  18.132: التفاصيل النمطية وبلوك الليبل
+        self.rc_sheet_details = bool(kw.get("rc_sheet_details", True))
+        self.rc_bar_blocks = bool(kw.get("rc_bar_blocks", True))
+        self.rc_bar_fields = bool(kw.get("rc_bar_fields", True))
         self.rc_edge_on_plan = bool(kw.get("rc_edge_on_plan", False))
         #  18.121: فحص الثقب بعد رسم الكابلات
         self.punch_check = bool(kw.get("punch_check", True))
@@ -49390,6 +49394,15 @@ AR_UI.update({
     'Checks, analysis, reports': 'الفحوصات والتحليل والتقارير',
 })
 #  --- AR_UI_CHUNKS ---
+#  18.132: التفاصيل النمطية وبلوك الليبل
+AR_UI.update({
+    'Typical details sheet': 'لوحة التفاصيل النمطية',
+    'A fourth sheet drawn at 1:20 from the same settings: slab edge U-bars, top bars over a column (section and plan), drop panel, top bars across a wall, opening trim, punching links (top view, section and legend) and the beam elevation with its two sections and A/B/C/E/F key.': 'لوحة رابعة مرسومة 1:20 من نفس الإعدادات: أسياخ U للحافة، الحديد العلوي فوق العمود (قطاع ومسقط)، الدروب، الحديد العلوي عبر الحيطة، تقوية الفتحة، كانات الثقب (مسقط وقطاع ومفتاح)، وارتفاع الكمرة بقطاعيها ومفتاح A/B/C/E/F.',
+    "Bar callouts as attribute blocks (the competitor's method)": 'ليبل السيخ بلوك بخصائص (طريقة المنافس)',
+    'Every bar is a polyline and its callout a block with two attributes, BARS and LENGTH, on a masked background: edit the text with the attribute editor, stretch the bar by its grip.': 'كل سيخ بولي لاين وليبله بلوك بخاصيتين BARS وLENGTH على خلفية ماسك: عدّل الكتابة من محرر الخصائص، وشدّ السيخ من طرفه.',
+    'Length as a live field': 'الطول حقل حي',
+    "The LENGTH attribute is a field that reads the bar polyline's own length (%lu2%pr0%ps[L=,]), exactly as in the competitor's blocks: stretch the bar and L= follows. Needs AutoCAD 2005 or later; turn it off for a CAD that rejects fields.": 'خاصية LENGTH حقل بيقرا طول بولي لاين السيخ نفسه (%lu2%pr0%ps[L=,]) زي بلوكات المنافس بالظبط: شدّ السيخ وL= بتتغير وراه. محتاج AutoCAD 2005 أو أحدث؛ اقفله لو الكاد بيرفض الحقول.',
+})
 #  18.131: الكمرات، أحمال الموديل، التشطيب
 AR_UI.update({
     "Loads plan from the model's own loads": 'لوحة الأحمال من أحمال الموديل نفسه',
@@ -53459,6 +53472,9 @@ RC_LAYER_COLOURS = {
     "RC-MESH-TEXT": 3, "RC-TOP": 1, "RC-TOP-TEXT": 1, "RC-BOT": 5, "RC-BOT-TEXT": 5,
     "RC-EDGE": 6, "RC-EDGE-TEXT": 6, "RC-OPENING": 2, "RC-OPENING-TEXT": 2,
     "RC-PUNCH": 1, "RC-PUNCH-TEXT": 1, "RC-NOTES": 7, "RC-TABLE": 7,
+    #  18.132: التفاصيل النمطية
+    "RC-DETAIL": 7, "RC-DETAIL-HATCH": 8, "RC-DETAIL-BAR": 1, "RC-DETAIL-BAR2": 5, "RC-DETAIL-LINK": 6,
+    "RC-DETAIL-TEXT": 3, "RC-DETAIL-DIM": 8,
 }
 
 
@@ -54749,6 +54765,554 @@ def _rc_label(msp, lines, pos, h, layer, rot=0.0, style="SPT-TEXT", mask=True, a
         return t
 
 
+# ---------------------------------------------------------------------------
+#  18.132: ليبل السيخ كبلوك بخصائص وحقل طول حي، والتفاصيل النمطية كرسومات
+# ---------------------------------------------------------------------------
+
+RC_BAR_TAG_BLOCK = "SPT-BAR-TAG"
+
+
+def _rc_bar_tag_block(doc, name, th, style="SPT-TEXT"):
+    """
+    بلوك الليبل: خاصيتين BARS (الأسياخ) وLENGTH (L=...). نفس طريقة لوحات
+    BBR: الكتابة خاصية بتتعدّل من AutoCAD، والطول حقل (FIELD) بيقرا طول
+    خط السيخ نفسه - تشدّ السيخ تتغيّر الكتابة.
+    """
+    if name in doc.blocks:
+        return doc.blocks.get(name)
+    from ezdxf.enums import TextEntityAlignment
+    blk = doc.blocks.new(name)
+    h = th * 0.8
+    a = blk.add_attdef("BARS", (0, h * 0.75), dxfattribs={"height": h, "layer": "0", "style": style, "prompt": "Bars"})
+    a.set_placement((0, h * 0.75), align=TextEntityAlignment.MIDDLE_CENTER)
+    b = blk.add_attdef("LENGTH", (0, -h * 0.75), dxfattribs={"height": h, "layer": "0", "style": style, "prompt": "DO NOT CHANGE - length field"})
+    b.set_placement((0, -h * 0.75), align=TextEntityAlignment.MIDDLE_CENTER)
+    return blk
+
+
+def _rc_raw_object(doc, tags_text):
+    """كائن DXF من نصّه الخام (FIELD مش معرّف في ezdxf) - بياخد هاندل ويتسجّل."""
+    from ezdxf.lldxf.extendedtags import ExtendedTags
+    from ezdxf.entities import DXFTagStorage
+    h = doc.entitydb.next_handle()
+    tags_text = tags_text.replace("  5\n0\n", "  5\n" + h + "\n", 1)
+    e = DXFTagStorage.load(ExtendedTags.from_text(tags_text), doc)
+    doc.entitydb.add(e)
+    doc.objects.add_object(e)
+    return e
+
+
+def _rc_length_field(doc, attrib, target_handle, length_mm):
+    """
+    حقل الطول على الخاصية LENGTH: xdict → ACAD_FIELD → TEXT → FIELD(_text)
+    → FIELD(AcObjProp ... .Length) بصيغة %lu2%pr0%ps[L=,] - زي ملف BBR
+    بالظبط. لو الكاد مابيعرفش الحقول بيفضل النص المحفوظ زي ما هو.
+    """
+    val = f"L={int(round(length_mm))}"
+    child = "\n".join(["  0", "FIELD", "  5", "0", "330", "0", "100", "AcDbField", "  1", "AcObjProp.16.2",
+                       "  2", '\\AcObjProp.16.2 Object(%<\\_ObjIdx 0>%,1).Length \\f "%lu2%pr0%ps[L=,]"',
+                       " 90", "0", " 97", "1", " 91", "63", " 92", "0", " 94", "59", " 95", "2", " 96", "0", "300", "",
+                       " 93", "0", " 90", "2", "140", f"{float(length_mm):.6f}", "301", val, " 98", str(len(val)), " 93", "3",
+                       "  6", "ObjectPropertyId", " 93", "0", " 90", "64", "330", target_handle,
+                       "  6", "ObjectPropertyName", " 93", "0", " 90", "4", "  1", "Length",
+                       "  6", "ObjectPropertyOption", " 93", "0", " 90", "1", " 91", "1",
+                       "331", target_handle, ""])
+    xd = attrib.get_extension_dict() if attrib.has_extension_dict else attrib.new_extension_dict()
+    fdict = xd.add_dictionary("ACAD_FIELD", hard_owned=True)
+    c = _rc_raw_object(doc, child)
+    wrap = "\n".join(["  0", "FIELD", "  5", "0", "330", "0", "100", "AcDbField", "  1", "_text", "  2", "%<\\_FldIdx 0>%",
+                      " 90", "1", "360", c.dxf.handle, " 97", "0", " 91", "63", " 92", "0", " 94", "9", " 95", "2", " 96", "0", "300", "",
+                      " 93", "0", " 90", "0", " 91", "0", "301", "", " 98", "0", " 93", "0", ""])
+    w = _rc_raw_object(doc, wrap)
+    w.dxf.owner = fdict.dxf.handle
+    c.dxf.owner = w.dxf.handle
+    fdict["TEXT"] = w
+    try:
+        attrib.set_xdata("AcDbAttr", [(1070, 0), (1070, 1)])
+    except Exception:
+        pass
+    return w
+
+
+def _rc_bar_callout(msp, doc, a, b, layer_bar, layer_text, lines, at, rot, th, fields=True, mask=True, ticks=True, tick=None):
+    """
+    السيخ كـ LWPOLYLINE (بيتشدّ من طرفه) وشرط في طرفيه، والليبل بلوك
+    SPT-BAR-TAG بخاصيتين وحقل طول مربوط بالبولي لاين. بيرجّع (polyline, insert).
+    """
+    from ezdxf.enums import TextEntityAlignment
+    pl = msp.add_lwpolyline([a, b], dxfattribs={"layer": layer_bar})
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    L = math.hypot(ux, uy) or 1.0
+    ux, uy = ux / L, uy / L
+    nx, ny = -uy, ux
+    tick = tick or th * 0.6
+    if ticks:
+        for ep in (a, b):
+            msp.add_line((ep[0] - nx * tick, ep[1] - ny * tick), (ep[0] + nx * tick, ep[1] + ny * tick), dxfattribs={"layer": layer_bar})
+            msp.add_circle(ep, tick * 0.35, dxfattribs={"layer": layer_bar})
+    _rc_bar_tag_block(doc, RC_BAR_TAG_BLOCK, th)
+    lines = [str(s) for s in lines] or [""]
+    bars = lines[0]
+    length = lines[1] if len(lines) > 1 else f"L={int(round(L))}"
+    h = th * 0.8
+    if mask:
+        w = max(len(bars), len(length)) * 0.72 * h + 0.6 * h
+        hh = 2.0 * h * 1.55
+        cr, sr = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+        pts = [(at[0] + (dx * cr - dy * sr), at[1] + (dx * sr + dy * cr)) for dx, dy in ((-w / 2, -hh / 2), (w / 2, -hh / 2), (w / 2, hh / 2), (-w / 2, hh / 2))]
+        try:
+            msp.add_wipeout(pts, dxfattribs={"layer": layer_text})
+        except Exception:
+            pass
+    ins = msp.add_blockref(RC_BAR_TAG_BLOCK, at, dxfattribs={"layer": layer_text, "rotation": rot})
+    ins.add_auto_attribs({"BARS": bars, "LENGTH": length})
+    if fields:
+        try:
+            att = [x for x in ins.attribs if x.dxf.tag == "LENGTH"][0]
+            _rc_length_field(doc, att, pl.dxf.handle, L)
+        except Exception:
+            pass
+    return pl, ins
+
+
+# ---------- التفاصيل النمطية ----------
+
+class _RCDetail:
+    """رسم تفصيلة بمقياس 1:20 على لوحة 1:100 (الهندسة × K)، النصوص بحجم اللوحة."""
+
+    def __init__(self, msp, doc, origin, K, th, Lr, style="SPT-TEXT"):
+        self.msp, self.doc, self.K, self.th, self.Lr, self.style = msp, doc, K, th, Lr, style
+        self.ox, self.oy = origin
+        self.xmax, self.ymin = origin[0], origin[1]
+
+    def P(self, x, y):
+        X, Y = self.ox + x * self.K, self.oy + y * self.K
+        self.xmax = max(self.xmax, X)
+        self.ymin = min(self.ymin, Y)
+        return (X, Y)
+
+    def line(self, a, b, layer="RC-DETAIL"):
+        self.msp.add_line(self.P(*a), self.P(*b), dxfattribs={"layer": self.Lr(layer)})
+
+    def pline(self, pts, layer="RC-DETAIL", close=False, width=0.0):
+        p = [self.P(*q) for q in pts]
+        attrs = {"layer": self.Lr(layer)}
+        if width:
+            attrs["const_width"] = width
+        self.msp.add_lwpolyline(p, close=close, dxfattribs=attrs)
+
+    def rect(self, x, y, w, h, layer="RC-DETAIL"):
+        self.pline([(x, y), (x + w, y), (x + w, y + h), (x, y + h)], layer, close=True)
+
+    def hatch(self, pts, layer="RC-DETAIL-HATCH", pattern="AR-CONC", sc=None):
+        try:
+            hp = self.msp.add_hatch(dxfattribs={"layer": self.Lr(layer)})
+            hp.set_pattern_fill(pattern, scale=sc or self.K * 0.8)
+            hp.paths.add_polyline_path([self.P(*q) for q in pts], is_closed=True)
+        except Exception:
+            pass
+
+    def bar(self, pts, layer="RC-DETAIL-BAR"):
+        self.pline(pts, layer, width=self.th * 0.18)
+
+    def dot(self, x, y, layer="RC-DETAIL-BAR", r=None):
+        c = self.P(x, y)
+        r = r or self.th * 0.22
+        try:
+            h = self.msp.add_hatch(dxfattribs={"layer": self.Lr(layer)})
+            h.set_solid_fill()
+            h.paths.add_edge_path().add_arc(c, r, 0, 360)
+        except Exception:
+            self.msp.add_circle(c, r, dxfattribs={"layer": self.Lr(layer)})
+
+    def link(self, x, y, w, h, layer="RC-DETAIL-BAR"):
+        """كانة مقفولة بخطافين 135° في الركن العلوي."""
+        k = min(w, h) * 0.18
+        self.pline([(x + k, y + h - k * 0.4), (x, y + h), (x, y), (x + w, y), (x + w, y + h), (x + w - k * 0.6, y + h - k)], layer, width=self.th * 0.12)
+
+    def word(self, s, x, y, layer="RC-DETAIL-TEXT", rot=0.0, align="MIDDLE_CENTER", h=None):
+        return _shop_text(self.msp, s, self.P(x, y), h or self.th * 0.8, self.Lr(layer), align=align, rotation=rot, style=self.style)
+
+    def label(self, lines, x, y, layer="RC-DETAIL-TEXT", rot=0.0, align="MIDDLE_CENTER"):
+        return _rc_label(self.msp, lines, self.P(x, y), self.th * 0.8, self.Lr(layer), rot=rot, style=self.style, align=align)
+
+    def dim(self, x1, x2, y, text=None, vertical=False, layer="RC-DETAIL-DIM"):
+        """بُعد بسيط: خط بُعد بشرطتين مايلتين والقيمة فوقه."""
+        t = self.th * 0.35 / self.K
+        if not vertical:
+            self.line((x1, y), (x2, y), layer)
+            for x in (x1, x2):
+                self.line((x - t, y - t), (x + t, y + t), layer)
+                self.line((x, y - 2 * t), (x, y + 2 * t), layer)
+            self.word(text if text is not None else f"{abs(x2 - x1):.0f}", (x1 + x2) / 2.0, y + 1.6 * t, layer="RC-DETAIL-TEXT", align="BOTTOM_CENTER")
+        else:
+            self.line((y, x1), (y, x2), layer)
+            for yy in (x1, x2):
+                self.line((y - t, yy - t), (y + t, yy + t), layer)
+                self.line((y - 2 * t, yy), (y + 2 * t, yy), layer)
+            self.word(text if text is not None else f"{abs(x2 - x1):.0f}", y - 1.6 * t, (x1 + x2) / 2.0, layer="RC-DETAIL-TEXT", rot=90, align="BOTTOM_CENTER")
+
+    def title(self, s, x, y, scale=20):
+        self.word(s, x, y, layer="RC-DETAIL-TEXT", h=self.th * 1.0)
+        self.word(f"SCALE 1:{scale}", x, y - 2.2 * self.th / self.K, layer="RC-DETAIL-TEXT", h=self.th * 0.7)
+
+    def bubble(self, letter, x, y, tx, ty):
+        """دايرة بحرف وخط للسيخ - زي لوحة الكمرات."""
+        r = self.th * 0.75 / self.K
+        self.line((tx, ty), (x, y), "RC-DETAIL-TEXT")
+        self.msp.add_circle(self.P(x, y), r * self.K, dxfattribs={"layer": self.Lr("RC-DETAIL-TEXT")})
+        self.word(letter, x, y, h=self.th * 0.7)
+
+
+def _rc_detail_slab_edge(D, x0, y0, h, cover, e_dia, e_s, e_len, mesh):
+    W = min(max(e_len + 800.0, 1800.0), 3000.0)
+    D.rect(x0, y0, W, h)
+    D.hatch([(x0, y0), (x0 + W, y0), (x0 + W, y0 + h), (x0, y0 + h)])
+    c = cover
+    D.bar([(x0 + e_len, y0 + c), (x0 + c, y0 + c), (x0 + c, y0 + h - c), (x0 + e_len, y0 + h - c)])
+    D.bar([(x0 + c, y0 + c), (x0 + W, y0 + c)])
+    for xx in range(int(x0 + c + 150), int(x0 + W), 150):
+        D.dot(xx, y0 + c)
+    D.dim(x0, x0 + e_len, y0 + h + 220.0, f"{e_len:.0f}")
+    D.dim(y0, y0 + h, x0 + W + 200.0, f"{h:.0f}", vertical=True)
+    D.label([f"U BARS T{e_dia}@{e_s:.0f}", f"L={e_len:.0f}"], x0 + e_len * 0.6, y0 + h + 620.0)
+    D.label([mesh], x0 + W * 0.65, y0 - 320.0)
+    D.label([f"COVER {cover:.0f}"], x0 + W * 0.65, y0 + h + 300.0)
+    D.title("TYPICAL SLAB EDGE DETAIL", x0 + W / 2.0, y0 - 800.0)
+    return W + 600.0
+
+
+def _rc_detail_column_head(D, x0, y0, h, cover, c_mm, top_dia, spacing, L_each, spread):
+    W = c_mm + 2 * L_each + 1200.0
+    xs = x0 + 600.0
+    D.rect(xs, y0, W - 1200.0, h)
+    D.hatch([(xs, y0), (xs + W - 1200.0, y0), (xs + W - 1200.0, y0 + h), (xs, y0 + h)])
+    cx = xs + (W - 1200.0) / 2.0
+    D.rect(cx - c_mm / 2.0, y0 - 900.0, c_mm, 900.0)
+    D.hatch([(cx - c_mm / 2.0, y0 - 900.0), (cx + c_mm / 2.0, y0 - 900.0), (cx + c_mm / 2.0, y0), (cx - c_mm / 2.0, y0)])
+    yb = y0 + h - cover
+    hook = 12.0 * top_dia
+    D.bar([(cx - c_mm / 2.0 - L_each, yb - hook), (cx - c_mm / 2.0 - L_each, yb), (cx + c_mm / 2.0 + L_each, yb), (cx + c_mm / 2.0 + L_each, yb - hook)])
+    D.bar([(xs, y0 + cover), (xs + W - 1200.0, y0 + cover)])
+    D.dim(cx - c_mm / 2.0 - L_each, cx - c_mm / 2.0, y0 + h + 220.0, "ln/6 (min 1.5h)")
+    D.dim(cx - c_mm / 2.0, cx + c_mm / 2.0, y0 + h + 220.0, "c")
+    D.dim(cx + c_mm / 2.0, cx + c_mm / 2.0 + L_each, y0 + h + 220.0, "ln/6 (min 1.5h)")
+    D.label(["TOP BARS AS PLAN", f"T{top_dia} @ {spacing:.0f} MAX", "SPREAD c + 3h (1.5h EACH SIDE)"], cx, y0 + h + 800.0)
+    D.label(["BOTTOM MESH"], xs + 500.0, y0 - 300.0)
+    D.word("COLUMN", cx, y0 - 1050.0)
+    D.title("TYPICAL TOP BARS OVER A COLUMN", cx, y0 - 1650.0)
+    #  المسقط الصغير جنبه
+    px = xs + W - 1200.0 + 700.0
+    pw = c_mm + 2 * L_each
+    pcy = y0 - 400.0 - spread / 2.0
+    D.rect(px + L_each, pcy - c_mm / 2.0, c_mm, c_mm)
+    D.hatch([(px + L_each, pcy - c_mm / 2.0), (px + L_each + c_mm, pcy - c_mm / 2.0), (px + L_each + c_mm, pcy + c_mm / 2.0), (px + L_each, pcy + c_mm / 2.0)], pattern="ANSI31", sc=D.K * 8.0)
+    n = max(3, int(spread / max(spacing, 50.0)) + 1)
+    for i in range(n):
+        yy = pcy - spread / 2.0 + i * (spread / (n - 1))
+        D.bar([(px, yy), (px + pw, yy)])
+    D.dim(px, px + pw, pcy + spread / 2.0 + 300.0, "L = c + ln/6 EACH SIDE")
+    D.dim(pcy - spread / 2.0, pcy + spread / 2.0, px + pw + 250.0, "c + 3h", vertical=True)
+    D.word("PLAN", px + pw / 2.0, pcy - spread / 2.0 - 500.0)
+    return W + pw + 1800.0
+
+
+def _rc_detail_drop(D, x0, y0, h, h_drop, cover, top_dia, extra, drop_len):
+    W = drop_len + 2 * extra + 1200.0
+    xs = x0 + 600.0
+    D.rect(xs, y0, W - 1200.0, h)
+    cx = xs + (W - 1200.0) / 2.0
+    dd = max(h_drop - h, 100.0)
+    D.pline([(cx - drop_len / 2.0, y0), (cx - drop_len / 2.0, y0 - dd), (cx + drop_len / 2.0, y0 - dd), (cx + drop_len / 2.0, y0)])
+    D.hatch([(xs, y0 + h), (xs + W - 1200.0, y0 + h), (xs + W - 1200.0, y0), (cx + drop_len / 2.0, y0), (cx + drop_len / 2.0, y0 - dd),
+             (cx - drop_len / 2.0, y0 - dd), (cx - drop_len / 2.0, y0), (xs, y0)])
+    D.rect(cx - 300.0, y0 - dd - 900.0, 600.0, 900.0)
+    yb = y0 + h - cover
+    hook = 12.0 * top_dia
+    D.bar([(cx - drop_len / 2.0 - extra, yb - hook), (cx - drop_len / 2.0 - extra, yb), (cx + drop_len / 2.0 + extra, yb), (cx + drop_len / 2.0 + extra, yb - hook)])
+    D.bar([(xs, y0 + cover), (cx - drop_len / 2.0 + cover, y0 + cover), (cx - drop_len / 2.0 + cover, y0 - dd + cover),
+           (cx + drop_len / 2.0 - cover, y0 - dd + cover), (cx + drop_len / 2.0 - cover, y0 + cover), (xs + W - 1200.0, y0 + cover)])
+    D.dim(cx - drop_len / 2.0 - extra, cx - drop_len / 2.0, y0 + h + 220.0, f"{extra:.0f}")
+    D.dim(cx - drop_len / 2.0, cx + drop_len / 2.0, y0 + h + 220.0, "DROP PANEL")
+    D.dim(cx + drop_len / 2.0, cx + drop_len / 2.0 + extra, y0 + h + 220.0, f"{extra:.0f}")
+    D.dim(y0 - dd, y0 + h, xs + W - 1200.0 + 200.0, f"{h_drop:.0f}", vertical=True)
+    D.label(["TOP BARS OVER THE DROP AS PLAN", f"T{top_dia} - THE DROP PLUS {extra:.0f} EACH WAY"], cx, y0 + h + 800.0)
+    D.label(["BOTTOM MESH FOLLOWS THE DROP"], cx - drop_len / 2.0 - 700.0, y0 - dd - 350.0)
+    D.title("TYPICAL DROP PANEL DETAIL", cx, y0 - dd - 1650.0)
+    return W
+
+
+def _rc_detail_opening(D, x0, y0, o_dia, n, n_big, o_min, o_big, corner):
+    ow, oh = 1600.0, 1000.0
+    anch = 40.0 * o_dia
+    xs = x0 + anch + 600.0
+    D.rect(xs, y0, ow, oh)
+    D.line((xs, y0), (xs + ow, y0 + oh), "RC-DETAIL")
+    D.line((xs, y0 + oh), (xs + ow, y0), "RC-DETAIL")
+    g = 60.0
+    for k in range(n):
+        off = g * (k + 1)
+        D.bar([(xs - anch, y0 - off), (xs + ow + anch, y0 - off)])
+        D.bar([(xs - anch, y0 + oh + off), (xs + ow + anch, y0 + oh + off)])
+        D.bar([(xs - off, y0 - anch), (xs - off, y0 + oh + anch)])
+        D.bar([(xs + ow + off, y0 - anch), (xs + ow + off, y0 + oh + anch)])
+    if corner:
+        for (qx, qy, sx, sy) in ((xs, y0, -1, -1), (xs + ow, y0, 1, -1), (xs + ow, y0 + oh, 1, 1), (xs, y0 + oh, -1, 1)):
+            D.bar([(qx - sx * 250.0, qy - sy * 250.0), (qx + sx * 500.0, qy + sy * 500.0)], "RC-DETAIL-BAR2")
+    D.dim(xs - anch, xs, y0 - g * (n + 1) - 250.0, f"40 dia = {anch:.0f}")
+    D.dim(xs, xs + ow, y0 - g * (n + 1) - 250.0, "OPENING")
+    D.label([f"{n}T{o_dia} T&B EACH SIDE", f"OPENINGS > {o_min:.0f} mm"], xs + ow / 2.0, y0 + oh + g * (n + 1) + 500.0)
+    D.label([f"{n_big}T{o_dia} T&B EACH SIDE", f"OPENINGS > {o_big:.0f} mm"], xs + ow / 2.0, y0 + oh + g * (n + 1) + 1250.0)
+    if corner:
+        D.label(["2T12 T&B L=1000", "DIAGONAL AT EACH CORNER"], xs + ow + anch + 900.0, y0 + oh + 500.0)
+    D.title("TYPICAL OPENING TRIM DETAIL", xs + ow / 2.0, y0 - anch - 1100.0)
+    return ow + 2 * anch + 3200.0
+
+
+def _rc_detail_punching(D, x0, y0, h, cover, c1, c2, l_dia, s0, s, n3):
+    #  المسقط (top view) زي BBR: صفوف الكانات N1 على الضلع الطويل وN2 على القصير
+    xs = x0 + 1400.0
+    reach = s0 + (n3 - 1) * s + 250.0
+    cx, cy = xs + reach + c1 / 2.0, y0 + reach + c2 / 2.0
+    D.rect(cx - c1 / 2.0, cy - c2 / 2.0, c1, c2)
+    D.hatch([(cx - c1 / 2.0, cy - c2 / 2.0), (cx + c1 / 2.0, cy - c2 / 2.0), (cx + c1 / 2.0, cy + c2 / 2.0), (cx - c1 / 2.0, cy + c2 / 2.0)], pattern="ANSI31", sc=D.K * 8.0)
+    n1, n2 = 3, 2
+    #  N1 صفوف على الضلع الطويل (ماشية في اتجاه y)، N2 على القصير (اتجاه x)
+    for k in range(n1):
+        xx = cx - c1 / 2.0 + (k + 0.5) * c1 / n1
+        for sgn in (1, -1):
+            for i in range(n3):
+                yy = cy + sgn * (c2 / 2.0 + s0 + i * s)
+                D.dot(xx, yy, r=D.th * 0.16)
+            D.line((xx, cy + sgn * (c2 / 2.0 + s0)), (xx, cy + sgn * (c2 / 2.0 + s0 + (n3 - 1) * s)), "RC-DETAIL-BAR2")
+    for k in range(n2):
+        yy = cy - c2 / 2.0 + (k + 0.5) * c2 / n2
+        for sgn in (1, -1):
+            for i in range(n3):
+                xx = cx + sgn * (c1 / 2.0 + s0 + i * s)
+                D.dot(xx, yy, r=D.th * 0.16)
+            D.line((cx + sgn * (c1 / 2.0 + s0), yy), (cx + sgn * (c1 / 2.0 + s0 + (n3 - 1) * s), yy), "RC-DETAIL-BAR2")
+    D.word("N1 LINES", cx, cy + c2 / 2.0 + reach + 250.0)
+    D.word("N2 LINES", cx + c1 / 2.0 + reach + 250.0, cy, rot=90)
+    D.dim(cx + c1 / 2.0, cx + c1 / 2.0 + s0, cy - c2 / 2.0 - reach - 250.0, "S0")
+    D.dim(cx + c1 / 2.0 + s0, cx + c1 / 2.0 + s0 + s, cy - c2 / 2.0 - reach - 250.0, "S")
+    D.label([f"T{l_dia} LACER BARS", "ALONG EVERY LINE"], cx - c1 / 2.0 - reach - 900.0, cy + c2 / 2.0 + 300.0)
+    D.word("TYPICAL TOP VIEW", cx, cy - c2 / 2.0 - reach - 900.0)
+    #  القطاع
+    sx0 = cx + c1 / 2.0 + reach + 1600.0
+    W = 2 * reach + c1
+    D.rect(sx0, y0, W, h)
+    D.hatch([(sx0, y0), (sx0 + W, y0), (sx0 + W, y0 + h), (sx0, y0 + h)])
+    ccx = sx0 + W / 2.0
+    D.rect(ccx - c1 / 2.0, y0 - 900.0, c1, 900.0)
+    D.bar([(sx0, y0 + h - cover), (sx0 + W, y0 + h - cover)])
+    D.bar([(sx0, y0 + cover), (sx0 + W, y0 + cover)])
+    lw = l_dia * 2.0 + 20.0
+    for sgn in (1, -1):
+        for i in range(n3):
+            xx = ccx + sgn * (c1 / 2.0 + s0 + i * s)
+            D.link(xx - lw / 2.0, y0 + cover, lw, h - 2 * cover)
+    D.dim(y0 + cover, y0 + h - cover, sx0 + W + 200.0, "HL", vertical=True)
+    D.label([f"T{l_dia} CLOSED LINKS", f"N3 = {n3} PER LINE, S0 = {s0:.0f}, S = {s:.0f}", "HL = h - TOP COVER - BOTTOM COVER"], ccx, y0 + h + 800.0)
+    D.word("SECTION", ccx, y0 - 1200.0)
+    #  المفتاح
+    lx = sx0 + W + 1200.0
+    for i, t in enumerate(("N1 : NUMBER OF LINES OF LINKS ALONG THE LONG COLUMN SIDE",
+                           "N2 : NUMBER OF LINES OF LINKS ALONG THE SHORT COLUMN SIDE",
+                           "N3 : NUMBER OF LINKS PER LINE",
+                           "S0 : FIRST LINK DISTANCE FROM THE COLUMN FACE (d/2)",
+                           "S  : LINK SPACING (d/2)", f"T  : LINK DIAMETER (T{l_dia})",
+                           "LINES OF LINKS ARE PLACED AT THE COLUMN CORNERS; MORE THAN TWO ARE EVENLY SPACED")):
+        D.word(t, lx, y0 + h + 800.0 - i * 2.2 * D.th / D.K, align="MIDDLE_LEFT", h=D.th * 0.7)
+    D.title("TYPICAL PUNCHING LINKS DETAIL", ccx, y0 - 1650.0)
+    return (lx - x0) + 48.0 * D.th / D.K
+
+
+def _rc_detail_beam(D, x0, y0, bw, bd, cover, row, st1, st2, side, L=4500.0):
+    """ارتفاع الكمرة وقطاعين - الحروف A/B/C/E/F زي جدول BBR."""
+    xs = x0 + 900.0
+    cw = 500.0
+    #  الأعمدة
+    for xx in (xs, xs + cw + L):
+        D.rect(xx, y0 - 1200.0, cw, 1200.0)
+        D.hatch([(xx, y0 - 1200.0), (xx + cw, y0 - 1200.0), (xx + cw, y0), (xx, y0)])
+    D.rect(xs, y0, 2 * cw + L, bd)
+    a0, a1 = xs + cover, xs + 2 * cw + L - cover
+    yb, yt = y0 + cover + 20.0, y0 + bd - cover - 20.0
+    #  A: سفلي مستمر بخطاف في العمود؛ C: علوي مستمر
+    D.bar([(a0, yb + 12 * 16.0), (a0, yb), (a1, yb), (a1, yb + 12 * 16.0)])
+    D.bar([(a0, yt - 12 * 16.0), (a0, yt), (a1, yt), (a1, yt - 12 * 16.0)])
+    mid = xs + cw + L / 2.0
+    #  B: سفلي إضافي في المنتصف 0.7L؛ F: علوي إضافي عند الركائز 0.3L
+    D.bar([(mid - 0.35 * L, yb + 45.0), (mid + 0.35 * L, yb + 45.0)], "RC-DETAIL-BAR2")
+    for x1, x2 in ((xs + cover, xs + cw + 0.3 * L), (xs + cw + L - 0.3 * L, xs + cw + L + cw - cover)):
+        D.bar([(x1, yt - 45.0), (x2, yt - 45.0)], "RC-DETAIL-BAR2")
+    if side:
+        for k in range(1, 3):
+            yy = y0 + cover + k * (bd - 2 * cover) / 3.0
+            D.bar([(xs + cw, yy), (xs + cw + L, yy)], "RC-DETAIL-BAR2")
+    #  الكانات: ST1 في 0.2L عند كل ركيزة، ST2 في النص
+    def links(x1, x2, sp):
+        x = x1
+        while x <= x2:
+            D.line((x, y0 + cover), (x, y0 + bd - cover), "RC-DETAIL-LINK")
+            x += sp
+    links(xs + cw + 50.0, xs + cw + 0.2 * L, st1[1])
+    links(xs + cw + 0.2 * L + st2[1], xs + cw + 0.8 * L, st2[1])
+    links(xs + cw + 0.8 * L + st1[1], xs + cw + L - 50.0, st1[1])
+    D.dim(xs + cw, xs + cw + 0.2 * L, y0 + bd + 220.0, f"0.2 L : T{st1[0]}@{st1[1]:.0f}")
+    D.dim(xs + cw + 0.2 * L, xs + cw + 0.8 * L, y0 + bd + 220.0, f"T{st2[0]}@{st2[1]:.0f}")
+    D.dim(xs + cw + 0.8 * L, xs + cw + L, y0 + bd + 220.0, f"0.2 L : T{st1[0]}@{st1[1]:.0f}")
+    D.dim(xs + cw, xs + cw + L, y0 - 1500.0, "L")
+    D.bubble("A", mid - 0.15 * L, y0 - 700.0, mid - 0.15 * L, yb)
+    D.bubble("B", mid, y0 - 700.0, mid, yb + 45.0)
+    D.bubble("C", mid + 0.15 * L, y0 + bd + 900.0, mid + 0.15 * L, yt)
+    D.bubble("F", xs + cw + 0.15 * L, y0 + bd + 900.0, xs + cw + 0.15 * L, yt - 45.0)
+    if side:
+        D.bubble("E", mid + 0.3 * L, y0 - 700.0, mid + 0.3 * L, y0 + cover + (bd - 2 * cover) / 3.0)
+    #  القطاعان
+    sx = xs + 2 * cw + L + 1500.0
+    for j, (name, top_extra, bot_extra) in enumerate((("AT MID-SPAN", False, True), ("AT SUPPORT", True, False))):
+        ox = sx + j * (bw + 2600.0)
+        D.rect(ox, y0, bw, bd)
+        D.link(ox + cover, y0 + cover, bw - 2 * cover, bd - 2 * cover)
+        nb = max(2, int(row[2].split("T")[0]) if row[2] != "-" else 2)
+        for i in range(nb):
+            D.dot(ox + cover + 30.0 + i * (bw - 2 * cover - 60.0) / max(nb - 1, 1), y0 + cover + 30.0)
+        if bot_extra and row[3] != "-":
+            n2 = int(row[3].split("T")[0])
+            for i in range(n2):
+                D.dot(ox + cover + 30.0 + i * (bw - 2 * cover - 60.0) / max(n2 - 1, 1), y0 + cover + 90.0, "RC-DETAIL-BAR2")
+        nt = max(2, int(row[4].split("T")[0]) if row[4] != "-" else 2)
+        for i in range(nt):
+            D.dot(ox + cover + 30.0 + i * (bw - 2 * cover - 60.0) / max(nt - 1, 1), y0 + bd - cover - 30.0)
+        if top_extra and row[5] != "-":
+            n2 = int(row[5].split("T")[0])
+            for i in range(n2):
+                D.dot(ox + cover + 30.0 + i * (bw - 2 * cover - 60.0) / max(n2 - 1, 1), y0 + bd - cover - 90.0, "RC-DETAIL-BAR2")
+        if side:
+            for k in range(1, 3):
+                yy = y0 + cover + k * (bd - 2 * cover) / 3.0
+                D.dot(ox + cover + 30.0, yy, "RC-DETAIL-BAR2")
+                D.dot(ox + bw - cover - 30.0, yy, "RC-DETAIL-BAR2")
+        D.dim(ox, ox + bw, y0 - 300.0, f"{bw:.0f}")
+        D.dim(y0, y0 + bd, ox + bw + 200.0, f"{bd:.0f}", vertical=True)
+        D.word(name, ox + bw / 2.0, y0 - 900.0)
+    #  المفتاح
+    lx = sx + 2 * (bw + 2600.0)
+    key = [("A", f"BOT 1  {row[2]}"), ("B", f"BOT 2  {row[3]} (MIDDLE 0.7 L)"), ("C", f"TOP 1  {row[4]}"),
+           ("F", f"TOP 2  {row[5]} (0.3 L EACH SUPPORT)"), ("E", f"SIDE BARS  {row[9]}"),
+           ("ST", f"LINKS  {row[6]} ENDS / {row[7]} MIDDLE, {row[8]} LEGS")]
+    for i, (k, t) in enumerate(key):
+        D.word(f"{k} : {t}", lx, y0 + bd - i * 2.4 * D.th / D.K, align="MIDDLE_LEFT", h=D.th * 0.75)
+    D.word(f"BARS SHOWN FOR {row[0]} - EVERY MARK AS THE BEAM SCHEDULE", lx, y0 + bd - 6 * 2.4 * D.th / D.K, align="MIDDLE_LEFT", h=D.th * 0.7)
+    D.title("TYPICAL BEAM ELEVATION AND SECTIONS", mid, y0 - 2300.0)
+    return (lx - x0) + 42.0 * D.th / D.K
+
+
+def _rc_detail_wall(D, x0, y0, h, cover, tw, extra, bar_text):
+    W = tw + 2 * extra + 1200.0
+    xs = x0 + 600.0
+    D.rect(xs, y0, W - 1200.0, h)
+    D.hatch([(xs, y0), (xs + W - 1200.0, y0), (xs + W - 1200.0, y0 + h), (xs, y0 + h)])
+    cx = xs + (W - 1200.0) / 2.0
+    D.rect(cx - tw / 2.0, y0 - 1000.0, tw, 1000.0)
+    D.hatch([(cx - tw / 2.0, y0 - 1000.0), (cx + tw / 2.0, y0 - 1000.0), (cx + tw / 2.0, y0), (cx - tw / 2.0, y0)])
+    yb = y0 + h - cover
+    D.bar([(cx - tw / 2.0 - extra, yb - 150.0), (cx - tw / 2.0 - extra, yb), (cx + tw / 2.0 + extra, yb), (cx + tw / 2.0 + extra, yb - 150.0)])
+    D.bar([(xs, y0 + cover), (xs + W - 1200.0, y0 + cover)])
+    D.dim(cx - tw / 2.0 - extra, cx - tw / 2.0, y0 + h + 220.0, f"{extra:.0f}")
+    D.dim(cx - tw / 2.0, cx + tw / 2.0, y0 + h + 220.0, "WALL")
+    D.dim(cx + tw / 2.0, cx + tw / 2.0 + extra, y0 + h + 220.0, f"{extra:.0f}")
+    D.label(["TOP BARS ACROSS THE WALL", f"{bar_text} MIN, AS PLAN"], cx, y0 + h + 800.0)
+    D.word("WALL", cx, y0 - 1150.0)
+    D.title("TYPICAL TOP BARS ACROSS A WALL", cx, y0 - 1650.0)
+    return W
+
+
+def export_rc_details(msp, doc, design, site, params, origin, TH, Lr, scale, detail_scale=20.0, width_mm=None):
+    """
+    لوحة التفاصيل النمطية: كل تفصيلة مرسومة بمقياس 1:20 على لوحة 1:scale
+    (الهندسة × scale/20) بقيم اللوحة نفسها (السُمك، الغطاء، الأسياخ).
+    بترجّع (xmax, ymin) اللي اترسم لحدهم.
+    """
+    p = params
+    K = float(scale) / float(detail_scale)
+    h = float(design.get("h") or 260.0)
+    h_drop = float(design.get("h_drop") or 0.0)
+    cover = float(getattr(p, "punch_cover", 30.0) or 30.0)
+    top_dia = int(getattr(p, "rc_top_dia", 16) or 16)
+    s_max = float(getattr(p, "rc_top_spacing_max", 300.0) or 300.0)
+    extra = float(getattr(p, "rc_drop_extra_m", 1.0) or 1.0) * 1000.0
+    e_dia, e_s = rc_parse_bar(getattr(p, "rc_edge_bar", "T10@200"))
+    e_len = float(getattr(p, "rc_edge_len_mm", 2000.0) or 2000.0)
+    mesh_dia, mesh_s = rc_parse_bar(getattr(p, "rc_mesh_bottom", "T12@200"))
+    o_dia = rc_parse_dia(getattr(p, "rc_opening_bar", "T16"), 16)
+    zones = [z for z in design.get("zones") or [] if z.get("is_drop")]
+    if zones:
+        zz = max(zones, key=lambda z: z["thickness"])
+        h_drop = max(h_drop, float(zz["thickness"]))
+        bx = bbox_of(zz["points"])
+        drop_len = min(max(bx[2] - bx[0], bx[3] - bx[1], 1.5), 4.0) * 1000.0
+    else:
+        h_drop, drop_len = max(h_drop, h + 150.0), 3000.0
+    cols = [g for g in design["bars"] if g["kind"] == "top_col"]
+    L_each = (sum(float(g["length_m"]) for g in cols) / len(cols) * 1000.0 - 500.0) / 2.0 if cols else 1250.0
+    spread = (sum(float(g.get("width_m") or 0) for g in cols) / len(cols) * 1000.0) if cols else 500.0 + 3 * h
+    spacing = min(s_max, (sum(float(g.get("spacing") or s_max) for g in cols) / len(cols)) if cols else s_max)
+    punch = [g for g in design["bars"] if g["kind"] == "punch"]
+    if punch:
+        pg = punch[0]
+        s0, s, n3, l_dia = float(pg["s0"]), float(pg["s"]), int(pg["n3"]), int(pg["dia"])
+    else:
+        d_eff = h - cover - 8.0
+        s0 = s = max(75.0, math.floor(d_eff / 2.0 / 25.0) * 25.0)
+        n3, l_dia = 3, int(getattr(p, "rc_punch_dia", 10) or 10)
+    bd = design.get("beam_design") or {}
+    marks = bd.get("marks") or {}
+    if marks:
+        e = max(marks.values(), key=lambda e: (e["designed"], e["size"][1]))
+        row = rc_beam_row_text(e)
+        bw_, bd_ = e["size"]
+        st1, st2, side = e.get("st1") or (10, 150), e.get("st2") or (10, 300), e.get("side")
+    else:
+        row, bw_, bd_, st1, st2, side = ("RCB", "300x700", "3T20", "-", "2T16", "2T20", "T10@150", "T10@300", "2", "-"), 300, 700, (10, 150), (10, 300), None
+    walls = site.get("walls") or []
+    tw = float(walls[0].get("width") or 250.0) if walls else 250.0
+    ox, oy = origin
+    y_row = oy
+    x = ox
+    xmax, ymin = ox, oy
+    row_h = 0.0
+
+    W = width_mm or 1e12
+    order = [(_rc_detail_slab_edge, (h, cover, e_dia, e_s, e_len, f"BOTTOM MESH T{mesh_dia}@{mesh_s} B/W"), 2600),
+             (_rc_detail_column_head, (h, cover, 500.0, top_dia, spacing, max(L_each, 800.0), max(spread, 500.0 + 3 * h)), 3600),
+             (_rc_detail_drop, (h, h_drop, cover, top_dia, extra, drop_len), 3600),
+             (_rc_detail_wall, (h, cover, tw, max(extra, 1000.0), str(getattr(p, "rc_wall_bar", "T12@200") or "T12@200")), 3200),
+             (_rc_detail_opening, (o_dia, int(getattr(p, "rc_opening_bars_n", 2) or 2), int(getattr(p, "rc_opening_bars_n_big", 3) or 3),
+                                   float(getattr(p, "rc_opening_min_mm", 500.0) or 500.0), float(getattr(p, "rc_opening_big_mm", 2000.0) or 2000.0),
+                                   bool(getattr(p, "rc_opening_corner_bars", True))), 4200),
+             (_rc_detail_punching, (h, cover, 600.0, 400.0, l_dia, s0, s, n3), 4200),
+             (_rc_detail_beam, (float(bw_), float(bd_), cover, row, st1, st2, side), 5200)]
+    for fn, args, height_mm in order:
+        #  تقدير العرض قبل الرسم: نرسم ونشوف، ولو عدّى عرض اللوحة ننزل سطر
+        est_w = {"_rc_detail_beam": 16000.0, "_rc_detail_punching": 14000.0, "_rc_detail_opening": 6500.0,
+                 "_rc_detail_column_head": 9000.0}.get(fn.__name__, 4500.0) * K
+        if x > ox and x + est_w > ox + W:
+            x = ox
+            y_row -= row_h
+            row_h = 0.0
+        y_top = y_row - 2.6 * height_mm * K * 0.35   # المرجع (y0) تحت رأس السطر بمسافة الأجزاء اللي فوقه
+        D = _RCDetail(msp, doc, (x, y_top), K, TH, Lr)
+        w = fn(D, 0.0, 0.0, *args)
+        x = max(x + w * K, D.xmax) + 8 * TH
+        xmax = max(xmax, x)
+        ymin = min(ymin, D.ymin - 6 * TH)
+        row_h = max(row_h, (y_row - D.ymin) + 8 * TH)
+    return xmax, ymin
+
+
 def rc_bar_why_entries(g):
     """مجموعة حديد -> قائمة الشاشة (key, why, group)."""
     out = [{"key": None, "why": g.get("rule") or "", "group": "The rule"}]
@@ -54767,7 +55331,7 @@ def rc_bar_describe(g):
     return f"{g['kind']} · {g['dir']} · {g['label']}{where}" + (f" · {g.get('support') or g.get('column')}" if g.get("support") or g.get("column") else "")
 
 
-def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "loads", "rc"), scale=None, text_mm=None):
+def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "loads", "rc", "details"), scale=None, text_mm=None):
     """
     ملف DXF بطبقاتنا (<prefix>-...): ثلاث لوحات جنب بعض - القطاعات
     الخرسانية (GA)، الأحمال، والتسليح - بالمليمتر، ومقاس الخط من مقياس
@@ -54800,7 +55364,7 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
     gap = max(W * 0.25, 8000.0)
     offsets = {}
     k = 0
-    for s in ("ga", "loads", "rc"):
+    for s in ("ga", "loads", "rc", "details"):
         if s in sheets:
             offsets[s] = k * (W + gap)
             k += 1
@@ -54870,8 +55434,8 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                 off = (float(b["width"] or 300.0) / 2.0 + TH) / M
                 text(b["mark"], (mx + nx * off, my + ny * off), dx, "GA-BEAM-TEXT", rot=ang)
 
-    sheet_titles = {"ga": "CONCRETE SECTIONS (GA)", "loads": "LOADS", "rc": "REINFORCEMENT"}
-    bottoms = {}
+    sheet_titles = {"ga": "CONCRETE SECTIONS (GA)", "loads": "LOADS", "rc": "REINFORCEMENT", "details": "TYPICAL DETAILS"}
+    bottoms, rights = {}, {}
     for s, dx in offsets.items():
         text(sheet_titles[s], ((x0 + x1) / 2.0, y1 + 1.0 + 3.0 * TH / M), dx, "GA-TEXT", h=TH * 1.6)
         bottoms[s] = y0 * M - 3 * TH
@@ -54949,6 +55513,7 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
 
     # ---------- RC ----------
     n_bars = 0
+    n_tags = 0
     if "rc" in offsets:
         dx = offsets["rc"]
         structure(dx, False)
@@ -54983,7 +55548,9 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                 _rc_label(msp, pl_lines, T(c, dx), TH * 0.8, Lr(tl))
                 continue
             a, b = g["line"]
-            msp.add_line(T(a, dx), T(b, dx), dxfattribs={"layer": Lr(layer)})
+            as_block = bool(getattr(p, "rc_bar_blocks", True)) and kind in ("top_col", "top_wall", "bot_extra", "opening", "edge_u")
+            if not as_block:
+                msp.add_line(T(a, dx), T(b, dx), dxfattribs={"layer": Lr(layer)})
             ux, uy = b[0] - a[0], b[1] - a[1]
             Lm = math.hypot(ux, uy) or 1.0
             ux, uy = ux / Lm, uy / Lm
@@ -54998,11 +55565,12 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                 for sp in (s1, s2):
                     msp.add_line((sp[0] * M + dx - ux * tick, sp[1] * M - uy * tick),
                                  (sp[0] * M + dx + ux * tick, sp[1] * M + uy * tick), dxfattribs={"layer": Lr(layer)})
-            for ep in (a, b):
-                msp.add_line((ep[0] * M + dx - nx * tick, ep[1] * M - ny * tick),
-                             (ep[0] * M + dx + nx * tick, ep[1] * M + ny * tick), dxfattribs={"layer": Lr(layer)})
-                if kind in ("top_col", "top_wall", "bot_extra"):
-                    msp.add_circle((ep[0] * M + dx, ep[1] * M), tick * 0.35, dxfattribs={"layer": Lr(layer)})
+            if not as_block:
+                for ep in (a, b):
+                    msp.add_line((ep[0] * M + dx - nx * tick, ep[1] * M - ny * tick),
+                                 (ep[0] * M + dx + nx * tick, ep[1] * M + ny * tick), dxfattribs={"layer": Lr(layer)})
+                    if kind in ("top_col", "top_wall", "bot_extra"):
+                        msp.add_circle((ep[0] * M + dx, ep[1] * M), tick * 0.35, dxfattribs={"layer": Lr(layer)})
             ang = math.degrees(math.atan2(uy, ux))
             if ang > 90 or ang < -90:
                 ang += 180
@@ -55018,7 +55586,16 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
                 lab_lines = [lab]
             vertical = abs(uy) > abs(ux)
             c, _box = placer.place(a, b, lab_lines, TH * 0.8 / M, vertical, avoid=col_boxes)
-            _rc_label(msp, lab_lines, T(c, dx), TH * 0.8, Lr(tl), rot=ang)
+            if as_block:
+                #  18.132: السيخ بولي لاين والليبل بلوك بخصائص وحقل طول حي
+                #  (طريقة BBR): تشدّ السيخ من طرفه تتغيّر L= لوحدها
+                if len(lab_lines) == 1:
+                    lab_lines = [lab_lines[0], f"L={Lm * M:.0f}"]
+                _rc_bar_callout(msp, doc, T(a, dx), T(b, dx), Lr(layer), Lr(tl), lab_lines, T(c, dx), ang, TH,
+                                fields=bool(getattr(p, "rc_bar_fields", True)), ticks=True, tick=tick)
+                n_tags += 1
+            else:
+                _rc_label(msp, lab_lines, T(c, dx), TH * 0.8, Lr(tl), rot=ang)
         #  الملاحظات وجدول الحديد - تحت المسقط
         tx, ty = x0 * M + dx, table_y
         lines = ["NOTES", f"1. Bottom mesh as marked, both ways, lapped 50 bar diameters.",
@@ -55037,16 +55614,27 @@ def export_rc_drawings(path, site, params, design, job=None, sheets=("ga", "load
             _shop_text(msp, f"T{dia}: {v['m']:,.0f} m = {v['kg']:,.0f} kg", (tx2, sy - i * TH * 1.8), TH * 0.9, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
         _shop_text(msp, f"TOTAL {design['total_kg']:,.0f} kg", (tx2, sy - (len(design["schedule"]) + 1) * TH * 1.8), TH, Lr("RC-TABLE"), align="MIDDLE_LEFT", style="SPT-TEXT")
         bottoms["rc"] = sy - (max(len(lines), len(design["schedule"]) + 2) + 2) * TH * 1.8
+    #  ---------- TYPICAL DETAILS (18.132) ----------
+    if "details" in offsets:
+        dx = offsets["details"]
+        try:
+            _xm, _ym = export_rc_details(msp, doc, design, site, p, (x0 * M + dx + 4 * TH, y1 * M - 2 * TH), TH, Lr, scale, width_mm=2.2 * W)
+            bottoms["details"] = _ym - 4 * TH
+            rights["details"] = _xm + 4 * TH
+        except Exception as e:
+            if job:
+                job.warn(f"The typical details were not drawn: {e}")
     #  إطار كل لوحة - حوالين المسقط والجداول اللي تحته
     for s, dx in offsets.items():
         yb = min(bottoms.get(s, y0 * M - 3 * TH), y0 * M - 3 * TH)
-        msp.add_lwpolyline([(x0 * M + dx - 3 * TH, yb), (x1 * M + dx + 3 * TH, yb),
-                            (x1 * M + dx + 3 * TH, y1 * M + 1000.0 + 6 * TH), (x0 * M + dx - 3 * TH, y1 * M + 1000.0 + 6 * TH)],
+        xr = max(rights.get(s, x1 * M + dx + 3 * TH), x1 * M + dx + 3 * TH)
+        msp.add_lwpolyline([(x0 * M + dx - 3 * TH, yb), (xr, yb),
+                            (xr, y1 * M + 1000.0 + 6 * TH), (x0 * M + dx - 3 * TH, y1 * M + 1000.0 + 6 * TH)],
                            close=True, dxfattribs={"layer": Lr("GA-TABLE")})
     doc.saveas(path)
     if job:
         job.ok(f"RC drawings: {os.path.basename(path)} ({', '.join(sheet_titles[s] for s in offsets)}; layers {prefix}-*).")
-    return {"layers": len(RC_LAYER_COLOURS), "bars": n_bars, "sheets": list(offsets)}
+    return {"layers": len(RC_LAYER_COLOURS), "bars": n_bars, "sheets": list(offsets), "tags": n_tags}
 
 
 def write_rc_schedule_csv(path, design):
@@ -61309,6 +61897,7 @@ class AutoPTApp:
             "rc_beam_link_dia": V(value="10"), "rc_beam_link_max": V(value="300"),
             "rc_beam_side_bar": V(value="T12@200"), "rc_beam_side_from_depth": V(value="750"),
             "rc_loads_from_model": B(value=True), "rc_edge_on_plan": B(value=False),
+            "rc_sheet_details": B(value=True), "rc_bar_blocks": B(value=True), "rc_bar_fields": B(value=True),
             "shop_mark_prefix": V(value=""),
             "shop_live_block": V(value="LiveEnd"),
             "shop_dead_block": V(value="DeadEnd"),
@@ -65176,6 +65765,17 @@ class AutoPTApp:
                 "Bottom (and top) mesh notes, top bars over every column and wall with their "
                 "spread and length, extra bottom bars RAM designed, U-bars along the slab edge, "
                 "trim bars round openings, punching links where the check failed, notes and a bar schedule.")
+        c.check("Typical details sheet", self.v["rc_sheet_details"],
+                "A fourth sheet drawn at 1:20 from the same settings: slab edge U-bars, top bars over a column "
+                "(section and plan), drop panel, top bars across a wall, opening trim, punching links (top view, "
+                "section and legend) and the beam elevation with its two sections and A/B/C/E/F key.")
+        c.check("Bar callouts as attribute blocks (the competitor's method)", self.v["rc_bar_blocks"],
+                "Every bar is a polyline and its callout a block with two attributes, BARS and LENGTH, "
+                "on a masked background: edit the text with the attribute editor, stretch the bar by its grip.")
+        c.check("Length as a live field", self.v["rc_bar_fields"],
+                "The LENGTH attribute is a field that reads the bar polyline's own length (%lu2%pr0%ps[L=,]), "
+                "exactly as in the competitor's blocks: stretch the bar and L= follows. Needs AutoCAD 2005 or "
+                "later; turn it off for a CAD that rejects fields.")
         c.entry("Layer prefix", self.v["rc_layer_prefix"],
                 "Every layer is <prefix>-GA-..., <prefix>-LOAD-..., <prefix>-RC-... so the file is yours, "
                 "not the competitor's.")
@@ -65311,7 +65911,7 @@ class AutoPTApp:
         design = rc_design(site, params, steel=steel, punching=punching, tendons=tendons, job=job,
                            model_loads=model_loads, beams=beam_design)
         sheets = tuple(k for k, on in (("ga", params.rc_sheet_ga), ("loads", params.rc_sheet_loads),
-                                       ("rc", params.rc_sheet_rc)) if on) or ("rc",)
+                                       ("rc", params.rc_sheet_rc), ("details", getattr(params, "rc_sheet_details", True))) if on) or ("rc",)
         res = export_rc_drawings(out_dxf, site, params, design, job=job, sheets=sheets)
         try:
             csv_path = os.path.splitext(out_dxf)[0] + "_bars.csv"
@@ -67866,6 +68466,8 @@ class AutoPTApp:
             rc_beam_link_dia=int(self._num("rc_beam_link_dia", 10)), rc_beam_link_max=self._num("rc_beam_link_max", 300.0),
             rc_beam_side_bar=v["rc_beam_side_bar"].get(), rc_beam_side_from_depth=self._num("rc_beam_side_from_depth", 750.0),
             rc_loads_from_model=v["rc_loads_from_model"].get(), rc_edge_on_plan=v["rc_edge_on_plan"].get(),
+            rc_sheet_details=v["rc_sheet_details"].get(), rc_bar_blocks=v["rc_bar_blocks"].get(),
+            rc_bar_fields=v["rc_bar_fields"].get(),
             punch_check=v["punch_check"].get(),
             punch_code=v["punch_code"].get(),
             punch_fc=self._num("punch_fc", 30.0),
