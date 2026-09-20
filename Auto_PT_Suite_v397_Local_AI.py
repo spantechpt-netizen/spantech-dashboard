@@ -85,7 +85,7 @@ from tkinter import ttk, filedialog, messagebox
 # ==============================================================================
 
 APP_NAME = "Auto PT Suite"
-APP_VERSION = "18.133"
+APP_VERSION = "18.134"
 #  الاسم اللي بيتكتب على كل قطعة كابل من صنع الحلقة، عشان تعرف نفسها
 #  بعد ما الموديل يتحفظ ويتفتح تاني. جدول Tendon في الملف فيه عمود
 #  Name وكان فاضي في كل الصفوف.
@@ -2995,6 +2995,13 @@ class TendonDesignParams:
         self.rc_bar_blocks = bool(kw.get("rc_bar_blocks", True))
         self.rc_bar_fields = bool(kw.get("rc_bar_fields", False))
         self.rc_edge_on_plan = bool(kw.get("rc_edge_on_plan", False))
+        #  18.134: تقاطعات الكابلات والتعارضات
+        self.shop_crossings = bool(kw.get("shop_crossings", True))
+        self.shop_duct_mm = float(kw.get("shop_duct_mm", 20.0) or 20.0)
+        self.shop_clash_tol = float(kw.get("shop_clash_tol", 10.0) or 10.0)
+        self.shop_fix_clashes = bool(kw.get("shop_fix_clashes", True))
+        self.shop_clash_snap = float(kw.get("shop_clash_snap", 0.6) or 0.6)
+        self.shop_clash_analyse = bool(kw.get("shop_clash_analyse", True))
         #  18.121: فحص الثقب بعد رسم الكابلات
         self.punch_check = bool(kw.get("punch_check", True))
         self.punch_code = str(kw.get("punch_code", list(PUNCH_CODES)[0]) or list(PUNCH_CODES)[0])
@@ -49427,6 +49434,28 @@ AR_UI.update({
     'A thickened area longer than this on either side is a band, not a drop: the code rule sets its bars, not the drop cover.': 'منطقة متخنة أطول من كده في أي اتجاه دي باند مش دروب: قاعدة الكود بتحدد حديدها، مش تغطية الدروب.',
     'Design the beams': 'صمّم الكمرات',
 })
+#  18.134: التقاطعات والتعارضات
+AR_UI.update({
+    'Crossings and clashes': 'التقاطعات والتعارضات',
+    'Which tendon passes over which, and the No Clashes model': 'مين من الكابلات فوق مين، وموديل No Clashes',
+    'Draw the crossings plan (which tendon passes over which)': 'ارسم بلان التقاطعات (مين من الكابلات فوق مين)',
+    'A second plan above the main one with both directions on top of each other: the tendon that passes over is drawn continuous, the one that passes under is broken at the crossing, and the vertical gap between the two duct centres is written in mm. A crossing closer than the duct height is a clash and gets a red circle.': 'بلان تاني فوق البلان الرئيسي بالاتجاهين فوق بعض: الكابل اللي فوق مرسوم متواصل، واللي تحت مقطوع عند التقاطع، والفرق الرأسي بين مركزي الدكتين مكتوب بالمليمتر. التقاطع اللي فرقه أقل من ارتفاع الدكت تعارض وبياخد دايرة حمرا.',
+    'Duct height (mm)': 'ارتفاع الدكت (مم)',
+    '20 mm for a flat duct. A crossing closer than this is written in yellow as tight: the lower duct bends a little on site. The No Clashes model separates a clash to this.': '20 مم للدكت المفلطح. التقاطع الأقرب من كده بيتكتب بالأصفر "ضيّق": الدكت اللي تحت بيتني شوية في الموقع. موديل No Clashes بيفصل التعارض للمسافة دي.',
+    'A clash is a gap under (mm)': 'التعارض = فرق أقل من (مم)',
+    'Two ducts closer than this where they cross sit at the same level - that is the clash the No Clashes model fixes. Half the duct height by default. In a slab with tendons both ways the two curves must pass the same level somewhere on the slope, so a tight crossing is normal and is only written, not fixed.': 'دكتين أقرب من كده عند التقاطع في نفس المستوى - ده التعارض اللي موديل No Clashes بيصلّحه. نص ارتفاع الدكت افتراضياً. في بلاطة كابلاتها في الاتجاهين المنحنيين لازم يعدّوا من نفس المنسوب في حتة على الميل، فالتقاطع الضيّق طبيعي وبيتكتب بس مابيتصلّحش.',
+    'Offer to fix the clashes in RAM after the drawing': 'اعرض حل التعارضات في رام بعد الرسمة',
+    "When the drawing finds clashes you are asked whether to make the No Clashes model: RAM analyses the model, the tendon whose span is safer (lower utilisation) is moved a duct height under the other at every clash, the model is analysed again, saved as <model>_No_Clashes.cpt, a pop-up says whether it still passes, and a second drawing <model>_No_Clashes.dxf is written.": 'لما الرسمة تلاقي تعارضات بتتسأل تعمل موديل No Clashes ولا لأ: رام بيحلّل الموديل، والكابل اللي بحره مسيّف أكتر (استغلال أقل) بينزل ارتفاع دكت تحت التاني عند كل تعارض، والموديل بيتحلّل تاني ويتحفظ باسم <الموديل>_No_Clashes.cpt، ورسالة بتقول لسه بيعدّي ولا لأ، ورسمة تانية <الموديل>_No_Clashes.dxf بتتكتب.',
+    'Analyse the model first to see which span is safer': 'حلّل الموديل الأول عشان تعرف أنهي بحر مسيّف أكتر',
+    'Off, no analysis is run before the move and the Y tendon is taken as the inner layer at every clash (the clash-offset convention).': 'مقفول: مافيش تحليل قبل التحريك، وكابل Y بيتاخد الطبقة الداخلية عند كل تعارض (نفس عرف إزاحة التعارض).',
+    'A control point within (m) of the crossing is moved itself': 'نقطة الكنترول اللي على بُعد (م) من التقاطع بتتحرّك هي نفسها',
+    'The high point on the column is usually where the tendons cross, so that point is lowered. A crossing further from any control point gets a new point at the crossing.': 'القمة اللي على العمود هي غالباً مكان تقاطع الكابلات، فهي اللي بتنزل. التقاطع الأبعد عن أي نقطة كنترول بياخد نقطة جديدة عند التقاطع.',
+    '⇅   Fix the tendon clashes in RAM now (No Clashes model)': '⇅   حلّ تعارضات الكابلات في رام دلوقتي (موديل No Clashes)',
+    'Fix the tendon clashes': 'حلّ تعارضات الكابلات',
+    'Tendon clashes': 'تعارضات الكابلات',
+    'No clashes': 'مافيش تعارضات',
+    'No Clashes model': 'موديل No Clashes',
+})
 #  18.130: لوحات RC
 AR_UI.update({
     'RC drawings': 'لوحات الخرسانة والتسليح',
@@ -57640,7 +57669,7 @@ def _shop_text(space, text, pos, height, layer, align="MIDDLE_CENTER",
 
 def _shop_setup(doc, params):
     """الطبقات والأنماط والبلوكات - بنفس أسماء الـ template."""
-    for name, colour in SHOP_LAYERS.items():
+    for name, colour in list(SHOP_LAYERS.items()) + list(SHOP_CROSS_LAYERS.items()):
         if name not in doc.layers:
             doc.layers.new(name, dxfattribs={"color": colour})
     if "PT-PROFILE" not in doc.styles:
@@ -57868,7 +57897,8 @@ def export_shop_drawing(tendons, site, params, out_path, job=None,
                         chair_drop=SHOP_CHAIR_DROP_MM, sections=False,
                         station_step=SHOP_STATION_STEP,
                         dim_skip=SHOP_DIM_SKIP, vexag=SHOP_SECTION_VEXAG,
-                        live_block=None, dead_block=None, scale=SHOP_SCALE):
+                        live_block=None, dead_block=None, scale=SHOP_SCALE,
+                        crossings=True, duct_mm=None, moves=None, tol_mm=None):
     """
     يطلع ملف DXF للشوب درويينج من الكابلات اللي في الموديل.
 
@@ -57960,15 +57990,11 @@ def export_shop_drawing(tendons, site, params, out_path, job=None,
                                 (t.get("profile") or [])[1:])]
     section_queue = []
     rows = {"A": [], "B": []}
-    live = [t for t in tendons if not t.get("_deleted") and len(t.get("profile") or []) >= 2]
-    order = {"A": 0, "B": 0}
-    seq = 0
-    for t in sorted(live, key=lambda q: (q.get("dir") != "X",
-                                         q.get("coord") if q.get("coord") is not None else 0.0)):
-        fam = "A" if t.get("dir") == "X" else "B"
-        order[fam] += 1
-        seq += 1
-        mark = f"{mark_prefix or fam}.{order[fam]:02d}"
+    #  18.134: الأسماء والترتيب من دالة واحدة، عشان بلان التقاطعات
+    #  والرسالة يسمّوا الكابل بنفس اسم صندوقه.
+    live = shop_tendon_marks(tendons, mark_prefix)
+    for t in live:
+        fam, seq, mark = t["_fam"], t["_seq"], t["_mark"]
         pr = t["profile"]
         pts = [(q["pos"][0] * M, q["pos"][1] * M) for q in pr]
         msp.add_lwpolyline(pts, dxfattribs={"layer": f"Tendons-{fam}"})
@@ -58222,6 +58248,30 @@ def export_shop_drawing(tendons, site, params, out_path, job=None,
         ty = _shop_table(msp, rows[fam], fam, params, (tx, ty), TH) - TH * 15
     _shop_notes(msp, params, (tx, ty), chair_drop, TH)
 
+    # ---------- بلان التقاطعات: مين فوق مين (18.134) ----------
+    cross_info = {"n": 0, "clashes": 0, "list": [], "duct": None, "tight": 0, "tol": None}
+    if crossings:
+        try:
+            duct = float(duct_mm if duct_mm is not None
+                         else getattr(params, "shop_duct_mm", 20.0) or 20.0)
+            cr = tendon_crossings(tendons, params, duct, mark_prefix=mark_prefix,
+                                  tol_mm=tol_mm)
+            dy = (SY1 - SY0) * M + 8000.0 + TH * 13.5
+            info = _shop_crossings_plan(msp, live, cr, site, params, dy, TH, M,
+                                        moves=moves, duct=duct, scale=scale)
+            cross_info = {"n": info["n"], "clashes": info["clashes"], "list": cr,
+                          "duct": duct, "tight": info["tight"], "tol": info["tol"]}
+            if job:
+                (job.warn if info["clashes"] else job.ok)(
+                    f"Crossings plan: {info['n']} crossing(s) between tendons, "
+                    f"{info['clashes']} clash(es) at the same level (under "
+                    f"{info['tol']:.0f} mm) and {info['tight']} tight (under the "
+                    f"{duct:.0f} mm duct) - the tendon drawn continuous passes "
+                    f"over, the broken one under.")
+        except Exception as e:
+            if job:
+                job.warn(f"The crossings plan was not drawn ({e}).")
+
     doc.saveas(out_path)
     if job and skipped[0]:
         job.info(f"{skipped[0]} dimension(s) left off - each one measured "
@@ -58243,7 +58293,534 @@ def export_shop_drawing(tendons, site, params, out_path, job=None,
                f"{sum(len(shop_profile_samples(t, thickness_at=thickness_at, base_thickness=params.slab_thickness)) for t in live)} "
                f"chair heights, both schedules - {os.path.basename(out_path)}")
     return {"A": len(rows["A"]), "B": len(rows["B"]),
-            "rows": rows, "path": out_path}
+            "rows": rows, "path": out_path,
+            "crossings": cross_info["n"], "clashes": cross_info["clashes"],
+            "tight": cross_info["tight"], "tol": cross_info["tol"],
+            "crossing_list": cross_info["list"], "duct": cross_info["duct"]}
+
+
+# ==============================================================================
+#  18.134 - تقاطعات الكابلات: مين فوق مين، والتعارضات، وموديل No Clashes
+#
+#  الحداد في الموقع بيمسك كابل من A وكابل من B عند التقاطع ولازم يعرف
+#  مين اللي فوق. الرقمين اللي على الشوب (ارتفاع الكرسي عند المحطات)
+#  بيقولوها بالحساب، بس محدش بيحسب على السقالة. فالبلان ده بيقولها
+#  بالرسم: الكابل اللي فوق بيتشد متواصل، واللي تحت بيتقطع عند التقاطع
+#  (نفس عرف الرسم الهندسي للعناصر المتقاطعة)، والفرق الرأسي بين
+#  محوريهم مكتوب بالمليمتر. ولو الفرق أقل من ارتفاع الدكت يبقى
+#  الاتنين في نفس المستوى - تعارض - وبيتعلّم بالأحمر.
+#
+#  التعارض بيتحل في الرام مش على الورق: الكابل اللي بحره مسيّف بنسبة
+#  أكبر (أقل استغلال في قراية القطاعات) هو اللي بيتحرّك عند التقاطع،
+#  والموديل بيتحلّل تاني ويتحفظ باسم No Clashes، والرسالة بتقول عدّى
+#  ولا لأ.
+# ==============================================================================
+
+SHOP_CROSS_GAP_PAPER = 1.6      # مم على الورق: نص القطع في الكابل اللي تحت
+SHOP_CROSS_LAYERS = {
+    "PT-Cross-A": 4, "PT-Cross-B": 5,
+    "PT-Cross-Gap": 8, "PT-Cross-Tight": 2, "PT-Cross-Clash": 1,
+    "PT-Cross-Mark": 3, "PT-Cross-Text": 2, "PT-Cross-Moved": 6,
+}
+
+
+def _seg_cross(a0, a1, b0, b1):
+    """نقطة تقاطع قطعتين (x, y, ta, tb) أو None لو مش بيتقاطعوا فعلاً."""
+    dx1, dy1 = a1[0] - a0[0], a1[1] - a0[1]
+    dx2, dy2 = b1[0] - b0[0], b1[1] - b0[1]
+    den = dx1 * dy2 - dy1 * dx2
+    if abs(den) < 1e-12:
+        return None
+    ex, ey = b0[0] - a0[0], b0[1] - a0[1]
+    ta = (ex * dy2 - ey * dx2) / den
+    tb = (ex * dy1 - ey * dx1) / den
+    if -1e-9 <= ta <= 1.0 + 1e-9 and -1e-9 <= tb <= 1.0 + 1e-9:
+        ta = min(max(ta, 0.0), 1.0)
+        tb = min(max(tb, 0.0), 1.0)
+        return (a0[0] + ta * dx1, a0[1] + ta * dy1, ta, tb)
+    return None
+
+
+def shop_tendon_marks(tendons, mark_prefix=None):
+    """
+    نفس ترتيب وأسماء الشوب: A.01… للاتجاه X وB.01… للتاني، مرتّبين
+    بإحداثيهم. بتكتب _mark/_fam/_seq على كل كابل حيّ وبترجّعهم بالترتيب
+    - عشان بلان التقاطعات والجدول والرسالة يسمّوا الكابل بنفس الاسم
+    اللي على صندوقه.
+    """
+    live = [t for t in (tendons or []) if not t.get("_deleted")
+            and len(t.get("profile") or []) >= 2]
+    order = {"A": 0, "B": 0}
+    out = []
+    for seq, t in enumerate(sorted(
+            live, key=lambda q: (q.get("dir") != "X",
+                                 q.get("coord") if q.get("coord") is not None else 0.0)), 1):
+        fam = "A" if t.get("dir") == "X" else "B"
+        order[fam] += 1
+        t["_mark"] = f"{mark_prefix or fam}.{order[fam]:02d}"
+        t["_fam"] = fam
+        t["_seq"] = seq
+        out.append(t)
+    return out
+
+
+def _cross_record(c, geo_a, geo_b, duct, tol=None):
+    """
+    يحدّث عمق الكابلين عند التقاطع والفرق ومين فوق - بعد أي تحريك.
+    تعارض = الفرق أقل من `tol` (الدكتين في نفس المستوى فعلاً)؛
+    ضيّق = أقل من ارتفاع الدكت بس مش تعارض.
+    """
+    tol = duct if tol is None else min(float(tol), duct)
+    c["da"] = float(geo_a[3](c["sa"]))
+    c["db"] = float(geo_b[3](c["sb"]))
+    c["gap"] = abs(c["da"] - c["db"])
+    c["over"] = ("a" if c["da"] < c["db"] - 1e-6
+                 else ("b" if c["db"] < c["da"] - 1e-6 else "="))
+    c["clash"] = c["gap"] < tol - 1e-6
+    c["tight"] = (not c["clash"]) and c["gap"] < duct - 1e-6
+    c["tol"] = tol
+    return c
+
+
+def _cross_geo(t):
+    pr, st, total, pos_at, depth_at = _shop_profile_fns(t)
+    if not pr:
+        return None
+    pts = [q["pos"] for q in pr]
+    return (pr, st, total, depth_at, pts, bbox_of(pts), pos_at)
+
+
+def _clash_tol(params, duct, tol_mm=None):
+    tol = float(tol_mm if tol_mm is not None
+                else getattr(params, "shop_clash_tol", 10.0) or 10.0)
+    return max(0.5, min(tol, duct))
+
+
+def tendon_crossings(tendons, params, duct_mm=None, mark_prefix=None,
+                     end_clear=0.05, tol_mm=None):
+    """
+    كل تقاطع بين كابلين في المسقط: مكانه، محطته على كل كابل، عمق كل
+    كابل هناك من السطح (مم) - من **نفس** القطع المكافئ اللي الشوب
+    بيكتب منه أرقام الكراسي - والفرق بينهم ومين فوق.
+
+    تعارض = الفرق أقل من `shop_clash_tol` (10 مم: الدكتين متداخلين في
+    نفس المستوى فعلاً). ضيّق = أقل من ارتفاع الدكت (`shop_duct_mm`، 20
+    مم للدكت المفلطح) - ده بيتكتب بس مابيتصلّحش: في بلاطة كابلاتها
+    موزّعة في الاتجاهين القطعين المكافئين لازم يعدّوا من نفس المنسوب
+    في حتة ما على الميل، وعلى موديل BBR الحقيقي 333 تقاطع من 1297 أقل
+    من ارتفاع الدكت، وده مش غلط تصميم - الدكت بيتني شوية في الموقع.
+    الطرف الواقف على كابل تاني (ركن البلاطة، 18.28) مش تقاطع
+    ومابيتحسبش.
+    """
+    duct = float(duct_mm if duct_mm is not None
+                 else getattr(params, "shop_duct_mm", 20.0) or 20.0)
+    tol = _clash_tol(params, duct, tol_mm)
+    live = shop_tendon_marks(tendons, mark_prefix)
+    geo = [_cross_geo(t) for t in live]
+    out, seen = [], set()
+    for i in range(len(live)):
+        gi = geo[i]
+        if not gi:
+            continue
+        bi = gi[5]
+        for j in range(i + 1, len(live)):
+            gj = geo[j]
+            if not gj:
+                continue
+            bj = gj[5]
+            if bi[2] < bj[0] or bj[2] < bi[0] or bi[3] < bj[1] or bj[3] < bi[1]:
+                continue
+            for a in range(len(gi[4]) - 1):
+                a0, a1 = gi[4][a], gi[4][a + 1]
+                for b in range(len(gj[4]) - 1):
+                    hit = _seg_cross(a0, a1, gj[4][b], gj[4][b + 1])
+                    if not hit:
+                        continue
+                    x, y, ta, tb = hit
+                    sa = gi[1][a] + ta * (gi[1][a + 1] - gi[1][a])
+                    sb = gj[1][b] + tb * (gj[1][b + 1] - gj[1][b])
+                    if (sa < end_clear or sa > gi[2] - end_clear
+                            or sb < end_clear or sb > gj[2] - end_clear):
+                        continue
+                    key = (i, j, round(x, 2), round(y, 2))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    c = {"pt": (x, y), "i": i, "j": j, "a": live[i], "b": live[j],
+                         "sa": sa, "sb": sb, "duct": duct}
+                    out.append(_cross_record(c, gi, gj, duct, tol))
+    return out
+
+
+def _clash_margin(t, s, state, half=1.5):
+    """
+    أعلى استغلال قرأه رام على **البحر** اللي المحطة دي فيه من الكابل ده
+    (بين القمتين اللي حواليها)، في اتجاهه، من القراءات اللي على بُعد
+    `half` منه. None لو مافيش قراية - وقتها القاعدة الاحتياطية بتحكم.
+    """
+    if not state or not (state.get("readings") or []):
+        return None
+    pr = t.get("profile") or []
+    if len(pr) < 2:
+        return None
+    st = osh_stations(pr)
+    highs = [0] + [k for k in range(1, len(pr) - 1) if pr[k].get("high")] + [len(pr) - 1]
+    s0 = max(st[k] for k in highs if st[k] <= s + 1e-9)
+    s1 = min(st[k] for k in highs if st[k] >= s - 1e-9)
+    direction = osh_tendon_dir(t)
+    pts = [q["pos"] for q in pr]
+    best = None
+    for r in state["readings"]:
+        if r.get("dir") != direction:
+            continue
+        d, sr = _station_on(pts, st, (r["x"], r["y"]))
+        if d > half or not (s0 - 0.5 <= sr <= s1 + 0.5):
+            continue
+        best = r["u"] if best is None else max(best, r["u"])
+    return best
+
+
+def _shift_profile_depth(t, s, target, snap):
+    """
+    يحط عمق `target` عند المحطة `s`: نقطة الكنترول اللي على بُعد `snap`
+    أو أقل بتتحرّك هي نفسها (القمة على العمود هي اللي بتتقاطع عندها
+    الكابلات عادةً)، وإلا بتتحط نقطة جديدة عند التقاطع.
+    بترجّع (نجح، وصف).
+    """
+    pr = t.get("profile") or []
+    if len(pr) < 2:
+        return False, "no profile"
+    st = osh_stations(pr)
+    k = min(range(len(pr)), key=lambda i: abs(st[i] - s))
+    if abs(st[k] - s) <= snap:
+        if pr[k].get("clash_moved"):
+            return False, "that point was already moved for another crossing"
+        #  **مافيش زجزاج.** القمة تفضل قمة (أعلى من جيرانها)، والغطسة
+        #  تفضل غطسة، والنقطة اللي على الميل تفضل بين جيرانها - وإلا
+        #  التحريك ده بيعمل نتوء في الكابل مش تصحيح.
+        if 0 < k < len(pr) - 1:
+            d0, d1, d2 = (float(pr[k - 1]["depth"]), float(pr[k]["depth"]),
+                          float(pr[k + 1]["depth"]))
+            lo, hi = min(d0, d2), max(d0, d2)
+            if d1 <= lo + 1e-6:
+                ok = target <= lo + 1e-6
+            elif d1 >= hi - 1e-6:
+                ok = target >= hi - 1e-6
+            else:
+                ok = lo - 1e-6 <= target <= hi + 1e-6
+            if not ok:
+                return False, "it would put a kink in the profile"
+        old = float(pr[k]["depth"])
+        pr[k]["depth"] = float(target)
+        pr[k]["manual"] = True
+        pr[k]["clash_moved"] = True
+        return True, f"control point {k + 1} ({old:.0f} → {target:.0f} mm)"
+    #  نقطة جديدة على الميل: لازم تقع بين جارتيها، وإلا نتوء.
+    idx = len(pr) - 1
+    for i, s_ in enumerate(st):
+        if s_ > s:
+            idx = i
+            break
+    lo = min(float(pr[idx - 1]["depth"]), float(pr[idx]["depth"]))
+    hi = max(float(pr[idx - 1]["depth"]), float(pr[idx]["depth"]))
+    if not (lo - 1e-6 <= target <= hi + 1e-6):
+        return False, "it would put a kink in the profile"
+    ok = osh_insert_point(pr, s, {"depth": float(target), "high": False,
+                                  "sag": False, "drop_idx": -1, "clash": True,
+                                  "clash_moved": True}, min_gap=min(snap, 0.3))
+    if not ok:
+        return False, "no room for a point"
+    return True, f"new point at {s:.2f} m ({target:.0f} mm)"
+
+
+def resolve_tendon_clashes(tendons, params, state=None, thickness_at=None,
+                           duct_mm=None, snap_m=None, mark_prefix=None,
+                           job=None, passes=3, tol_mm=None):
+    """
+    **يفكّ كل تعارض في البروفايل نفسه.**
+
+    عند كل تقاطع الفرق فيه أقل من ارتفاع الدكت:
+      · الكابل اللي بيتحرّك هو اللي بحره **مسيّف بنسبة أكبر** - أقل
+        استغلال في قراية رام على البحر ده (`_clash_margin`). من غير
+        قراية، Y هي الطبقة الداخلية (نفس عرف `clash_offset`).
+      · بيتحرّك لتحت التاني بارتفاع دكت. لو الغطاء السفلي مايسمحش
+        بيترفع فوقه؛ ولو الاتنين مش ممكنين بيتجرّب الكابل التاني.
+        الأقرب من الاتنين للعمق الحالي هو اللي بيتاخد.
+      · بعد كل تحريك، تقاطعات الكابل ده كلها بتتحدّث - فتقاطع اتحلّ
+        بالتحريك ده مابيتحرّكش تاني، وتقاطع اتفتح بسببه بيتحلّ في
+        الدورة اللي بعدها.
+
+    بترجّع {"moves", "unresolved", "crossings" (بعد), "clashes_before",
+    "clashes_after"}.
+    """
+    duct = float(duct_mm if duct_mm is not None
+                 else getattr(params, "shop_duct_mm", 20.0) or 20.0)
+    tol = _clash_tol(params, duct, tol_mm)
+    snap = float(snap_m if snap_m is not None
+                 else getattr(params, "shop_clash_snap", 0.6) or 0.6)
+    try:
+        cx, cy = params.covers_for("X"), params.covers_for("Y")
+        top_lim = min(float(cx[0]), float(cy[0]))
+        bot_cov = min(float(cx[1]), float(cy[1]))
+    except Exception:
+        top_lim = float(getattr(params, "top_cover", 40.0) or 40.0)
+        bot_cov = float(getattr(params, "bot_cover", 40.0) or 40.0)
+    base_th = float(getattr(params, "slab_thickness", 280.0) or 280.0)
+
+    def th_at(pt):
+        try:
+            return float(thickness_at(pt)) if thickness_at else base_th
+        except Exception:
+            return base_th
+
+    moves, unresolved = [], []
+    n_before = None
+    crossings = []
+    for _pass in range(max(1, passes)):
+        crossings = tendon_crossings(tendons, params, duct, mark_prefix, tol_mm=tol)
+        live = shop_tendon_marks(tendons, mark_prefix)
+        geo = {id(t): _cross_geo(t) for t in live}
+        clashes = [c for c in crossings if c["clash"]]
+        if n_before is None:
+            n_before = len(clashes)
+        if not clashes:
+            break
+        progressed = False
+        for c in clashes:
+            if not c["clash"]:
+                continue                       # اتحلّ بتحريك قبله في نفس الدورة
+            ta, tb = c["a"], c["b"]
+            ua = _clash_margin(ta, c["sa"], state)
+            ub = _clash_margin(tb, c["sb"], state)
+            if ua is None and ub is None:
+                first = "b" if (tb.get("dir") != "X" and ta.get("dir") == "X") else "a"
+                why = "no RAM reading here - the Y tendon is the inner layer"
+            else:
+                ua_ = ua if ua is not None else 0.0
+                ub_ = ub if ub is not None else 0.0
+                if abs(ua_ - ub_) < 1e-9:
+                    first = "b" if tb.get("dir") != "X" else "a"
+                else:
+                    first = "a" if ua_ < ub_ else "b"
+                why = (f"{ta['_mark']} at {ua_:.2f} of the limit, "
+                       f"{tb['_mark']} at {ub_:.2f} - the safer one moves")
+            done = False
+            reasons = []
+            for who in (first, "b" if first == "a" else "a"):
+                mover, other = (ta, tb) if who == "a" else (tb, ta)
+                s_m = c["sa"] if who == "a" else c["sb"]
+                d_m = c["da"] if who == "a" else c["db"]
+                d_o = c["db"] if who == "a" else c["da"]
+                hi = th_at(c["pt"]) - bot_cov
+                cands = []
+                for target, how in ((d_o + duct, "lowered under"),
+                                    (d_o - duct, "raised over")):
+                    if top_lim - 1e-6 <= target <= hi + 1e-6:
+                        cands.append((round(abs(target - d_m), 3),
+                                      0 if how.startswith("lowered") else 1,
+                                      target, how))
+                if not cands:
+                    reasons.append(f"{mover['_mark']}: no room within the covers")
+                    continue
+                cands.sort()
+                ok, where = False, ""
+                for _mv, _o, target, how in cands:
+                    ok, where = _shift_profile_depth(mover, s_m, target, snap)
+                    if ok:
+                        break
+                    reasons.append(f"{mover['_mark']}: {where}")
+                if not ok:
+                    continue
+                geo[id(mover)] = _cross_geo(mover)
+                for c2 in crossings:
+                    if c2["a"] is mover or c2["b"] is mover:
+                        _cross_record(c2, geo[id(c2["a"])], geo[id(c2["b"])], duct, tol)
+                moves.append({"mark": mover["_mark"], "other": other["_mark"],
+                              "pt": c["pt"], "how": how, "from": d_m,
+                              "to": float(target), "where": where, "why": why,
+                              "gap_before": float(abs(d_m - d_o))})
+                if job:
+                    job.info(f"    {mover['_mark']} {how} {other['_mark']} at "
+                             f"({c['pt'][0]:.1f}, {c['pt'][1]:.1f}): {where}; {why}.")
+                done = progressed = True
+                break
+            if not done:
+                c["reasons"] = reasons
+                unresolved.append(c)
+                if job:
+                    job.warn(f"    {ta['_mark']} x {tb['_mark']} at ({c['pt'][0]:.1f}, "
+                             f"{c['pt'][1]:.1f}) was left ({c['da']:.0f} / {c['db']:.0f} mm "
+                             f"from the top): " + "; ".join(reasons[:3]) + ".")
+        if not progressed:
+            break
+    final = tendon_crossings(tendons, params, duct, mark_prefix, tol_mm=tol)
+    after = [c for c in final if c["clash"]]
+    keys = {(c["a"]["_mark"], c["b"]["_mark"], round(c["pt"][0], 2), round(c["pt"][1], 2))
+            for c in after}
+    unresolved = [c for c in final if (c["a"]["_mark"], c["b"]["_mark"],
+                                       round(c["pt"][0], 2), round(c["pt"][1], 2)) in keys]
+    return {"moves": moves, "unresolved": unresolved, "crossings": final,
+            "clashes_before": int(n_before or 0), "clashes_after": len(after)}
+
+
+def _cut_polyline_pieces(pr, st, total, pos_at, cuts, half):
+    """قطع البوليلاين بعد ما الفجوات (حوالين كل محطة في `cuts`) تتشال."""
+    gaps = []
+    for s in sorted(cuts):
+        a, b = max(0.0, s - half), min(total, s + half)
+        if gaps and a <= gaps[-1][1]:
+            gaps[-1][1] = max(gaps[-1][1], b)
+        else:
+            gaps.append([a, b])
+    keep, u = [], 0.0
+    for a, b in gaps:
+        if a > u + 1e-6:
+            keep.append((u, a))
+        u = b
+    if total > u + 1e-6:
+        keep.append((u, total))
+    out = []
+    for u0, u1 in keep:
+        pts = [pos_at(u0)] + [pr[k]["pos"] for k in range(len(pr))
+                              if u0 + 1e-6 < st[k] < u1 - 1e-6] + [pos_at(u1)]
+        if len(pts) >= 2:
+            out.append(pts)
+    return out
+
+
+def _shop_crossings_plan(msp, live, crossings, site, params, dy, TH, M,
+                         moves=None, duct=20.0, scale=100.0):
+    """
+    بلان التقاطعات فوق المسقط الرئيسي: الاتجاهين فوق بعض، الكابل اللي
+    فوق متواصل واللي تحت مقطوع عند التقاطع، الفرق بالمليمتر عند كل
+    تقاطع، والتعارض بدايرة حمرا. ومعاه عنوان ومفتاح رموز وجدول
+    التعارضات (أو التحريكات اللي عملت موديل No Clashes).
+    """
+    def sh(p):
+        return (p[0] * M, p[1] * M + dy)
+
+    for slab in (site or {}).get("slabs", []) or []:
+        pts = [sh(q) for q in slab.get("points", [])]
+        if len(pts) >= 3:
+            msp.add_lwpolyline(pts, close=True,
+                               dxfattribs={"layer": "PT-Drop" if slab.get("is_drop") else "PT-Slab"})
+    if not (site or {}).get("slabs") and (site or {}).get("boundary"):
+        msp.add_lwpolyline([sh(q) for q in site["boundary"]], close=True,
+                           dxfattribs={"layer": "PT-Slab"})
+    for op in (site or {}).get("openings", []) or []:
+        pts = [sh(q) for q in op]
+        if len(pts) >= 3:
+            msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": "PT-Opening"})
+    for w in (site or {}).get("walls", []) or []:
+        msp.add_line(sh(w["p1"]), sh(w["p2"]), dxfattribs={"layer": "PT-Wall"})
+    for c in (site or {}).get("columns", []) or []:
+        cx, cy = sh(c["center"])
+        b = float(c.get("b") or 300.0) / 2.0
+        d = float(c.get("d") or 300.0) / 2.0
+        msp.add_lwpolyline([(cx - b, cy - d), (cx + b, cy - d), (cx + b, cy + d),
+                            (cx - b, cy + d)], close=True,
+                           dxfattribs={"layer": "PT-Column"})
+
+    under = {}
+    for c in crossings:
+        if c["over"] == "a":
+            under.setdefault(id(c["b"]), []).append(c["sb"])
+        elif c["over"] == "b":
+            under.setdefault(id(c["a"]), []).append(c["sa"])
+    half = max(0.2, SHOP_CROSS_GAP_PAPER * scale / M)
+    moved_ids = {id(t) for t in live
+                 if any(q.get("clash_moved") for q in (t.get("profile") or []))}
+    for t in live:
+        g = _cross_geo(t)
+        if not g:
+            continue
+        pr, st, total, _d, pts, _bb, pos_at = g
+        layer = f"PT-Cross-{t.get('_fam', 'A')}"
+        for pc in _cut_polyline_pieces(pr, st, total, pos_at, under.get(id(t), []), half):
+            msp.add_lwpolyline([sh(q) for q in pc], dxfattribs={"layer": layer})
+        if id(t) in moved_ids:
+            for q in pr:
+                if q.get("clash_moved"):
+                    x, y = sh(q["pos"])
+                    msp.add_circle((x, y), TH * 0.9, dxfattribs={"layer": "PT-Cross-Moved"})
+        for end, nxt in ((pr[0]["pos"], pr[1]["pos"]), (pr[-1]["pos"], pr[-2]["pos"])):
+            ux, uy = end[0] - nxt[0], end[1] - nxt[1]
+            L = math.hypot(ux, uy) or 1.0
+            ux, uy = ux / L, uy / L
+            ang = math.degrees(math.atan2(uy, ux))
+            if ang > 90.0:
+                ang -= 180.0
+            elif ang < -90.0:
+                ang += 180.0
+            x, y = sh((end[0] + ux * TH * 2.2 / M, end[1] + uy * TH * 2.2 / M))
+            _shop_text(msp, t.get("_mark", ""), (x, y), TH * 0.8, "PT-Cross-Mark",
+                       align="MIDDLE_CENTER", rotation=ang)
+
+    for c in crossings:
+        x, y = sh(c["pt"])
+        if c["clash"]:
+            msp.add_circle((x, y), TH * 1.3, dxfattribs={"layer": "PT-Cross-Clash"})
+            _shop_text(msp, f"CLASH {c['gap']:.0f}", (x, y + TH * 1.6), TH * 0.8,
+                       "PT-Cross-Clash", align="BOTTOM_CENTER")
+        else:
+            top = c["a"] if c["over"] == "a" else c["b"]
+            _shop_text(msp, f"{top.get('_fam', 'A')} {c['gap']:.0f}",
+                       (x + TH * 0.45, y + TH * 0.45), TH * (0.8 if c.get("tight") else 0.65),
+                       "PT-Cross-Tight" if c.get("tight") else "PT-Cross-Gap",
+                       align="BOTTOM_LEFT")
+
+    pts_all = [q["pos"] for t in live for q in (t.get("profile") or [])]
+    bx0, by0, bx1, by1 = bbox_of(pts_all) if pts_all else (0.0, 0.0, 1.0, 1.0)
+    tx, ty = bx0 * M, by1 * M + dy + TH * 2.0
+    _shop_text(msp, "TENDON CROSSINGS - WHICH TENDON PASSES OVER", (tx, ty + TH * 3.2),
+               TH * 1.4, "PT-Cross-Text", align="BOTTOM_LEFT")
+    tol = float(crossings[0].get("tol", duct)) if crossings else duct
+    legend = [("PT-Cross-A", "continuous line = the tendon that passes OVER (A = first direction, B = second)"),
+              ("PT-Cross-B", "broken line = the tendon that passes UNDER"),
+              ("PT-Cross-Gap", "figure at the crossing = which tendon is on top and the vertical gap between the two duct centres, mm"),
+              ("PT-Cross-Tight", f"yellow figure = tight: gap under the duct height ({duct:.0f} mm) - the lower duct bends a little"),
+              ("PT-Cross-Clash", f"red circle = CLASH: gap under {tol:.0f} mm, the two ducts sit at the same level"),
+              ("PT-Cross-Moved", "magenta circle = a point moved for the No Clashes model")]
+    for i, (layer, txt) in enumerate(legend):
+        yy = ty + TH * 1.6 - i * TH * 1.3
+        if layer == "PT-Cross-A":
+            msp.add_line((tx, yy + TH * 0.3), (tx + TH * 3.0, yy + TH * 0.3), dxfattribs={"layer": layer})
+        elif layer == "PT-Cross-B":
+            msp.add_line((tx, yy + TH * 0.3), (tx + TH * 1.1, yy + TH * 0.3), dxfattribs={"layer": layer})
+            msp.add_line((tx + TH * 1.9, yy + TH * 0.3), (tx + TH * 3.0, yy + TH * 0.3), dxfattribs={"layer": layer})
+        else:
+            msp.add_circle((tx + TH * 1.5, yy + TH * 0.3), TH * 0.35, dxfattribs={"layer": layer})
+        _shop_text(msp, txt, (tx + TH * 3.6, yy), TH * 0.75, "PT-Cross-Text", align="BOTTOM_LEFT")
+
+    clashes = [c for c in crossings if c["clash"]]
+    lx, ly = bx1 * M + 5000.0, by1 * M + dy
+    lines = []
+    if moves:
+        lines.append((f"MOVES MADE FOR THE NO CLASHES MODEL ({len(moves)}):", "PT-Cross-Text", 1.0))
+        for m in moves[:40]:
+            lines.append((f"{m['mark']} {m['how']} {m['other']} at ({m['pt'][0]:.1f}, {m['pt'][1]:.1f}): "
+                          f"{m['from']:.0f} -> {m['to']:.0f} mm from the top ({m['where']})",
+                          "PT-Cross-Moved", 0.8))
+        if len(moves) > 40:
+            lines.append((f"... and {len(moves) - 40} more - see the log", "PT-Cross-Text", 0.8))
+        lines.append(("", "PT-Cross-Text", 0.8))
+    tight = sum(1 for c in crossings if c.get("tight"))
+    if clashes:
+        lines.append((f"CLASHES ({len(clashes)}) - gap under {tol:.0f} mm; {tight} more "
+                      f"crossing(s) tight under {duct:.0f} mm:", "PT-Cross-Clash", 1.0))
+        for c in clashes[:40]:
+            lines.append((f"{c['a']['_mark']} x {c['b']['_mark']} at ({c['pt'][0]:.1f}, {c['pt'][1]:.1f}): "
+                          f"{c['da']:.0f} / {c['db']:.0f} mm from the top, gap {c['gap']:.0f}",
+                          "PT-Cross-Clash", 0.8))
+        if len(clashes) > 40:
+            lines.append((f"... and {len(clashes) - 40} more", "PT-Cross-Clash", 0.8))
+    else:
+        lines.append((f"CLASHES: none - none of the {len(crossings)} crossings is under "
+                      f"{tol:.0f} mm; {tight} tight under {duct:.0f} mm.", "PT-Cross-Text", 1.0))
+    for i, (s, layer, k) in enumerate(lines):
+        if s:
+            _shop_text(msp, s, (lx, ly - i * TH * 1.5), TH * k, layer, align="TOP_LEFT")
+    return {"n": len(crossings), "clashes": len(clashes), "tight": tight, "tol": tol}
 
 
 def _shop_supports_along(samples, site, params):
@@ -59863,6 +60440,9 @@ MODES = {
     #  18.131: تصميم الكمرات
     "beams": "Existing model: a design strip on every beam, RAM designs them, "
              "the bars go into the beam schedule",
+    #  18.134: التقاطعات والتعارضات
+    "noclash": "Existing model: the tendon crossings, the safer tendon moved at "
+               "every clash, the No Clashes model analysed and drawn",
 }
 
 #  ==========================================================================
@@ -59904,6 +60484,7 @@ JOB_EXISTING = {
     "Make it pass - add steel": "save",
     "Both - add, then trim": "both",
     "Design the beams": "beams",
+    "Fix the tendon clashes": "noclash",
 }
 
 JOB_METHODS = {
@@ -60071,6 +60652,24 @@ def job_plan(start, what, method="balance"):
                           "read the designed bars and links into the beam "
                           "schedule, write the RC drawings and open the "
                           "reinforcement screen"]}
+    if what == "noclash":
+        #  **18.134: مين فوق مين، وموديل No Clashes.**
+        return {"mode": "noclash", "flags": {},
+                "needs": ("cpt",), "method": None,
+                "title": "The model you have: the tendon crossings and the No "
+                         "Clashes model",
+                "steps": ["read the model and its tendons",
+                          "find every crossing between tendons and the vertical "
+                          "gap between them, and write the shop drawing with the "
+                          "crossings plan (over / under / clash)",
+                          "analyse in RAM and read the section check: which span "
+                          "is safer at each clash",
+                          "move the safer tendon a duct height under (or over) "
+                          "the other at every clash",
+                          "write the moved tendons, analyse again and save the "
+                          "No Clashes model",
+                          "say whether it still passes, and write the No Clashes "
+                          "drawing"]}
     if what == "hopt":
         #  **18.87: ده اختيار بعد رسم الكابلات، مش طريقة رسمها.**
         #  (18.103: الاختيار ده اتشال من القايمة - Optimum solution H
@@ -61877,6 +62476,13 @@ class AutoPTApp:
             "shop_skip_hi": V(value="1020"),
             "shop_vexag": V(value="5"),
             "shop_scale": V(value="100"),
+            #  18.134: بلان التقاطعات والتعارضات
+            "shop_crossings": B(value=True),
+            "shop_duct_mm": V(value="20"),
+            "shop_clash_tol": V(value="10"),
+            "shop_fix_clashes": B(value=True),
+            "shop_clash_snap": V(value="0.6"),
+            "shop_clash_analyse": B(value=True),
             #  18.130: لوحات RC
             "rc_auto": B(value=False), "rc_sheet_ga": B(value=True),
             "rc_sheet_loads": B(value=True), "rc_sheet_rc": B(value=True),
@@ -65746,6 +66352,50 @@ class AutoPTApp:
         ttk.Button(btn, text="◫   Export a shop drawing",
                    style="Primary.TButton",
                    command=self._export_shop_drawing).pack(side="right")
+
+        #  18.134: مين فوق مين، والتعارضات
+        c = Card(right, "Crossings and clashes",
+                 "Which tendon passes over which, and the No Clashes model", icon="⇅")
+        c.pack(fill="x", pady=(0, 14))
+        c.check("Draw the crossings plan (which tendon passes over which)",
+                self.v["shop_crossings"],
+                "A second plan above the main one with both directions on top of "
+                "each other: the tendon that passes over is drawn continuous, the "
+                "one that passes under is broken at the crossing, and the vertical "
+                "gap between the two duct centres is written in mm. A crossing "
+                "closer than the duct height is a clash and gets a red circle.")
+        c.entry("Duct height (mm)", self.v["shop_duct_mm"],
+                hint="20 mm for a flat duct. A crossing closer than this is "
+                     "written in yellow as tight: the lower duct bends a little "
+                     "on site. The No Clashes model separates a clash to this.")
+        c.entry("A clash is a gap under (mm)", self.v["shop_clash_tol"],
+                hint="Two ducts closer than this where they cross sit at the "
+                     "same level - that is the clash the No Clashes model fixes. "
+                     "Half the duct height by default. In a slab with tendons "
+                     "both ways the two curves must pass the same level "
+                     "somewhere on the slope, so a tight crossing is normal and "
+                     "is only written, not fixed.")
+        c.check("Offer to fix the clashes in RAM after the drawing",
+                self.v["shop_fix_clashes"],
+                "When the drawing finds clashes you are asked whether to make the "
+                "No Clashes model: RAM analyses the model, the tendon whose span is "
+                "safer (lower utilisation) is moved a duct height under the other at "
+                "every clash, the model is analysed again, saved as "
+                "<model>_No_Clashes.cpt, a pop-up says whether it still passes, and "
+                "a second drawing <model>_No_Clashes.dxf is written.")
+        c.check("Analyse the model first to see which span is safer",
+                self.v["shop_clash_analyse"],
+                "Off, no analysis is run before the move and the Y tendon is taken "
+                "as the inner layer at every clash (the clash-offset convention).")
+        c.entry("A control point within (m) of the crossing is moved itself",
+                self.v["shop_clash_snap"],
+                hint="The high point on the column is usually where the tendons "
+                     "cross, so that point is lowered. A crossing further from any "
+                     "control point gets a new point at the crossing.")
+        btn2 = tk.Frame(right, bg=PALETTE["bg"])
+        btn2.pack(fill="x", pady=(0, 14))
+        ttk.Button(btn2, text="⇅   Fix the tendon clashes in RAM now (No Clashes model)",
+                   command=self._fix_clashes_now).pack(side="right")
         return outer
 
     def _page_rc(self, parent):
@@ -67534,11 +68184,51 @@ class AutoPTApp:
         finally:
             self.root.after(0, self._finish)
 
+    def _shop_kwargs(self, near=()):
+        """
+        18.134: إعدادات صفحة الشوب زي ما هي في الخانات - للزرار وللمسار
+        اللي بيرسم بعد الرام، عشان الرسمتين يطلعوا بنفس الإعدادات.
+        """
+        tpl = shop_template_path(self.v["shop_template"].get(),
+                                 near=tuple(q for q in near if q))
+        if tpl and tpl != (self.v["shop_template"].get() or "").strip():
+            #  اتلقى لوحده - يتحفظ، فمش هيتسأل عنه تاني
+            self.v["shop_template"].set(tpl)
+            try:
+                self.save_config(silent=True)
+            except Exception:
+                pass
+        try:
+            drop_mm = float(str(self.v["shop_chair_drop"].get()).strip()
+                            or SHOP_CHAIR_DROP_MM)
+        except ValueError:
+            drop_mm = SHOP_CHAIR_DROP_MM
+
+        def _num(key, default):
+            try:
+                return float(str(self.v[key].get()).strip())
+            except (ValueError, KeyError):
+                return default
+        return {"template": tpl or None, "chair_drop": drop_mm,
+                "sections": bool(self.v["shop_sections"].get()),
+                "station_step": max(0.25, _num("shop_station_step", SHOP_STATION_STEP)),
+                "dim_skip": (_num("shop_skip_lo", SHOP_DIM_SKIP[0]),
+                             _num("shop_skip_hi", SHOP_DIM_SKIP[1])),
+                "vexag": max(1.0, _num("shop_vexag", SHOP_SECTION_VEXAG)),
+                "scale": max(5.0, _num("shop_scale", SHOP_SCALE)),
+                "mark_prefix": (self.v["shop_mark_prefix"].get() or "").strip() or None,
+                "live_block": self.v["shop_live_block"].get(),
+                "dead_block": self.v["shop_dead_block"].get(),
+                "crossings": bool(self.v["shop_crossings"].get()),
+                "duct_mm": max(1.0, _num("shop_duct_mm", 20.0)),
+                "tol_mm": max(0.5, _num("shop_clash_tol", 10.0))}
+
     def _export_shop_drawing(self):
         """
         شوب درويينج من موديل موجود، بنفس تنسيق الـ template:
         الكابلات في المسقط، ارتفاع الكرسي عند كل محطة، الأبعاد بينها،
         المراسي، صندوق التعريف، وجدولين للكابلات.
+        18.134: وبلان التقاطعات - ولو فيه تعارضات، عرض يحلّها في رام.
         """
         start = getattr(self, "_last_output", None)
         path = filedialog.askopenfilename(
@@ -67556,17 +68246,12 @@ class AutoPTApp:
             filetypes=[("DXF drawing", "*.dxf")], parent=self.root)
         if not out:
             return
-        tpl = shop_template_path(self.v["shop_template"].get(),
-                                 near=(path, self.v["out_dir"].get()))
-        if tpl and tpl != (self.v["shop_template"].get() or "").strip():
-            #  اتلقى لوحده - يتحفظ، فمش هيتسأل عنه تاني
-            self.v["shop_template"].set(tpl)
-            self.save_config(silent=True)
         try:
             params = self.collect_params(strict=False)
         except Exception as e:
             messagebox.showerror("Settings", str(e), parent=self.root)
             return
+        kw = self._shop_kwargs(near=(path, self.v["out_dir"].get()))
         self.nav.select("run")
         job = Job(log_cb=self._log_async, progress_cb=self._progress_async)
         job.log(f"— Shop drawing — {os.path.basename(path)}", "head")
@@ -67578,45 +68263,38 @@ class AutoPTApp:
                                     "That model has no tendons to draw.",
                                     parent=self.root)
                 return
-            try:
-                drop_mm = float(str(self.v["shop_chair_drop"].get()).strip()
-                                or SHOP_CHAIR_DROP_MM)
-            except ValueError:
-                drop_mm = SHOP_CHAIR_DROP_MM
-            want_sec = bool(self.v["shop_sections"].get())
-
-            def _num(key, default):
-                try:
-                    return float(str(self.v[key].get()).strip())
-                except (ValueError, KeyError):
-                    return default
-            step = max(0.25, _num("shop_station_step", SHOP_STATION_STEP))
-            skip = (_num("shop_skip_lo", SHOP_DIM_SKIP[0]),
-                    _num("shop_skip_hi", SHOP_DIM_SKIP[1]))
-            vex = max(1.0, _num("shop_vexag", SHOP_SECTION_VEXAG))
-            sc = max(5.0, _num("shop_scale", SHOP_SCALE))
-            prefix = (self.v["shop_mark_prefix"].get() or "").strip() or None
+            tpl = kw["template"]
             job.info("Template: " + (os.path.basename(tpl) if tpl
                                      else "none found - the built-in anchors "
                                           "and boxes are used") + ".")
             job.info(f"Chair heights are the tendon centreline less "
-                     f"{drop_mm:.0f} mm - half the duct - so the number on the "
+                     f"{kw['chair_drop']:.0f} mm - half the duct - so the number on the "
                      f"drawing is what the chair is set to, not the CGS. Set "
                      f"it to 0 on the Settings card to write the centreline "
                      f"instead.")
-            res = export_shop_drawing(tendons, site, params, out, job,
-                                      template=tpl or None,
-                                      chair_drop=drop_mm, sections=want_sec,
-                                      station_step=step, dim_skip=skip,
-                                      vexag=vex, mark_prefix=prefix,
-                                      live_block=self.v["shop_live_block"].get(),
-                                      dead_block=self.v["shop_dead_block"].get(),
-                                      scale=sc)
+            res = export_shop_drawing(tendons, site, params, out, job, **kw)
             self._mark_output(out)
-            if messagebox.askyesno("Shop drawing ready",
-                                   f"{res['A']} tendons in A and {res['B']} in "
-                                   f"B written to\n{os.path.basename(out)}\n\n"
-                                   f"Open the folder?", parent=self.root):
+            msg = (f"{res['A']} tendons in A and {res['B']} in "
+                   f"B written to\n{os.path.basename(out)}\n")
+            if kw["crossings"]:
+                msg += (f"\n{res['crossings']} crossings between tendons: "
+                        f"{res['clashes']} clash(es) at the same level (gap under "
+                        f"{kw['tol_mm']:.0f} mm) and {res.get('tight', 0)} tight (under "
+                        f"the {kw['duct_mm']:.0f} mm duct). The crossings plan above "
+                        f"the main plan shows which tendon passes over which.\n")
+            if res.get("clashes") and bool(self.v["shop_fix_clashes"].get()):
+                if messagebox.askyesno(
+                        "Tendon clashes",
+                        msg + "\nFix them in RAM now? The model is analysed, the "
+                              "safer tendon is moved a duct height under the other "
+                              "at every clash, the model is analysed again and saved "
+                              "as the No Clashes model, and a second drawing 'No "
+                              "Clashes' is written.", parent=self.root):
+                    self.v["cpt"].set(path)
+                    self._fix_clashes_now()
+                    return
+            if messagebox.askyesno("Shop drawing ready", msg + "\nOpen the folder?",
+                                   parent=self.root):
                 self._open_last_folder()
         except ImportError:
             job.error("ezdxf is not installed - the shop drawing needs it "
@@ -67624,6 +68302,264 @@ class AutoPTApp:
         except Exception as e:
             job.error(f"The shop drawing could not be written: {e}")
             job.log(traceback.format_exc(), "error")
+
+    def _fix_clashes_now(self):
+        """زرار صفحة الشوب: نفس شجرة القرار - موديل موجود، فكّ التعارضات."""
+        try:
+            self.v["job_tree"].set(True)
+            self.v["job_start"].set(list(JOB_STARTS)[1])
+            self.v["job_existing"].set("Fix the tendon clashes")
+            self._job_tree_changed()
+        except Exception:
+            pass
+        self.nav.select("project")
+        self.start()
+
+    def _no_clashes_pipeline(self, cpt, out_dir, params: TendonDesignParams):
+        """
+        **18.134: مين فوق مين، وموديل No Clashes.**
+
+        يقرا الكابلات من الموديل، يلاقي كل تقاطع والفرق الرأسي عنده،
+        يكتب الشوب ببلان التقاطعات، وبعدين - لو فيه تعارضات - يحلّل
+        الموديل في رام عشان يعرف أنهي بحر مسيّف أكتر، يحرّك الكابل
+        الأأمن عند كل تعارض، يكتب الكابلات ويحلّل تاني ويحفظ
+        <الموديل>_No_Clashes.cpt، ويقول في رسالة عدّى ولا لأ، ويكتب
+        رسمة تانية No_Clashes.
+        """
+        job = self.job
+        try:
+            job.log("=" * 62, "head")
+            job.log(f"{APP_NAME} {APP_VERSION} — {MODES['noclash']}", "head")
+            job.log("=" * 62, "head")
+            if cpt and os.path.isfile(cpt) and not cpt_is_current_format(cpt):
+                cpt = ensure_current_model_format(
+                    cpt, out_dir, job, api_path=self.v["api_path"].get())
+                if not cpt:
+                    return
+            job.step(0.05, "Reading the model and its tendons")
+            site = site_from_cpt(cpt, job)
+            sync_slab_thickness(params, site, job)
+            tendons = tendons_from_cpt(cpt, params, job)
+            if not tendons:
+                job.error("This model has no tendons, so there is nothing to cross.")
+                return
+            #  الكابلات دي بتتكتب زي ما هي - التحريك الوحيد هو بتاع التعارض.
+            for t in tendons:
+                t["as_drawn"] = True
+            stem = os.path.splitext(os.path.basename(cpt))[0]
+            out_dir = out_dir or os.path.dirname(cpt)
+            kw = self._shop_kwargs(near=(cpt, out_dir))
+            kw["crossings"] = True
+            duct = float(kw["duct_mm"])
+            tol = float(kw["tol_mm"])
+            prefix = kw.get("mark_prefix")
+            drops = site.get("drops") or []
+
+            def thickness_at(p):
+                for dp in drops:
+                    try:
+                        if point_in_polygon(p[0], p[1], dp):
+                            return float(params.drop_thickness)
+                    except Exception:
+                        continue
+                return float(params.slab_thickness)
+
+            job.step(0.10, "Finding the crossings")
+            cr = tendon_crossings(tendons, params, duct, mark_prefix=prefix, tol_mm=tol)
+            clashes = [c for c in cr if c["clash"]]
+            tight = sum(1 for c in cr if c.get("tight"))
+            (job.warn if clashes else job.ok)(
+                f"{len(cr)} crossing(s) between tendons; {len(clashes)} clash(es) at "
+                f"the same level (under {tol:.0f} mm) and {tight} tight (under the "
+                f"{duct:.0f} mm duct - written, not fixed).")
+            for c in clashes[:30]:
+                job.info(f"    {c['a']['_mark']} x {c['b']['_mark']} at "
+                         f"({c['pt'][0]:.1f}, {c['pt'][1]:.1f}): {c['da']:.0f} / "
+                         f"{c['db']:.0f} mm from the top.")
+            if len(clashes) > 30:
+                job.info(f"    ... and {len(clashes) - 30} more.")
+            first_dxf = os.path.join(out_dir, f"{stem}_shop.dxf")
+            try:
+                export_shop_drawing(tendons, site, params, first_dxf, job, **kw)
+            except Exception as e:
+                job.warn(f"The first shop drawing was not written ({e}).")
+            info = {"cpt": cpt, "n": len(cr), "clashes": len(clashes), "duct": duct,
+                    "tol": tol, "tight": tight,
+                    "first_dxf": first_dxf, "moves": [], "unresolved": [],
+                    "before": None, "after": None, "model": None, "dxf": None,
+                    "analysed": False}
+            if not clashes:
+                self.root.after(0, lambda: self._show_clash_result(info))
+                job.step(1.0, "Done")
+                job.ok(f"No clashes - the shop drawing with the crossings plan: {first_dxf}")
+                return
+
+            mesh = self._num("mesh_size", 0) or None
+            state0 = None
+            out_file = os.path.join(out_dir, f"{stem}_No_Clashes.cpt")
+            with RamSession(job, api_path=self.v["api_path"].get()) as session:
+                session.open(cpt)
+                if bool(getattr(params, "shop_clash_analyse", True)):
+                    job.step(0.15, "Analysing the model as it is - which span is safer")
+                    res0 = run_model_analysis(session, job, mesh_size=mesh)
+                    if res0.get("ok"):
+                        try:
+                            plots = read_section_plots_from_ram(
+                                session, MdParams(params, efm_face="both"), job)
+                            spans = {}
+                            try:
+                                spans = (read_designed_steel(cpt) or {}).get("spans") or {}
+                            except Exception:
+                                pass
+                            state0 = osh_read_state(plots, spans, tendons, params)
+                            job.ok(f"{len(state0['readings'])} reading(s) on the "
+                                   f"sections, {state0['n_over']} over the limit "
+                                   f"before any change.")
+                        except Exception as e:
+                            job.warn(f"The section check could not be read ({e}); "
+                                     f"the Y tendon is taken as the inner layer.")
+                    else:
+                        job.warn("The analysis did not run; the Y tendon is taken as "
+                                 "the inner layer at every clash.")
+                job.check()
+                job.step(0.40, "Moving the safer tendon at every clash")
+                rr = resolve_tendon_clashes(tendons, params, state=state0,
+                                            thickness_at=thickness_at, duct_mm=duct,
+                                            mark_prefix=prefix, job=job, tol_mm=tol)
+                info["moves"] = rr["moves"]
+                info["unresolved"] = rr["unresolved"]
+                info["before"] = state0["n_over"] if state0 else None
+                job.ok(f"{len(rr['moves'])} point(s) moved; {rr['clashes_after']} "
+                       f"clash(es) left of {rr['clashes_before']}.")
+                if not rr["moves"]:
+                    job.warn("Nothing could be moved within the covers - the model "
+                             "is left as it is.")
+                    self.root.after(0, lambda: self._show_clash_result(info))
+                    job.step(1.0, "Done")
+                    return
+                job.step(0.55, "Writing the moved tendons into the model")
+                clear_tendons_in_ram(session, job)
+                write_tendons_to_ram(session, tendons, job, params,
+                                     drops=site.get("drops"), site=site)
+                if bool(getattr(params, "place_jacks", True)):
+                    try:
+                        write_jacks_to_ram(session, tendons, job, params)
+                    except Exception as e:
+                        job.warn(f"Jacks were not placed: {e}")
+                job.step(0.65, "Analysing the No Clashes model")
+                res1 = run_model_analysis(session, job, mesh_size=mesh)
+                job.step(0.85, "Saving the No Clashes model")
+                if not safe_save(session, out_file, job):
+                    job.error("The No Clashes model could not be saved.")
+                    return
+                info["model"] = out_file
+                if res1.get("ok"):
+                    info["analysed"] = True
+                    try:
+                        plots = read_section_plots_from_ram(
+                            session, MdParams(params, efm_face="both"), job)
+                        spans = {}
+                        try:
+                            spans = (read_designed_steel(out_file) or {}).get("spans") or {}
+                        except Exception:
+                            pass
+                        state1 = osh_read_state(plots, spans, tendons, params)
+                        info["after"] = state1["n_over"]
+                        info["new_fail"] = (osh_new_failures(state0, state1)
+                                            if state0 else [])
+                        (job.ok if state1["n_over"] == 0 else job.warn)(
+                            f"No Clashes model: {state1['n_over']} reading(s) over "
+                            f"the limit" + (f" (before: {state0['n_over']})" if state0 else "") + ".")
+                    except Exception as e:
+                        job.warn(f"The section check of the No Clashes model could "
+                                 f"not be read ({e}).")
+                else:
+                    job.warn("The No Clashes model was saved but RAM did not analyse "
+                             "it - open it and press Calc All.")
+            job.step(0.92, "Writing the No Clashes drawing")
+            second = os.path.join(out_dir, f"{stem}_No_Clashes.dxf")
+            try:
+                export_shop_drawing(tendons, site, params, second, job,
+                                    moves=rr["moves"], **kw)
+                info["dxf"] = second
+            except Exception as e:
+                job.warn(f"The No Clashes drawing was not written ({e}).")
+            self._mark_output(out_file)
+            self._last_clash = info
+            self.root.after(0, lambda: self._show_clash_result(info))
+            job.step(1.0, "Done")
+            job.log("=" * 62, "head")
+            job.ok(f"Finished. File: {out_file}")
+        except CancelledError:
+            job.warn("Stopped.")
+            job.step(0.0, "Stopped")
+        except Exception as e:
+            job.error(f"The No Clashes run failed: {e}")
+            for line in traceback.format_exc().strip().splitlines()[-12:]:
+                job.log("   " + line, "error")
+            job.step(0.0, "Failed")
+        finally:
+            self.root.after(0, self._finish)
+
+    def _show_clash_result(self, info):
+        """18.134: الرسالة - كام تقاطع، كام تعارض، اتحرّك إيه، وعدّى ولا لأ."""
+        try:
+            lines = [f"{info['n']} crossings between tendons: {info['clashes']} "
+                     f"clash(es) at the same level (gap under {info['tol']:.0f} mm) and "
+                     f"{info.get('tight', 0)} tight (under the {info['duct']:.0f} mm duct)."]
+            if not info["clashes"]:
+                lines.append("")
+                lines.append("No clashes: at every crossing one tendon is over the "
+                             "other. The crossings plan in "
+                             f"{os.path.basename(info['first_dxf'])} shows which, and "
+                             "the tight ones are written in yellow.")
+                messagebox.showinfo("No clashes", "\n".join(lines), parent=self.root)
+                return
+            moves = info.get("moves") or []
+            if moves:
+                lines.append(f"{len(moves)} point(s) moved for the No Clashes model:")
+                for m in moves[:12]:
+                    lines.append(f"  {m['mark']} {m['how']} {m['other']} at "
+                                 f"({m['pt'][0]:.1f}, {m['pt'][1]:.1f}): "
+                                 f"{m['from']:.0f} -> {m['to']:.0f} mm")
+                if len(moves) > 12:
+                    lines.append(f"  ... and {len(moves) - 12} more (in the log and on the drawing)")
+            else:
+                lines.append("Nothing could be moved within the covers - the model "
+                             "is left as it is.")
+            if info.get("unresolved"):
+                lines.append(f"{len(info['unresolved'])} clash(es) were left: no room "
+                             f"within the covers, or the move would put a kink in the "
+                             f"profile (the log says which).")
+            lines.append("")
+            safe = None
+            if info.get("model"):
+                if info.get("after") is not None:
+                    safe = info["after"] == 0
+                    if safe:
+                        lines.append("The No Clashes model is SAFE: no section over "
+                                     "the limit.")
+                    else:
+                        lines.append(f"The No Clashes model is NOT safe: {info['after']} "
+                                     f"reading(s) over the limit"
+                                     + (f" (before the move: {info['before']})."
+                                        if info.get("before") is not None else "."))
+                        nf = info.get("new_fail") or []
+                        if nf:
+                            lines.append(f"  {len(nf)} of them are new since the move.")
+                elif info.get("analysed"):
+                    lines.append("The No Clashes model was analysed but its section "
+                                 "check could not be read - open it in RAM.")
+                else:
+                    lines.append("The No Clashes model was saved but not analysed - "
+                                 "open it in RAM and press Calc All.")
+                lines.append(f"Model: {os.path.basename(info['model'])}")
+            if info.get("dxf"):
+                lines.append(f"Drawing: {os.path.basename(info['dxf'])}")
+            fn = messagebox.showinfo if safe else messagebox.showwarning
+            fn("No Clashes model", "\n".join(lines), parent=self.root)
+        except Exception as e:
+            self.log(f"The clash result could not be shown: {e}", "warn")
 
     # ------------------------------------------------------------------
     #  محرّر الكابلات على موديل موجود
@@ -68473,6 +69409,10 @@ class AutoPTApp:
             rc_loads_from_model=v["rc_loads_from_model"].get(), rc_edge_on_plan=v["rc_edge_on_plan"].get(),
             rc_sheet_details=v["rc_sheet_details"].get(), rc_bar_blocks=v["rc_bar_blocks"].get(),
             rc_bar_fields=v["rc_bar_fields"].get(),
+            shop_crossings=v["shop_crossings"].get(), shop_duct_mm=self._num("shop_duct_mm", 20.0),
+            shop_clash_tol=self._num("shop_clash_tol", 10.0),
+            shop_fix_clashes=v["shop_fix_clashes"].get(), shop_clash_snap=self._num("shop_clash_snap", 0.6),
+            shop_clash_analyse=v["shop_clash_analyse"].get(),
             punch_check=v["punch_check"].get(),
             punch_code=v["punch_code"].get(),
             punch_fc=self._num("punch_fc", 30.0),
@@ -68941,7 +69881,7 @@ class AutoPTApp:
     #  كلها في الـ .cpt وبتتقرا منه (site_from_cpt). طلب ملف DXF فيها كان
     #  بقايا من فاليداتور واحد لكل الأوضاع، ومحدش بيستعمله - مسار حلقة الـ
     #  EFM مابياخدش الـ dxf أصلاً كوسيط.
-    CPT_ONLY_MODES = ("efm", "moment", "osh", "beams")
+    CPT_ONLY_MODES = ("efm", "moment", "osh", "beams", "noclash")
     #  "رسم الكابلات فقط" معناه إن الموديل جاهز بكل مشتملاته - فملف
     #  الكاد فيه **اختياري**: سبته فاضي يبقى الهندسة من الموديل، حطيت
     #  ملف يبقى فيه مسارات كابلات مرسومة تتّبع. وجود الملف هو الاختيار،
@@ -69114,6 +70054,8 @@ class AutoPTApp:
             target, args = self._osh_pipeline, (cpt, out_dir, params)
         elif mode == "beams":
             target, args = self._beams_pipeline, (cpt, out_dir, params)
+        elif mode == "noclash":
+            target, args = self._no_clashes_pipeline, (cpt, out_dir, params)
         elif mode in ("osh_new", "osh_draw"):
             target, args = self._osh_chain_pipeline, (mode, dxf, cpt, out_dir,
                                                       params)
