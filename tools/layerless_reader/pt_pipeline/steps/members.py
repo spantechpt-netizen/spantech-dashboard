@@ -695,7 +695,8 @@ def run(tag, W, legmap):
     # كمرة مقلوبة: مكتوب على تسميتها INV أو INVERTED
     for b in ub:
         if re.search(r"\bINV(?:ERTED)?\b",b.get("label",""),re.I): b["inverted"]=True
-    res={"tapered_labels":tapered,"ramp_beams":ramp_b,"cols":cols,"walls":walls,"beams":ub,"miss":[l["text"]+" @(%.1f,%.1f)"%(l["at"][0]-W[0],l["at"][1]-W[1]) for l in miss]}
+    res={"tapered_labels":tapered,"ramp_beams":ramp_b,"cols":cols,"walls":walls,"beams":ub,"miss":[l["text"]+" @(%.1f,%.1f)"%(l["at"][0]-W[0],l["at"][1]-W[1]) for l in miss],
+         "miss_pts":[[l["text"],l["mark"],l["w"],l["dpt"],l["at"][0],l["at"][1]] for l in miss]}
     json.dump(res,open(f"{tag}_members.json","w"),default=lambda o: o)
     cc=collections.Counter(c["type"] for c in cols); wc=collections.Counter(w["type"] for w in walls)
     print(tag,"columns",dict(cc),"walls",dict(wc),"beams",len(ub),"(unlabelled %d)"%len(extra),"labels",len(labels),"unmatched",len(miss))

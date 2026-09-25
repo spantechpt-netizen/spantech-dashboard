@@ -11,7 +11,7 @@
   5  فواصل التمدد -> زونات (أعمدة توأم ≥ 2 أزواج).
   6  الأعمدة/الحوائط/الكمرات (التسميات بالمقاسات، بالعلامة بس، بعرضين، كمرات الحرف، المرسومة
      من غير تسمية بين ركيزتين)، الربط، فحص المنطق.
-  7  المنحدر من الخطوط المايلة (لو مفيش نص)، حد المنحدر على الحوائط/الكمرات.
+  7  المنحدر من الخطوط المايلة (لو مفيش نص)، حد المنحدر على الحوائط/الكمرات، وكمرات المنحدر برّه الموديل.
   8  السُمك (ملاحظات + بلوكات)، الدروبات، المناسيب، شرايح الصب.
   9  السلم بين كمراته، الكور، الكمرة بعرضين، حد البلاطة على الكمرات والأعمدة، فحص الزونات.
   10 التصدير (PT-Clean-*، مم) + صور + members.csv + report.json.
@@ -352,6 +352,7 @@ def run(src, out, sheets_json=None, keep_work=False):
     step("connect.py", *zones, cwd=work)
     step("beam_sanity.py", *zones, env={"SUPPORTS_ONLY": "1"}, cwd=work)
     step("ramp_faces.py", *zones, cwd=work, check=False)
+    step("ramp_members.py", *zones, cwd=work, check=False)
     # 8) السُمك والدروبات والمناسيب وشرايح الصب
     step("thick_attr.py", raw, scale, *zones, cwd=work, check=False)
     step("thick.py", "m.dxf", *zones, cwd=work, check=False)

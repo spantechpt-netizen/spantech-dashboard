@@ -55,7 +55,36 @@ for tag in TAGS:
     t_slab = res.get("slab_thickness_mm"); main = res.get("main_level_m")
     zones = [(Polygon(z["poly"]), z) for z in res.get("level_zones", [])]
     drops = [(Polygon(d["poly"]), d) for d in res.get("drops", [])]
-    tz = [(Polygon(z["poly"]), z) for z in res.get("thick_zones", [])]
+    tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", [])]
+    # منطقة المنسوب ومنطقة السُمك بنفس الأولوية (2): لو اتداخلوا RAM مايعرفش مين يغلب.
+    # فمنطقة المنسوب بتتكتب من غير أجزاء السُمك، وكل جزء من منطقة السُمك بياخد SE المنطقة اللي هو فيها.
+    def _no_holes(g):
+        """مضلع فيه خرم بيتقسم لقطع من غير خرم (RAM بياخد حد خارجي بس)."""
+        if not g.interiors:
+            return [g]
+        from shapely.ops import split
+        from shapely.geometry import LineString
+        cx = g.interiors[0].centroid.x; y0, y1 = g.bounds[1] - 1, g.bounds[3] + 1
+        out = []
+        for q in split(g, LineString([(cx, y0), (cx, y1)])).geoms:
+            out += _no_holes(q)
+        return out
+
+    if tz and zones:
+        TZ = unary_union([p for p, _ in tz])
+        zz = []
+        for zp, z in zones:
+            q = zp.buffer(0).difference(TZ)
+            zz += [(h, z) for g in getattr(q, "geoms", [q]) if g.geom_type == "Polygon" for h in _no_holes(g) if h.area >= 0.5]
+        tt = []
+        for tp, t in tz:
+            rest = tp
+            for zp, z in zones:
+                q = tp.intersection(zp.buffer(0))
+                tt += [(g, dict(t, se_fixed=z["se_mm"])) for g in getattr(q, "geoms", [q]) if g.geom_type == "Polygon" and g.area >= 0.5]
+                rest = rest.difference(zp.buffer(0))
+            tt += [(g, dict(t, se_fixed=0)) for g in getattr(rest, "geoms", [rest]) if g.geom_type == "Polygon" and g.area >= 0.5]
+        zones, tz = zz, tt
     ops = [Polygon(o["poly"]) for o in res["openings"]]
     # شرايح الصب (pour strips): بلاطة بنفس سُمك ومنسوب اللي ماشية فيه، أولوية أعلى، Fx/Fy مفكوكين
     strips = []
@@ -84,7 +113,7 @@ for tag in TAGS:
         if o.get("kind") == "ramp":
             rows.append([tag, "opening", "ramp", "", "", round(Polygon(o["poly"]).area, 2), "car ramp = opening (office rule)"])
     for zp, z in zones:
-        msp.add_lwpolyline([T(p) for p in z["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
+        msp.add_lwpolyline([T(p) for p in list(zp.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
         c = zp.representative_point()
         zt = None if z.get("t_unknown") else z.get("thickness_mm", t_slab)
         txt = (f"LEVEL t={zt} " if zt else "LEVEL ") + f"SE={z['se_mm']:+d}" + (f" P={P_Z}" if P_Z else "")
@@ -99,8 +128,8 @@ for tag in TAGS:
     for v in res.get("level_unresolved", []):
         rows.append([tag, "REVIEW", "level", v, "", "", "level label with no closed zone around it - not exported"])
     for zp, z in tz:
-        msp.add_lwpolyline([T(p) for p in z["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
-        c = zp.representative_point(); se = zone_se(c)
+        msp.add_lwpolyline([T(p) for p in list(zp.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
+        c = zp.representative_point(); se = z["se_fixed"] if "se_fixed" in z else zone_se(c)
         msp.add_text(f"ZONE t={z['thickness_mm']}" + (f" SE={se:+d}" if se else "") + (f" P={P_Z}" if P_Z else ""),
                      dxfattribs={"layer": "PT-Clean-Drops", "height": 250, "insert": T((c.x, c.y))})
         rows.append([tag, "thickness zone", "", z["thickness_mm"], "", round(zp.area, 2), f"slab {t_slab}; note '{z.get('note','')}'"])
