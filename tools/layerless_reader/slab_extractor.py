@@ -672,7 +672,10 @@ def extract_slab(doc, view: PlanView, gap=0.10, log=print) -> SlabResult:
             inner = Polygon(inn.exterior).simplify(0.02)
             ring = slab.difference(inner.buffer(0.3, join_style=2))
             dens = sum(l.intersection(ring).length for l in inner_lines if l.length < 8) / max(ring.area, 1e-6)
-            if inner.area < 0.9 * slab.area and dens < 0.15 and ring.area > 30:
+            # قاعدة المسقط المعماري بس: في الإنشائي الخط الخارجي هو حد البلاطة دايمًا
+            # (مسقط برج فيه أعمدة و drop panels بس في الحلقة كان بيتقري "أرض فاضية")
+            if (inner.area < 0.9 * slab.area and dens < 0.15 and ring.area > 30
+                    and view.source != "struct"):
                 notes.append(f"الخط الخارجي حد أرض (الحلقة {ring.area:.0f} م² فاضية تقريبًا) - اتاخد حد المبنى")
                 slab = inner
     except Exception as ex:  # الفحص ده تحسين، مش شرط
