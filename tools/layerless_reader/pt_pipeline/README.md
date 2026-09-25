@@ -19,6 +19,8 @@ python -m pt_pipeline.convert sheet.dxf -o out/ --sheets wins.json    # شباب
 
 الأمر لازم يتشغّل من فولدر `tools/layerless_reader`.
 
+أو من جوه البرنامج: زرار **"📐 Read a DWG / DXF drawing…"** في صفحة Project، وتفاصيله في `autopt/README.md`.
+
 كود الخروج:
 
 - `0`: كل الزونات عدّت الفحص.

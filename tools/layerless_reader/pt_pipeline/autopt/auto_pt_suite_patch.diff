@@ -1093,7 +1093,94 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -63618,7 +64531,8 @@
+@@ -56564,6 +57477,86 @@
+             self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
+ 
+ 
++class DrawingZonesDialog(ModalDialog):
++    """
++    الزونات اللي أداة قراءة المخطط طلّعتها: اسم كل زون وأعداد عناصرها
++    وعدد اللي محتاج مراجعة، وصورتها بضغطة. المختار بيتحط في خانة الـ DXF.
++    """
++
++    def __init__(self, parent, info, out_dir, check_ok=True):
++        super().__init__(parent, "Zones read from the drawing", 860, 560)
++        self.info, self.out_dir = info, out_dir
++
++        head = tk.Frame(self, bg=PALETTE["brand"], height=S(64))
++        head.pack(fill="x")
++        head.pack_propagate(False)
++        tk.Label(head, text=f"{len(info)} zone(s) read from the drawing",
++                 bg=PALETTE["brand"], fg="white",
++                 font=F(13, "bold")).pack(anchor="e", padx=18, pady=(10, 0))
++        tk.Label(head, text=("Zone check passed. " if check_ok else
++                             "ZONE CHECK FAILED - see the log. ") +
++                 "Pick the zones to put in the DXF box; open a zone's picture "
++                 "to compare it with the drawing.",
++                 bg=PALETTE["brand"], fg="#c9dcea" if check_ok else "#ffd7d7",
++                 font=F(9)).pack(anchor="e", padx=18)
++
++        body = tk.Frame(self, bg=PALETTE["bg"])
++        body.pack(fill="both", expand=True, padx=16, pady=10)
++        cols = ("columns", "walls", "beams", "review")
++        self.tree = ttk.Treeview(body, columns=cols, show="tree headings",
++                                 selectmode="extended")
++        self.tree.heading("#0", text="Zone")
++        self.tree.column("#0", width=S(330))
++        for c, t in zip(cols, ("Columns", "Walls", "Beams", "To review")):
++            self.tree.heading(c, text=t)
++            self.tree.column(c, width=S(90), anchor="center")
++        for i, z in enumerate(info):
++            self.tree.insert("", "end", iid=str(i), text=z["tag"],
++                             values=(z["columns"], z["walls"], z["beams"],
++                                     z["review"] or ""))
++        self.tree.selection_set([str(i) for i in range(len(info))])
++        self.tree.pack(side="left", fill="both", expand=True)
++        sb = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
++        sb.pack(side="left", fill="y")
++        self.tree.configure(yscrollcommand=sb.set)
++        self.tree.bind("<Double-1>", lambda e: self._image())
++
++        foot = tk.Frame(self, bg=PALETTE["bg"])
++        foot.pack(fill="x", padx=16, pady=(0, 14))
++        ttk.Button(foot, text="Put in the DXF box", style="Primary.TButton",
++                   command=self._use).pack(side="right")
++        ttk.Button(foot, text="Open picture", command=self._image
++                   ).pack(side="right", padx=8)
++        ttk.Button(foot, text="Open folder", command=lambda: self._open(self.out_dir)
++                   ).pack(side="right")
++        ttk.Button(foot, text="Cancel", command=self._cancel).pack(side="left")
++
++    @staticmethod
++    def _open(path):
++        try:
++            if os.name == "nt":
++                os.startfile(path)
++            else:
++                subprocess.Popen(["xdg-open", path])
++        except Exception:
++            pass
++
++    def _image(self):
++        sel = self.tree.selection() or self.tree.get_children()[:1]
++        for s in sel[:3]:
++            img = self.info[int(s)].get("image")
++            if img:
++                self._open(img)
++
++    def _use(self):
++        sel = [self.info[int(s)]["path"] for s in self.tree.selection()]
++        if not sel:
++            messagebox.showinfo("Zones", "Select at least one zone.", parent=self)
++            return
++        self.result = sel
++        self.destroy()
++
++
+ class ZoneReviewDialog(ModalDialog):
+     """
+     شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
+@@ -63618,7 +64611,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1103,3 +1190,347 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
+@@ -68863,6 +69857,9 @@
+             "cleanup_col_min": V(value="150"),
+             "cleanup_col_max": V(value="1500"),
+             "cleanup_split_zones": B(value=False),
++            #  قارئ المخططات (pt_pipeline) - فولدره و dwgread بيتفتكروا
++            "drawing_reader_dir": V(),
++            "dwgread_path": V(),
+             "xfer_src": V(),
+             "xfer_factor": V(value="1"),
+             "xfer_analyse": B(value=True),
+@@ -69903,6 +70900,14 @@
+                 "each against the same .cpt template below if only one is "
+                 "set, or matched file-for-model if the .cpt box also has "
+                 "several, separated by ';'.")
++        #  **مخطط المكتب زي ما هو (DWG أو DXF، من غير ليّرات مظبوطة):**
++        #  القارئ بيطلع ملف نضيف لكل زون ويحطهم في الخانة اللي فوق.
++        _dr = c.row()
++        ttk.Button(_dr, text="📐  Read a DWG / DXF drawing…",
++                   command=self._drawing_clicked).pack(side="right", padx=4)
++        ttk.Label(_dr, style="Muted.TLabel",
++                  text="Any structural/architectural drawing -> one clean "
++                       "file per zone").pack(side="right", padx=8)
+         c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
+                                                           multi=True),
+                 "Opened as a template; a new copy is saved. The original is "
+@@ -69950,6 +70955,14 @@
+                 self._file_row(c.body, self.v["api_path"], "dir"),
+                 "Leave empty to auto-detect. Set it if RAM is installed somewhere "
+                 "unusual - either the python folder or the version folder.")
++        c.field("Drawing reader folder",
++                self._file_row(c.body, self.v["drawing_reader_dir"], "dir"),
++                "The folder that has 'pt_pipeline' in it (tools\\layerless_reader). "
++                "Empty = looked for next to the program; asked once if not found.")
++        c.field("LibreDWG dwgread.exe (DWG only)",
++                self._file_row(c.body, self.v["dwgread_path"], "exe"),
++                "Only needed to read .dwg directly. A DXF saved from AutoCAD "
++                "needs nothing extra.")
+ 
+         return outer
+ 
+@@ -70014,6 +71027,11 @@
+                     title="Select a RAM Concept file", parent=top,
+                     initialdir=self._last_dir(var),
+                     filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
++            elif kind == "exe":
++                p = filedialog.askopenfilename(
++                    title="Select the program", parent=top,
++                    initialdir=self._last_dir(var),
++                    filetypes=[("Program", "*.exe"), ("All files", "*.*")])
+             elif kind == "json":
+                 #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
+                 #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
+@@ -74993,6 +76011,291 @@
+                "It offers to fill the DXF box there with it.")
+         return outer
+ 
++    # ------------------------------------------------------------------
++    #  قراءة مخطط DWG/DXF كامل (pt_pipeline) -> ملفات زونات جاهزة
++    #
++    #  الزرار في كارت Files بياخد المخطط زي ما هو من المكتب - DWG أو
++    #  DXF، شيت فيه كذا دور، من غير أي ليّرات مظبوطة - ويشغّل أداة
++    #  القراءة (`python -m pt_pipeline.convert`) في الخلفية. الأداة بتطلع
++    #  ملف DXF نضيف لكل زون، والشاشة بعدها بتخلّي المهندس يختار الزونات
++    #  اللي تتحط في خانة الـ DXF. القواعد كلها في pt_pipeline/RULES.md.
++    # ------------------------------------------------------------------
++
++    def _find_reader_dir(self):
++        """الفولدر اللي فيه pt_pipeline/convert.py (tools/layerless_reader)."""
++        here = os.path.dirname(os.path.abspath(sys.argv[0] or __file__))
++        cands = [(self.v["drawing_reader_dir"].get() or "").strip(),
++                 os.environ.get("AUTOPT_DRAWING_READER", ""),
++                 here, os.path.join(here, "layerless_reader"),
++                 os.path.join(here, "tools", "layerless_reader"),
++                 os.path.join(os.path.dirname(here), "tools", "layerless_reader")]
++        for c in cands:
++            if not c:
++                continue
++            for d in (c, os.path.join(c, "tools", "layerless_reader"),
++                      os.path.dirname(c)):
++                if os.path.isfile(os.path.join(d, "pt_pipeline", "convert.py")):
++                    return os.path.abspath(d)
++        return None
++
++    def _find_dwgread(self, reader_dir):
++        """LibreDWG dwgread - لازم بس لملفات DWG."""
++        names = ("dwgread.exe", "dwgread")
++        cands = [(self.v["dwgread_path"].get() or "").strip(),
++                 os.environ.get("LIBREDWG_DWGREAD", ""),
++                 shutil.which("dwgread") or ""]
++        if reader_dir:
++            for sub in ("", "libredwg", os.path.join("libredwg", "bin"), "bin"):
++                for n in names:
++                    cands.append(os.path.join(reader_dir, sub, n))
++        for c in cands:
++            if c and os.path.isfile(c):
++                return c
++        return None
++
++    @staticmethod
++    def _reader_python():
++        """
++        البايثون اللي يشغّل الأداة. لو البرنامج نفسه شغّال من بايثون
++        بياخده؛ ولو متحزّم exe (sys.executable هو البرنامج) بيدور على
++        python في الـ PATH.
++        """
++        exe = sys.executable or ""
++        base = os.path.basename(exe).lower()
++        if not getattr(sys, "frozen", False) and base.startswith("python"):
++            con = os.path.join(os.path.dirname(exe), "python.exe")
++            if base.startswith("pythonw") and os.path.isfile(con):
++                return [con]
++            return [exe]
++        for c in (["python"], ["py", "-3"], ["python3"]):
++            if shutil.which(c[0]):
++                return c
++        return None
++
++    def _drawing_clicked(self):
++        if self._reject_if_busy():
++            return
++        src = filedialog.askopenfilename(
++            title="The drawing to read (structural or architectural)",
++            parent=self.root, initialdir=self._last_dir(self.v["dxf"]),
++            filetypes=[("AutoCAD drawing", "*.dwg *.dxf"), ("DWG", "*.dwg"),
++                       ("DXF", "*.dxf"), ("All files", "*.*")])
++        if not src:
++            return
++        rdir = self._find_reader_dir()
++        if not rdir:
++            messagebox.showinfo(
++                "Drawing reader",
++                "Pick the folder of the drawing reader once (the folder that "
++                "has 'pt_pipeline' inside it - tools\\layerless_reader in the "
++                "repository). It is remembered after that.", parent=self.root)
++            p = filedialog.askdirectory(title="The drawing reader folder",
++                                        parent=self.root)
++            if p:
++                self.v["drawing_reader_dir"].set(p)
++                rdir = self._find_reader_dir()
++            if not rdir:
++                messagebox.showerror(
++                    "Drawing reader", "That folder has no pt_pipeline\\convert.py.",
++                    parent=self.root)
++                return
++        self.v["drawing_reader_dir"].set(rdir)
++        dwgread = None
++        if src.lower().endswith(".dwg"):
++            dwgread = self._find_dwgread(rdir)
++            if not dwgread:
++                if messagebox.askyesno(
++                        "DWG needs LibreDWG",
++                        "Reading a DWG needs LibreDWG's dwgread.exe (free). "
++                        "Point to it now?\n\n(Or save the drawing as DXF from "
++                        "AutoCAD and pick the DXF - that needs nothing extra.)",
++                        parent=self.root):
++                    p = filedialog.askopenfilename(
++                        title="LibreDWG dwgread.exe", parent=self.root,
++                        filetypes=[("dwgread", "dwgread*"), ("All files", "*.*")])
++                    if p:
++                        self.v["dwgread_path"].set(p)
++                        dwgread = p
++                if not dwgread:
++                    return
++        py = self._reader_python()
++        if not py:
++            messagebox.showerror(
++                "Drawing reader",
++                "No Python was found to run the drawing reader. Install "
++                "Python 3 and run once:\n\n  pip install ezdxf shapely matplotlib",
++                parent=self.root)
++            return
++        stem = os.path.splitext(os.path.basename(src))[0]
++        out = os.path.join(os.path.dirname(src), f"{stem}_PT")
++        try:
++            os.makedirs(out, exist_ok=True)
++            probe = os.path.join(out, f".__pt_write_test_{os.getpid()}.tmp")
++            with open(probe, "w") as f:
++                f.write("x")
++            os.remove(probe)
++        except Exception:
++            p = filedialog.askdirectory(
++                title="That folder is not writable - choose where to put the "
++                      "zone files", parent=self.root)
++            if not p:
++                return
++            out = os.path.join(p, f"{stem}_PT")
++            os.makedirs(out, exist_ok=True)
++        self.nav.select("run")
++        self._clear_log()
++        job = Job(log_cb=self._log_async, progress_cb=self._progress_async)
++        job.log(f"— Read a drawing — {os.path.basename(src)}", "head")
++        self.run_btn.configure(state="disabled", text="Working...")
++        self.stop_btn.configure(state="normal")
++        self.job = job
++        self._run_dir = out
++        self.worker = threading.Thread(
++            target=self._drawing_pipeline,
++            args=(src, out, rdir, dwgread, py, job), daemon=True)
++        self.worker.start()
++
++    def _drawing_pipeline(self, src, out, rdir, dwgread, py, job):
++        import queue as _q
++        proc = None
++        try:
++            env = dict(os.environ)
++            env["PYTHONIOENCODING"] = "utf-8"
++            if dwgread:
++                env["LIBREDWG_DWGREAD"] = dwgread
++            flags = 0x08000000 if os.name == "nt" else 0      # CREATE_NO_WINDOW
++            job.step(0.02, "Checking the drawing reader")
++            chk = subprocess.run(py + ["-c", "import ezdxf, shapely, matplotlib"],
++                                 cwd=rdir, env=env, capture_output=True,
++                                 text=True, creationflags=flags)
++            if chk.returncode != 0:
++                job.error("The drawing reader needs three Python packages. Run "
++                          "once in a command prompt:")
++                job.error(f"    {' '.join(py)} -m pip install ezdxf shapely matplotlib")
++                job.log((chk.stderr or "")[-600:], "error")
++                return
++            job.info(f"Reader: {rdir}")
++            job.info(f"Output: {out}")
++            job.step(0.05, "Reading the drawing (a few minutes on a big set)")
++            proc = subprocess.Popen(
++                py + ["-m", "pt_pipeline.convert", src, "-o", out],
++                cwd=rdir, env=env, stdout=subprocess.PIPE,
++                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
++                errors="replace", creationflags=flags)
++            lines = _q.Queue()
++
++            def _pump():
++                for ln in proc.stdout:
++                    lines.put(ln.rstrip("\n"))
++                lines.put(None)
++
++            threading.Thread(target=_pump, daemon=True).start()
++            tail, frac = [], 0.05
++            while True:
++                if job.cancel_event.is_set():
++                    proc.kill()
++                    raise CancelledError()
++                try:
++                    ln = lines.get(timeout=0.4)
++                except _q.Empty:
++                    continue
++                if ln is None:
++                    break
++                tail = (tail + [ln])[-40:]
++                if ln.startswith("[convert]"):
++                    msg = ln[len("[convert]"):].strip()
++                    frac = min(frac + 0.06, 0.9)
++                    job.step(frac, msg[:80])
++                    (job.warn if "FAIL" in msg or "skipped" in msg
++                     else job.info)(msg)
++            rc = proc.wait()
++            files = sorted(glob.glob(os.path.join(out, "*_slab_clean.dxf")))
++            rep = {}
++            try:
++                with open(os.path.join(out, "report.json"), encoding="utf-8") as f:
++                    rep = json.load(f)
++            except Exception:
++                pass
++            if rc not in (0, 2) or not files:
++                job.error(f"The drawing reader stopped (code {rc}). Last lines:")
++                for ln in tail[-15:]:
++                    job.log("    " + ln, "error")
++                return
++            if rc == 2:
++                job.flag("The zone check FAILED - an element from another zone, "
++                         "an element outside its slab, or a duplicated beam. "
++                         "Check these zones before sending them to RAM:")
++                for ln in rep.get("zone_check") or []:
++                    if "CHECK" in ln or re.search(r"foreign 0 not covered by slab 0 "
++                                                  r"twin beams in zone 0\b", ln):
++                        continue
++                    job.flag("    " + ln)
++            info = self._drawing_zone_info(out, files)
++            n_rev = sum(z["review"] for z in info)
++            job.step(1.0, "Done")
++            job.log("=" * 62, "head")
++            job.ok(f"{len(files)} zone file(s) written to {out}")
++            if n_rev:
++                job.flag(f"{n_rev} item(s) need an engineer's look (REVIEW in "
++                         f"members.csv) - nothing was guessed into the model.")
++            picked = self.bridge.ask(
++                lambda: DrawingZonesDialog(self.root, info, out,
++                                           check_ok=(rc == 0)).show())
++            if not picked:
++                job.warn("No zone was put in the DXF box - the files stay in "
++                         f"{out}.")
++                return
++            self.v["dxf"].set("; ".join(picked))
++            self._last_drawing = picked[0]
++            job.ok(f"{len(picked)} zone file(s) are in the DXF box on the "
++                   f"Project page" + (" - they run one after another (a RAM "
++                                      "model per zone)." if len(picked) > 1
++                                      else "."))
++            self.root.after(0, lambda: self.nav.select("project"))
++        except CancelledError:
++            job.warn("Stopped.")
++        except Exception as e:
++            job.error(f"Reading the drawing failed: {e}")
++            job.log(traceback.format_exc(), "error")
++        finally:
++            if proc is not None and proc.poll() is None:
++                try:
++                    proc.kill()
++                except Exception:
++                    pass
++            self.root.after(0, self._finish)
++
++    @staticmethod
++    def _drawing_zone_info(out, files):
++        """لكل زون: أعدادها من members.csv وصورتها."""
++        counts = {}
++        try:
++            with open(os.path.join(out, "members.csv"), encoding="utf-8-sig") as f:
++                for row in csv.reader(f):
++                    if len(row) < 2 or row[0] == "sheet":
++                        continue
++                    c = counts.setdefault(row[0], {"columns": 0, "walls": 0,
++                                                   "beams": 0, "review": 0})
++                    el = row[1]
++                    if el.startswith("column"):
++                        c["columns"] += 1
++                    elif el == "wall" or el.startswith("wall "):
++                        c["walls"] += 1
++                    elif el == "beam":
++                        c["beams"] += 1
++                    if el == "REVIEW" or "review" in (row[-1] or "").lower():
++                        c["review"] += 1
++        except Exception:
++            pass
++        info = []
++        for p in files:
++            tag = os.path.basename(p)[:-len("_slab_clean.dxf")]
++            c = counts.get(tag, {"columns": 0, "walls": 0, "beams": 0, "review": 0})
++            img = os.path.join(out, "images", tag + ".png")
++            info.append(dict(c, tag=tag, path=p,
++                             image=img if os.path.isfile(img) else None))
++        return info
++
+     def _cleanup_browse_dxf(self):
+         p = filedialog.askopenfilename(
+             title="The raw architectural DXF to clean",

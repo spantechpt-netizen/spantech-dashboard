@@ -6,7 +6,7 @@
 patch Auto_PT_Suite_v397_CAD_Reader_AI.py < auto_pt_suite_patch.diff
 ```
 
-فيه 3 تعديلات:
+فيه 4 تعديلات:
 
 1. **قراءة المقاسات المكتوبة** على العناصر وإدخالها لـ RAM بيها:
    - `t=`
@@ -30,5 +30,16 @@ patch Auto_PT_Suite_v397_CAD_Reader_AI.py < auto_pt_suite_patch.diff
    - مسح العناصر اللي البرنامج رسمها بس، وإعادة بنائها بتسامح أعلى (مستويين)؛
    - تجربة مقاسات عناصر شبكة تانية؛
    - لو كل ده فشل، طباعة الأماكن المشكوك فيها بالإحداثيات.
+4. **زرار "📐 Read a DWG / DXF drawing…"** في كارت Files في صفحة Project:
+   - بيختار مخطط المكتب زي ما هو (DWG أو DXF)؛
+   - بيشغّل `pt_pipeline` في الخلفية، واللوج بيظهر في صفحة Run، وStop بيوقفه؛
+   - بيطلع ملف لكل زون في فولدر `<اسم المخطط>_PT` جنب المخطط؛
+   - بيفتح شاشة فيها الزونات بأعدادها وصورها، واللي تختاره بيتحط في خانة الـ DXF.
 
-الاختبارات: `../tests/test_mesh_doctor.py`، ومحتاجة `AUTOPT_SRC`.
+   الإعدادات (في كارت Files):
+   - "Drawing reader folder": الفولدر اللي فيه `pt_pipeline`. لو مش لاقيه جنب البرنامج بيسألك مرة واحدة ويفتكره.
+   - "LibreDWG dwgread.exe": لملفات DWG بس.
+
+   محتاج بايثون عليه `ezdxf` و`shapely` و`matplotlib`. لو ناقصين، البرنامج بيقولك أمر الـ pip بالظبط.
+
+الاختبارات: `../tests/test_mesh_doctor.py` و`../tests/test_autopt_reader_button.py`، والاتنين محتاجين `AUTOPT_SRC`.
