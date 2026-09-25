@@ -100,7 +100,38 @@ def convert(data, out_path, log=print):
             bp = bh[h].get("base_pt") or [0, 0, 0]
             doc.blocks.new(n, base_point=tuple(bp[:3]) if len(bp) >= 2 else (0, 0))
 
-    stats = {"written": 0, "skipped": 0}
+    stats = {"written": 0, "skipped": 0, "cyclic_inserts": 0}
+
+    # ---- مراجع بلوكات دايرية (بلوك جواه نفسه، مباشرة أو بعد كذا مستوى) ----
+    # ملفات حقيقية فيها كده (غالبًا بعد bind لـ xref)، وezdxf بيدخل في
+    # recursion لا نهائي وقت فكّها. بنشيل الـ INSERT اللي بيقفل الدايرة.
+    children = {}
+    for h in list(block_names):
+        kids = set()
+        for r in bh[h].get("entities", []) or []:
+            o = H.get(_ref(r))
+            if o and o.get("entity") in ("INSERT", "MINSERT"):
+                kids.add(_ref(o.get("block_header")))
+        children[h] = kids
+    bad_edges = set()
+    state = {}
+
+    def dfs(h):
+        state[h] = 1
+        for k in children.get(h, ()):
+            if k not in block_names:
+                continue
+            if state.get(k) == 1:
+                bad_edges.add((h, k))
+            elif k not in state:
+                dfs(k)
+        state[h] = 2
+
+    import sys as _sys
+    _sys.setrecursionlimit(max(_sys.getrecursionlimit(), 20000))
+    for h in list(block_names):
+        if h not in state:
+            dfs(h)
 
     def attribs(o):
         a = {"layer": layer_name.get(_ref(o.get("layer")), "0"),
@@ -118,7 +149,7 @@ def convert(data, out_path, log=print):
             a["invisible"] = 1
         return a
 
-    def add(space, o):
+    def add(space, o, owner=None):
         et = o.get("entity")
         A = attribs(o)
         try:
@@ -222,6 +253,9 @@ def convert(data, out_path, log=print):
                                     ep.add_spline(control_points=cps, knot_values=s.get("knots"),
                                                   degree=s.get("degree", 3))
             elif et == "INSERT" or et == "MINSERT":
+                if (owner, _ref(o.get("block_header"))) in bad_edges:
+                    stats["cyclic_inserts"] += 1
+                    return
                 n = block_names.get(_ref(o.get("block_header")))
                 if not n:
                     stats["skipped"] += 1
@@ -245,18 +279,29 @@ def convert(data, out_path, log=print):
             stats["skipped"] += 1
 
     msp = doc.modelspace()
+    seen = set()
     for r in bh[msp_h].get("entities", []) or []:
+        # قايمة الكيانات في بعض الملفات فيها نفس الـ handle أكتر من مرة
+        if _ref(r) in seen:
+            stats["duplicates"] = stats.get("duplicates", 0) + 1
+            continue
+        seen.add(_ref(r))
         o = H.get(_ref(r))
         if o and o.get("entity"):
             add(msp, o)
     for h, n in block_names.items():
         blk = doc.blocks.get(n)
+        seen_b = set()
         for r in bh[h].get("entities", []) or []:
+            if _ref(r) in seen_b:
+                continue
+            seen_b.add(_ref(r))
             o = H.get(_ref(r))
             if o and o.get("entity"):
-                add(blk, o)
+                add(blk, o, owner=h)
     doc.saveas(out_path)
-    log(f"DXF: {stats['written']} entities written, {stats['skipped']} skipped -> {out_path}")
+    log(f"DXF: {stats['written']} entities written, {stats['skipped']} skipped, "
+        f"{stats['cyclic_inserts']} cyclic block references dropped -> {out_path}")
     return stats
 
 
