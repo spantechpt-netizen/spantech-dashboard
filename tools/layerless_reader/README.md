@@ -104,6 +104,8 @@ python slab_extractor.py plan.dxf --window S4=1081,410,1123,459
 
 ملف DWG بيتقرا بـ LibreDWG (`dwgread` في PATH أو في `LIBREDWG_DWGREAD`)، وبعدين `dwg_json_to_dxf.py` بيحوّله DXF.
 
+**أقواس الـ hatch:** القوس اللي مع عقارب الساعة في حدود الـ hatch بيتحوّل للصيغة اللي ezdxf شايلها جوّاه (عكس عقارب الساعة). وحدود الـ hatch بتتبني ضلع ضلع بـ `hatch_rings`، مش من المسار اللي ezdxf بيجمّعه، لأن المسار ده بيتعرّج لما القوس يبقى معكوس. من غير الاتنين، عمود منحني صغير كان بيتمط 8 م ويتقري حيطة خرسانة تحت السقف.
+
 **الناتج:** لكل بلاطة `<name>_slab_clean.dxf` و `<name>_overlay.png`، ومعاهم `openings.csv` و `report.json`. التقرير فيه مقارنة الإنشائي بالمعماري لو الاتنين موجودين لنفس البلاطة.
 
 ## القواعد (اتجربت على مشروع حقيقي: 4 أسقف إنشائي و3 مساقط معماري)
@@ -133,5 +135,5 @@ python slab_extractor.py plan.dxf --window S4=1081,410,1123,459
 - المعماري ساقط منه البلكونات في الناحية الشمالية.
 
 ```bash
-python -m pytest -q      # 17 اختبار: 11 للـ layerless reader و6 لـ slab extractor
+python -m pytest -q      # 19 اختبار: 11 للـ layerless reader و6 لـ slab extractor و2 لأقواس الـ hatch
 ```

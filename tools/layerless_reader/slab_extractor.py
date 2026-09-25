@@ -369,8 +369,9 @@ def collect(doc, window):
             if et in ("HATCH", "SOLID"):
                 try:
                     acc = None
-                    for pth in (ezpath.from_hatch(s) if et == "HATCH" else [ezpath.make_path(s)]):
-                        pp = [(v.x, v.y) for v in pth.flattening(0.01)]
+                    rings = (LR.hatch_rings(s) if et == "HATCH" else
+                             [[(v.x, v.y) for v in ezpath.make_path(s).flattening(0.01)]])
+                    for pp in rings:
                         if len(pp) >= 3:
                             hp = Polygon(pp).buffer(0)
                             if not hp.is_empty:

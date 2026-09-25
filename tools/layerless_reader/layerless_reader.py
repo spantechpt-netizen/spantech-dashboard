@@ -463,13 +463,8 @@ class Reader:
             if e.dxf.solid_fill:
                 pat = "SOLID"
             out = []
-            for bp in e.paths:
-                try:
-                    pth = ezpath.from_hatch_boundary_path(bp)
-                    pts = [P(v) for v in pth.flattening(0.01 / s)]
-                except Exception:
-                    continue
-                pts = _dedupe_consecutive(pts)
+            for ring in hatch_rings(e, 0.01 / s):
+                pts = _dedupe_consecutive([P(v) for v in ring])
                 if len(pts) > 3 and _d(pts[0], pts[-1]) < 1e-3:
                     pts = pts[:-1]
                 if len(pts) >= 3:
@@ -487,6 +482,55 @@ def _plain(t):
     t = t.replace("\\P", " ").replace("%%c", "Ø").replace("%%C", "Ø")
     return t.strip()
 
+
+
+def hatch_rings(hatch, tol=0.01):
+    """حلقات حدود الـ HATCH كنقط (x, y) بإحداثيات الرسمة.
+
+    ezdxf بيشيل القوس اللي مع عقارب الساعة جوّاه عكس عقارب الساعة، فلما
+    بيجمع أضلاع الـ edge path ورا بعض بيطلع شكل متعرّج (القوس معكوس عن باقي
+    الحلقة) والـ hatch بيبقى مساحة غلط. هنا كل ضلع بيتحوّل لنقط لوحده،
+    وبعدين الأضلاع بتتسلسل بأقرب طرف (مع عكس الضلع لو لازم)."""
+    from ezdxf import path as ezpath
+    from ezdxf.math import ConstructionArc
+    rings = []
+    for bp in hatch.paths:
+        if hasattr(bp, "vertices"):                         # polyline path
+            try:
+                pts = [(v.x, v.y) for v in ezpath.from_hatch_boundary_path(bp).flattening(tol)]
+            except Exception:
+                continue
+        else:
+            pieces = []
+            for ed in bp.edges:
+                kind = type(ed).__name__
+                try:
+                    if kind == "LineEdge":
+                        q = [ed.start, ed.end]
+                    elif kind == "ArcEdge":
+                        q = list(ConstructionArc(ed.center, ed.radius, ed.start_angle,
+                                                 ed.end_angle).flattening(tol))
+                    elif kind in ("EllipseEdge", "SplineEdge"):
+                        q = list(ed.construction_tool().flattening(tol))
+                    else:
+                        continue
+                except Exception:
+                    continue
+                q = [(float(v[0]), float(v[1])) for v in q]
+                if len(q) >= 2:
+                    pieces.append(q)
+            if not pieces:
+                continue
+            pts = list(pieces.pop(0))
+            while pieces:
+                end = pts[-1]
+                k, rev = min(((i, r) for i in range(len(pieces)) for r in (False, True)),
+                             key=lambda ir: _d(end, pieces[ir[0]][-1 if ir[1] else 0]))
+                q = pieces.pop(k)
+                pts += (q[::-1] if rev else q)[1:]
+        if len(pts) >= 3:
+            rings.append(pts)
+    return rings
 
 def _dedupe_consecutive(pts, tol=1e-4):
     out = []

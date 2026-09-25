@@ -19,6 +19,18 @@ import sys
 import ezdxf
 
 
+
+def _edge_angles(s):
+    """زوايا قوس/إهليلج في حد الـ hatch. الـ DWG بيخزن القوس اللي مع عقارب الساعة
+    بزوايا معكوسة (زي DXF)، وezdxf جوّاه بيشيله عكس عقارب الساعة: البداية
+    = 360 - النهاية والنهاية = 360 - البداية. من غير التحويل ده القوس بيترسم
+    في الناحية التانية من المركز والـ hatch بيتمط لمسافة كبيرة."""
+    sa = math.degrees(s["start_angle"]); ea = math.degrees(s["end_angle"])
+    ccw = bool(s.get("is_ccw", 1))
+    if not ccw:
+        sa, ea = 360.0 - ea, 360.0 - sa
+    return sa, ea, ccw
+
 def _ref(r):
     return r[-1] if isinstance(r, list) and r else None
 
@@ -237,16 +249,12 @@ def convert(data, out_path, log=print):
                             if ct == 1:
                                 ep.add_line(s["first_endpoint"], s["second_endpoint"])
                             elif ct == 2:
-                                ep.add_arc(s["center"], s["radius"],
-                                           math.degrees(s["start_angle"]),
-                                           math.degrees(s["end_angle"]),
-                                           ccw=bool(s.get("is_ccw", 1)))
+                                sa, ea, ccw = _edge_angles(s)
+                                ep.add_arc(s["center"], s["radius"], sa, ea, ccw=ccw)
                             elif ct == 3:
+                                sa, ea, ccw = _edge_angles(s)
                                 ep.add_ellipse(s["center"], s["endpoint"],
-                                               s["minor_major_ratio"],
-                                               math.degrees(s["start_angle"]),
-                                               math.degrees(s["end_angle"]),
-                                               ccw=bool(s.get("is_ccw", 1)))
+                                               s["minor_major_ratio"], sa, ea, ccw=ccw)
                             elif ct == 4:
                                 cps = [c["point"] for c in s.get("control_points", [])]
                                 if len(cps) >= 2:
