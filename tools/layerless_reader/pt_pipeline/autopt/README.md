@@ -38,7 +38,8 @@ patch Auto_PT_Suite_v397_CAD_Reader_AI.py < auto_pt_suite_patch.diff
 
    الإعدادات (في كارت Files):
    - "Drawing reader folder": الفولدر اللي فيه `pt_pipeline`. لو مش لاقيه جنب البرنامج بيسألك مرة واحدة ويفتكره.
-   - "LibreDWG dwgread.exe": لملفات DWG بس.
+   - "LibreDWG dwgread.exe": لملفات DWG بس. نسخة ويندوز (LibreDWG 0.13.3، رخصة GPLv3) جاية جوه
+     `drawing_reader_tools.zip` في فولدر `libredwg\`، والبرنامج بيلاقيها لوحده - مش محتاج تنزّل حاجة.
 
    محتاج بايثون عليه `ezdxf` و`shapely` و`matplotlib`. لو ناقصين، البرنامج بيقولك أمر الـ pip بالظبط.
 

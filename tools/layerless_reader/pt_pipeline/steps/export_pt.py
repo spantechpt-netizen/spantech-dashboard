@@ -136,9 +136,16 @@ for tag in TAGS:
     for dp, d in drops:
         msp.add_lwpolyline([T(p) for p in d["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
         c = dp.representative_point(); se = zone_se(c)
-        txt = f"DROP t={d['thickness_mm']}" + (f" SE={se:+d}" if se else "") + (f" P={P_D}" if P_D else "")
+        # سُمك مش مكتوب: "DROP" من غير t= والبرنامج بياخد سُمك الدروب الافتراضي من صفحة Project
+        txt = ("DROP" if d.get("thickness_mm") is None else f"DROP t={d['thickness_mm']}") + \
+            (f" SE={se:+d}" if se else "") + (f" P={P_D}" if P_D else "")
         msp.add_text(txt, dxfattribs={"layer": "PT-Clean-Drops", "height": 250, "insert": T((c.x, c.y))})
-        rows.append([tag, "drop panel", "", d["thickness_mm"], "", round(dp.area, 2), f"slab {t_slab}" + (f" SE={se:+d}" if se else "")])
+        rows.append([tag, "drop panel", d.get("src", ""), d["thickness_mm"] if d.get("thickness_mm") is not None else "?", "",
+                     round(dp.area, 2), f"slab {t_slab}" + (f" SE={se:+d}" if se else "")])
+    n_tu = sum(1 for _, d in drops if d.get("thickness_mm") is None)
+    if n_tu:
+        rows.append([tag, "REVIEW", "drop thickness", "", "", n_tu,
+                     f"{n_tu} drop panel(s) drawn with no thickness written - the program's default drop thickness is used"])
     # كل شريحة بتتقسم على المناطق اللي بتعدّي فيها: كل حتة بسُمك ومنسوب المنطقة دي
     n_strip = 0
     for sp in strips:
@@ -150,7 +157,7 @@ for tag in TAGS:
         for dp, d in drops:
             q = rest.intersection(dp)
             for g in getattr(q, "geoms", [q]):
-                if g.geom_type == "Polygon" and g.area >= 0.05: pieces.append((g, d["thickness_mm"], zone_se(g.representative_point()), "in drop"))
+                if g.geom_type == "Polygon" and g.area >= 0.05: pieces.append((g, d.get("thickness_mm"), zone_se(g.representative_point()), "in drop"))
             rest = rest.difference(dp)
         for hp, ht, hse in hosts:
             q = rest.intersection(hp)

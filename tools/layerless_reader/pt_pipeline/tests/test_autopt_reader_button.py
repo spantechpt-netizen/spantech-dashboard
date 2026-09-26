@@ -66,7 +66,7 @@ def test_button_reads_drawing_into_dxf_box(tmp_path, monkeypatch):
     [p] = app.v["dxf"].get().split("; ")
     assert p.endswith("_slab_clean.dxf") and os.path.isfile(p)
     [z] = app._drawing_zone_info(out, [p])
-    assert (z["columns"], z["beams"], z["review"]) == (12, 17, 0) and z["image"]
+    assert (z["columns"], z["beams"], z["review"]) == (12, 7, 0) and z["image"]
 
 
 def test_button_stop_and_bad_file(tmp_path, monkeypatch):

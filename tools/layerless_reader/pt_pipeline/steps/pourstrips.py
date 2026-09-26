@@ -10,7 +10,12 @@ _, H = pickle.load(open("hatch.pkl", "rb")); _, tx, _ = pickle.load(open("cache.
 notes = [Point(p) for t, p, h in tx if re.search(r"POUR\s*STRIP", t, re.I)]
 found = {}
 for pat, rings in H.items():
-    polys = [Polygon(r).buffer(0) for r in rings if len(r) >= 3]
+    polys = []
+    for r in rings:
+        if len(r) < 3: continue
+        g = Polygon(r).buffer(0)
+        # هاتش حلقته اتلغت أو اتقسمت (مساحة صفر أو حتتين) - كل حتة لوحدها، والفاضي بيتشال
+        polys += [q for q in getattr(g, "geoms", [g]) if q.geom_type == "Polygon" and q.length > 0]
     strip = []
     for p in polys:
         # شريط ممكن يبقى مكسور (بيلف): العرض ≈ 2×المساحة/المحيط، والطول ≈ المحيط/2

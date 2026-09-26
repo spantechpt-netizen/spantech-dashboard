@@ -32,7 +32,10 @@ def legend(win_sheet=None):
                 dist=x-b[2]
                 if best is None or dist<best[0]: best=(dist,pat)
         if best: out.setdefault(best[1],collections.Counter())[kind]+=1
-    return {p:c.most_common(1)[0][0] for p,c in out.items()}
+    res={p:c.most_common(1)[0][0] for p,c in out.items()}
+    # جدول مفتاح حقيقي بيعرّف نوعين على الأقل (مستمر + مزروع مثلًا). ملاحظة "Planted Column"
+    # لوحدها جنب عمود في المسقط مش مفتاح - دي بتخص العمود ده بس (planted_notes.py)
+    return res if len(set(res.values()))>=2 else {}
 
 
 

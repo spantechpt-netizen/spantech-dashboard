@@ -121,3 +121,25 @@ def test_zone_check_catches_uncovered_and_twin(tmp_path):
     M["beams"].append(json.loads(json.dumps(M["beams"][0])))
     json.dump(M, open(p, "w"))
     assert "CHECK FAILED" in _check(work, tags)
+
+
+@pytest.mark.parametrize("note", [True, False])
+def test_flat_slab_box_drops_and_planted_note(tmp_path, note):
+    """دروب مرسوم مستطيل عادي حوالين كل عمود + ملاحظة 'Planted Column' على عمود واحد بس."""
+    src = str(tmp_path / "f.dxf")
+    truth = MS.build_flat(src, drop_note=note)
+    out = tmp_path / "out"
+    r = subprocess.run([sys.executable, "-m", "pt_pipeline.convert", src, "-o", str(out)],
+                       cwd=ROOT, capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    doc, lay, texts, area, rows = _read(out)
+    assert lay["PT-Clean-Columns"] == truth["columns"]
+    assert lay["PT-Clean-Columns-Above"] == truth["planted"]
+    drops = [t for t in texts if t.startswith("DROP")]
+    assert len(drops) == truth["drops"]
+    if truth["drop_t"]:
+        assert all(t.startswith(f"DROP t={truth['drop_t']}") for t in drops)
+        assert not [x for x in rows if x and x[1] == "REVIEW" and x[2] == "drop thickness"]
+    else:
+        assert all(not t.startswith("DROP t=") for t in drops)
+        assert [x for x in rows if x and x[1] == "REVIEW" and x[2] == "drop thickness"]

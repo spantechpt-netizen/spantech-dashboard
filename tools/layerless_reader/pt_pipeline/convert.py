@@ -151,13 +151,32 @@ def members_config(work, wins, tx, H, lone):
             from shapely.ops import unary_union
             M = unary_union(polys[main])
             planted_pts = [Point(p) for t, p, h in tx if re.search(r"PLANTED", t, re.I)]
+            outl = []
+            for z in wins:
+                try: outl.append(Polygon(json.load(open(os.path.join(work, f"{z}_res.json")))["slabs"][0]["outline"]).buffer(0))
+                except Exception: pass
+            SL = unary_union(outl) if outl else None
+            band = unary_union([o.exterior.buffer(0.6) for o in outl if not o.is_empty]) if outl else None
+
+            def edge_frac(pat):
+                if SL is None: return 0.0
+                g = unary_union([Polygon(r).buffer(0) for r in H[pat] if len(r) >= 3]).intersection(SL.buffer(0.6))
+                return g.intersection(band).area / g.area if g.area > 0.5 else 0.0
             for pat, n in colpat.items():
                 if pat == main: continue
                 ov = sum(1 for g in polys[pat] if g.intersection(M).area >= 0.8 * g.area) / max(len(polys[pat]), 1)
-                # ملاحظة "Planted" جنب هاتش النمط ده = مزروع (قبل فحص التراكب: العمود المزروع ممكن يبقى فوق هاتش)
-                if planted_pts and any(min((g.distance(q) for g in polys[pat]), default=9) <= 3.0 for q in planted_pts):
+                # ملاحظات "Planted" جنب هاتش النمط ده = النمط كله مزروع (قبل فحص التراكب: العمود المزروع ممكن
+                # يبقى فوق هاتش) - بس لو أغلب عناصر النمط جنبها ملاحظة. ملاحظة جنب حتة واحدة من نمط كبير
+                # (حيطة البدروم المحيطة) بتخص العمود اللي بتشاور عليه بس (planted_notes.py)، مش النمط كله.
+                near = sum(1 for g in polys[pat] if any(g.distance(q) <= 3.0 for q in planted_pts))
+                if planted_pts and near >= 0.6 * len(polys[pat]):
                     legmap[pat] = "planted"
                 elif ov >= 0.7: legmap[pat] = "stopped"          # شبكة فوق التعبئة = موقوف تحت السقف
+                # نمط تاني ماشي على حد البلاطة (≥ 70% منه في شريط 0.6 م حوالين الحد) وعناصره تخينة (≥ 200 مم)
+                # = حيطة خرسانة محيطة (حيطة البدروم): ركيزة. الحوائط المباني جوه البلاطة مش بتتحسب.
+                elif ov < 0.3 and len(polys[pat]) >= 3 and edge_frac(pat) >= 0.7 and \
+                        statistics.median(SX._rect_dims(g)[1] for g in polys[pat]) >= 0.2:
+                    legmap[pat] = "continuous"
             # عمود مزروع مرسوم بو-تاي (مثلثين) من النمط المزروع
             for pat, k in legmap.items():
                 if k != "planted": continue
@@ -353,11 +372,13 @@ def run(src, out, sheets_json=None, keep_work=False):
     step("beam_sanity.py", *zones, env={"SUPPORTS_ONLY": "1"}, cwd=work)
     step("ramp_faces.py", *zones, cwd=work, check=False)
     step("ramp_members.py", *zones, cwd=work, check=False)
+    step("planted_notes.py", *zones, cwd=work, check=False)
     # 8) السُمك والدروبات والمناسيب وشرايح الصب
     step("thick_attr.py", raw, scale, *zones, cwd=work, check=False)
     step("thick.py", "m.dxf", *zones, cwd=work, check=False)
     step("drops_notes.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
     step("drops_dashed.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
+    step("drops_boxes.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
     step("pourstrips.py", cwd=work, check=False)
     pour = os.path.exists(os.path.join(work, "pourstrips.json")) and json.load(open(os.path.join(work, "pourstrips.json")))
     lvl_env = {"EXCL_POLYS": "pourstrips.json"} if pour else {}
@@ -387,6 +408,7 @@ def run(src, out, sheets_json=None, keep_work=False):
     step("core.py", *zones, env={"EXCL": "STEEL", "RES_SUFFIX": "_c"}, cwd=work)
     step("beam_steps.py", *zones, cwd=work)
     step("edge_fit.py", *zones, cwd=work)
+    step("beam_merge.py", *zones, cwd=work)
     chk = step("zone_check.py", *zones, cwd=work, check=False)
     ok = "CHECK OK" in chk
     report["zone_check"] = [l for l in chk.splitlines() if l.strip()]

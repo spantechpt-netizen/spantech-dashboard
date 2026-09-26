@@ -78,10 +78,58 @@ def build(path, origin=(0.0, 0.0)):
     msp.add_text("SLAB THICKNESS t=250 mm", dxfattribs={"height": 250, "insert": (xs[1] + 1000, ys[1] + 2500)})
 
     doc.saveas(path)
-    return {"columns": NX * NY, "beams": beams, "openings": 1,
+    #  17 بحر، بس الكمرة على كل محور متصلة فوق الأعمدة (نفس العلامة والمقاس) = 7 كمرات
+    return {"columns": NX * NY, "beams": NX + NY, "spans": beams, "openings": 1,
             "area": (xs[-1] - xs[0] + 2 * e) * (ys[-1] - ys[0] + 2 * e) / 1e6 - 4.0,
             "thickness": 250}
 
 
 if __name__ == "__main__":
     print(build(sys.argv[1] if len(sys.argv) > 1 else "struct_sample.dxf"))
+
+
+def build_flat(path, drop_note=True):
+    """
+    بلاطة مسطحة (flat slab) من غير كمرات: شبكة 4×3 أعمدة 500×500، دروب مرسوم مستطيل
+    عادي 2.4×2.4 حوالين كل عمود (من غير تقطيع)، وملاحظة سُمك واحدة "400mm THK" لو drop_note،
+    وعمود زيادة 400×400 مكتوب جنبه "Planted Column".
+    """
+    doc = ezdxf.new("R2010", setup=True)
+    doc.header["$INSUNITS"] = 4
+    msp = doc.modelspace()
+    xs = [i * BAY for i in range(NX)]
+    ys = [j * BAY for j in range(NY)]
+
+    def rect(x0, y0, x1, y1):
+        msp.add_lwpolyline([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True)
+
+    for i, x in enumerate(xs):
+        msp.add_line((x, ys[0] - 3000), (x, ys[-1] + 3000), dxfattribs={"linetype": "CENTER"})
+        for yb in (ys[0] - 3500, ys[-1] + 3500):
+            msp.add_circle((x, yb), 500)
+            msp.add_text("ABCD"[i], dxfattribs={"height": 400, "insert": (x - 130, yb - 200)})
+    for j, y in enumerate(ys):
+        msp.add_line((xs[0] - 3000, y), (xs[-1] + 3000, y), dxfattribs={"linetype": "CENTER"})
+        for xb in (xs[0] - 3500, xs[-1] + 3500):
+            msp.add_circle((xb, y), 500)
+            msp.add_text(str(j + 1), dxfattribs={"height": 400, "insert": (xb - 100, y - 200)})
+
+    def col(x, y, h):
+        rect(x - h, y - h, x + h, y + h)
+        hat = msp.add_hatch()
+        hat.paths.add_polyline_path([(x - h, y - h), (x + h, y - h), (x + h, y + h), (x - h, y + h)], is_closed=True)
+
+    for x in xs:
+        for y in ys:
+            col(x, y, 250)
+            rect(x - 1200, y - 1200, x + 1200, y + 1200)            # الدروب: مستطيل عادي
+    if drop_note:
+        msp.add_text("400mm THK.", dxfattribs={"height": 150, "insert": (xs[1] - 1000, ys[1] + 700)})
+    px, py = (xs[1] + xs[2]) / 2, (ys[0] + ys[1]) / 2
+    col(px, py, 200)
+    msp.add_text("Planted Column", dxfattribs={"height": 200, "insert": (px + 500, py + 100)})
+    rect(xs[0] - 1500, ys[0] - 1500, xs[-1] + 1500, ys[-1] + 1500)
+    msp.add_text("TYPICAL FLOOR SLAB PLAN", dxfattribs={"height": 500, "insert": (xs[0], ys[0] - 6000)})
+    msp.add_text("SLAB THICKNESS t=250 mm", dxfattribs={"height": 250, "insert": (xs[1] + 1500, ys[1] - 2500)})
+    doc.saveas(path)
+    return {"columns": NX * NY, "planted": 1, "drops": NX * NY, "drop_t": 400 if drop_note else None}

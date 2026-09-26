@@ -10,7 +10,7 @@
 
 ```bash
 pip install -r ../requirements.txt          # ezdxf, shapely, matplotlib
-export LIBREDWG_DWGREAD=/path/to/dwgread    # لملفات DWG بس (LibreDWG)
+export LIBREDWG_DWGREAD=/path/to/dwgread    # لملفات DWG بس (LibreDWG) - على ويندوز: موجود في libredwg\ جوه الـ zip
 
 python -m pt_pipeline.convert project.dwg -o out/
 python -m pt_pipeline.convert sheet.dxf -o out/ --keep-work          # يسيب الملفات الوسيطة
