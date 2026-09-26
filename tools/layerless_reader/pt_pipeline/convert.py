@@ -441,6 +441,7 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     step("beam_steps.py", *zones, cwd=work)
     step("edge_fit.py", *zones, cwd=work)
     step("beam_merge.py", *zones, cwd=work)
+    step("region_snap.py", *zones, cwd=work)
     chk = step("zone_check.py", *zones, cwd=work, check=False)
     ok = "CHECK OK" in chk
     report["zone_check"] = [l for l in chk.splitlines() if l.strip()]

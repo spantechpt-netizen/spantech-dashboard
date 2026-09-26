@@ -121,22 +121,36 @@ def run(dxf, tags):
             main = max(cnt, key=cnt.get) if cnt else free[0][0]
         elif main is None and labs:
             main = max(set(v for v, _, _ in labs), key=[v for v, _, _ in labs].count)
+        # وحدة المنسوب من حجم الفرق: السقف الكبير = صفر، والفرق بين المناسيب في الرسومات بيبقى من
+        # 5 سم لحد حوالي متر. الرقم المكتوب ممكن يبقى متر (645.40 / 645.60 = 20 سم) أو وحدة تانية
+        # (645 / 642 = 30 سم) - الوحدة اللي بتخلي الفرق في المدى ده هي اللي بتتاخد.
+        u = 1.0
+        if main is not None:
+            d = sorted(abs(v - main) for v in {v for v, _, _ in labs} if abs(v - main) > 1e-6)
+            if d:
+                med = d[len(d) // 2]
+                fit = [k for k in (1.0, 0.01, 0.001, 0.1) if 0.05 <= med * k <= 1.5]
+                if fit:
+                    u = fit[0]
+                else:
+                    R.setdefault("review", []).append(["level", f"level difference {med:g} does not look like 5 cm - 1.5 m in any unit - taken as metres, check it"])
+        R["level_unit_m"] = u
         # تسميات حرة بقيمة غير الأساسي ومالهاش منطقة مقفولة = للمراجعة
-        R["level_unresolved"] = sorted({v for v, _, _ in free if main is not None and abs(v - main) >= 0.02})
+        R["level_unresolved"] = sorted({v for v, _, _ in free if main is not None and abs(v - main) * u >= 0.02})
         zones = []
         if main is not None:
             for v, f in cand:
-                if abs(v - main) < 0.02 or f.area < 2.0:
+                if abs(v - main) * u < 0.02 or f.area < 2.0:
                     continue
                 z = f.intersection(slab).difference(ops)
                 z = max(getattr(z, "geoms", [z]), key=lambda q: q.area) if not z.is_empty else None
                 if z is None or z.area < 2.0 or any(z.equals(q["_g"]) for q in zones):
                     continue
-                zones.append({"_g": z, "poly": list(z.exterior.coords)[:-1], "level_m": v, "se_mm": round((v - main) * 1000)})
+                zones.append({"_g": z, "poly": list(z.exterior.coords)[:-1], "level_m": v, "se_mm": round((v - main) * u * 1000)})
         R["main_level_m"] = main
         R["level_zones"] = [{k: q[k] for k in ("poly", "level_m", "se_mm")} for q in zones]
         json.dump(R, open(f"{tag}_res_c.json", "w"))
-        print(tag, "main", main, "zones", [(q["level_m"], q["se_mm"], round(q["_g"].area, 1)) for q in zones], "unresolved", R["level_unresolved"],
+        print(tag, "main", main, "unit_m", u, "zones", [(q["level_m"], q["se_mm"], round(q["_g"].area, 1)) for q in zones], "unresolved", R["level_unresolved"],
               "labels", sorted(set(v for v, _, _ in labs)), "unlabelled m2", R.get("level_unlabelled_m2"))
 
 

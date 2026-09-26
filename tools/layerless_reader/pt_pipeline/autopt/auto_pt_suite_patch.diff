@@ -264,20 +264,43 @@
  
      site = {
          "boundary": boundary,
-@@ -24088,6 +24257,12 @@
+@@ -24088,6 +24257,35 @@
      return None
  
  
 +#  منسوب سطح العنصر بالنسبة لسطح الدور (Surface Elevation في رام) - أسامي محتملة
 +#  للخاصية في الـ API؛ الشغال فيهم بيتسجل في اللوج.
-+SURFACE_ELEV_ATTRS = ("surface_elevation", "surfaceElevation", "elevation",
-+                      "top_elevation", "service_elevation")
++#  RAM Concept API بيسمّيها toc (top of concrete) على SlabArea/SlabElement/Beam، بنفس
++#  وحدة السُمك (مم). كانت ناقصة من القايمة، فالمناطق بمنسوب كانت بتدخل رام كلها على صفر.
++SURFACE_ELEV_ATTRS = ("toc", "surface_elevation", "surfaceElevation", "top_of_concrete",
++                      "elevation", "top_elevation", "service_elevation")
++
++
++def _set_surface_elevation(elem, value):
++    """
++    منسوب السطح (SE بالمم، السقف الكبير = صفر). الأسامي المعروفة الأول؛ لو مفيش ولا
++    واحد، أي خاصية اسمها فيه toc/surface/elev (غير دالة). بترجع اسم الخاصية أو None.
++    """
++    n = _set_first_attr(elem, SURFACE_ELEV_ATTRS, value)
++    if n:
++        return n
++    for n in dir(elem):
++        if n.startswith("_") or not re.search(r"toc|surface|elev", n, re.I):
++            continue
++        try:
++            if callable(getattr(elem, n)):
++                continue
++            setattr(elem, n, value)
++            return n
++        except Exception:
++            continue
++    return None
 +
 +
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24374,29 @@
+@@ -24199,11 +24397,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -307,7 +330,7 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24424,22 @@
+@@ -24231,6 +24447,21 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -321,8 +344,7 @@
 +                if not _ok and _se_count["members"] is None:
 +                    _se_count["members"] = describe_element(elem)
 +            if slab.get("surface_elevation_mm") is not None:
-+                _se_name = _set_first_attr(elem, SURFACE_ELEV_ATTRS,
-+                                           float(slab["surface_elevation_mm"]))
++                _se_name = _set_surface_elevation(elem, float(slab["surface_elevation_mm"]))
 +                _se_count["slabs" if _se_name else "failed"] += 1
 +                _se_count["attr"] = _se_name or _se_count["attr"]
 +                if not _se_name and _se_count["members"] is None:
@@ -330,7 +352,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24637,11 @@
+@@ -24428,8 +24659,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -343,7 +365,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24649,19 @@
+@@ -24437,6 +24671,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -355,7 +377,7 @@
 +                _bd = float(b.get("depth") or b.get("depth_mm") or params.beam_depth)
 +                _bse = max(_bd - float(params.slab_thickness), 0.0)
 +            if _bse is not None:
-+                _se_name = _set_first_attr(elem, SURFACE_ELEV_ATTRS, float(_bse))
++                _se_name = _set_surface_elevation(elem, float(_bse))
 +                _se_count["beams" if _se_name else "failed"] += 1
 +                _se_count["attr"] = _se_name or _se_count["attr"]
 +                if not _se_name and _se_count["members"] is None:
@@ -363,7 +385,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24669,20 @@
+@@ -24444,6 +24691,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -384,7 +406,7 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -37183,7 +37422,8 @@
+@@ -37183,7 +37444,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -394,7 +416,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -39908,9 +40148,18 @@
+@@ -39908,9 +40170,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -415,7 +437,7 @@
      return False
  
  
-@@ -50315,6 +50564,24 @@
+@@ -50315,6 +50586,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -440,7 +462,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53238,652 @@
+@@ -52971,6 +53260,652 @@
      return rejected
  
  
@@ -1093,7 +1115,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57477,86 @@
+@@ -56564,6 +57499,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1180,7 +1202,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64611,8 @@
+@@ -63618,7 +64633,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1190,7 +1212,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +69857,9 @@
+@@ -68863,6 +69879,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1200,7 +1222,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +70900,14 @@
+@@ -69903,6 +70922,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1215,7 +1237,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +70955,14 @@
+@@ -69950,6 +70977,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1230,7 +1252,7 @@
  
          return outer
  
-@@ -70014,6 +71027,11 @@
+@@ -70014,6 +71049,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1242,7 +1264,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76011,301 @@
+@@ -74993,6 +76033,301 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  

@@ -177,3 +177,16 @@ def test_findings_point_at_beam_off_the_edge():
     s["beams"].append({"p1": (0, 7.8), "p2": (10, 7.8), "width": 300, "depth": 600})   # وشها 5 سم من الحد
     f = A.mesh_doctor_findings(s)
     assert len([x for x in f if "outer face" in x]) == 1 and "50 mm" in f[0], f
+
+
+def test_surface_elevation_goes_into_toc():
+    """RAM Concept API اسم منسوب السطح فيه toc: المنطقة بمنسوب لازم تاخده (كانت بتدخل كلها على صفر)."""
+    class SlabArea:
+        def __init__(self): self.toc = 0.0; self.thickness = 200.0
+    e = SlabArea()
+    assert A._set_surface_elevation(e, -100.0) == "toc" and e.toc == -100.0
+
+    class Other:                                   # اسم تاني فيه surface: بيتلقط برضه
+        def __init__(self): self.surface_level = 0.0
+    o = Other()
+    assert A._set_surface_elevation(o, 150.0) == "surface_level" and o.surface_level == 150.0

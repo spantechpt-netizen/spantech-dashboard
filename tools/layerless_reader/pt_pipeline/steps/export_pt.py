@@ -114,7 +114,8 @@ for tag in TAGS:
             rows.append([tag, "opening", "ramp", "", "", round(Polygon(o["poly"]).area, 2), "car ramp = opening (office rule)"])
     for zp, z in zones:
         msp.add_lwpolyline([T(p) for p in list(zp.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
-        c = zp.representative_point()
+        # النص لازم يقع في المنطقة نفسها مش جوه دروب جواها: البرنامج بيدّي النص لأصغر منطقة فيها النقطة
+        c = interior_point(zp, unary_union([p for p, _ in drops] + [p for p, _ in tz] + ops))
         zt = None if z.get("t_unknown") else z.get("thickness_mm", t_slab)
         txt = (f"LEVEL t={zt} " if zt else "LEVEL ") + f"SE={z['se_mm']:+d}" + (f" P={P_Z}" if P_Z else "")
         msp.add_text(txt, dxfattribs={"layer": "PT-Clean-Drops", "height": 250, "insert": T((c.x, c.y))})
@@ -129,7 +130,7 @@ for tag in TAGS:
         rows.append([tag, "REVIEW", "level", v, "", "", "level label with no closed zone around it - not exported"])
     for zp, z in tz:
         msp.add_lwpolyline([T(p) for p in list(zp.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
-        c = zp.representative_point(); se = z["se_fixed"] if "se_fixed" in z else zone_se(c)
+        c = interior_point(zp, unary_union([p for p, _ in drops] + ops)); se = z["se_fixed"] if "se_fixed" in z else zone_se(c)
         msp.add_text(f"ZONE t={z['thickness_mm']}" + (f" SE={se:+d}" if se else "") + (f" P={P_Z}" if P_Z else ""),
                      dxfattribs={"layer": "PT-Clean-Drops", "height": 250, "insert": T((c.x, c.y))})
         rows.append([tag, "thickness zone", "", z["thickness_mm"], "", round(zp.area, 2), f"slab {t_slab}; note '{z.get('note','')}'"])

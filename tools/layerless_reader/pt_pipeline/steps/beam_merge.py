@@ -77,5 +77,23 @@ for tag in sys.argv[1:]:
                 break
             if changed:
                 break
+    # الكمرة الملمومة لازم تبقى خط واحد مستقيم: الحتت مزاحة عن بعض بمليمترات (≤ 2 سم)، والأطراف
+    # الحقيقية بتطلّع كمرة مايلة (3 سم على 69 م في بدروم رؤية) - ووشها المايل بيخلي حد البلاطة
+    # والدروب ومنطقة المنسوب اللي بتتلزق عليه يتعرّجوا بمليمترات. لو الميل عن المحور < 0.5°
+    # الكمرة بتتعدل على المحور، والإحداثي الثابت = متوسط الحتت بالطول.
+    n_str = 0
+    for b in beams:
+        if b.get("merged", 1) < 2:
+            continue
+        (x1, y1), (x2, y2) = b["p1"], b["p2"]
+        dx, dy = x2 - x1, y2 - y1
+        L = math.hypot(dx, dy)
+        if L < 1e-6:
+            continue
+        ang = math.degrees(math.atan2(abs(dy), abs(dx)))
+        if 0 < ang < 0.5:
+            yc = (y1 + y2) / 2; b["p1"], b["p2"] = [x1, yc], [x2, yc]; n_str += 1
+        elif 0 < 90 - ang < 0.5:
+            xc = (x1 + x2) / 2; b["p1"], b["p2"] = [xc, y1], [xc, y2]; n_str += 1
     json.dump(M, open(f"{tag}_members_c.json", "w"))
-    print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined)")
+    print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined), {n_str} straightened onto the grid axis")
