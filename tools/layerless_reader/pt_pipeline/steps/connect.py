@@ -249,15 +249,16 @@ def connect(M, R, reach=0.8):
     M["beams"]=out
 
     # ---- الأولوية: الأعمق أعلى، والشايلة أعلى من المحمولة عليها ----
-    # عمق كمرة مش مكتوب (تسمية من غير قطاع / كمرة من غير تسمية): max(البحر/10، DEPTH_MIN)
-    # البحر = طول الحتة بين الركايز بعد التقسيم عند الأعمدة
+    # عمق كمرة مش مكتوب (تسمية من غير قطاع / كمرة من غير تسمية): مابيتخمّنش. بيتصدّر "(300X?)"
+    # والبرنامج بياخد عمق الكمرة الافتراضي من إعداداته (وبيقوله في رسالة التأكيد قبل البناء).
+    # max(البحر/10، DEPTH_MIN) بيتحسب بس لترتيب الأولوية (الأعمق أعلى) - مابيتكتبش.
     import os
     _dmin=float(os.environ.get("DEPTH_MIN","0.6"))
     for b in out:
         if not b.get("d"):
-            L_=math.dist(b["p1"],b["p2"]); b["d"]=max(math.ceil(L_/10/0.05-1e-9)*0.05,_dmin); b["depth_rule"]=True
+            L_=math.dist(b["p1"],b["p2"]); b["d_prio"]=max(math.ceil(L_/10/0.05-1e-9)*0.05,_dmin); b["depth_unknown"]=True
     pr={}
-    for b in out: pr[b["id"]]=10+int(round((b["d"] or 0)*10))      # عمق مش معروف (تسمية من غير قطاع) -> الأولوية من الشايل/المتشال بس
+    for b in out: pr[b["id"]]=10+int(round((b.get("d") or b.get("d_prio") or 0)*10))
     for _ in range(5):
         for c_,s_ in carried:
             if c_ in pr and s_ in pr and pr[s_]<=pr[c_]: pr[s_]=pr[c_]+1

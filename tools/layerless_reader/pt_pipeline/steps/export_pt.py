@@ -193,7 +193,7 @@ for tag in TAGS:
         msp.add_lwpolyline([T(p) for p in LR._rect_pts(b["p1"], b["p2"], b["w"])], close=True, dxfattribs={"layer": "PT-Clean-Beams"})
         mx = ((b["p1"][0] + b["p2"][0]) / 2, (b["p1"][1] + b["p2"][1]) / 2)
         mark = b["mark"].replace("?", "X")
-        if b.get("depth_unknown") and not b.get("depth_rule"): rows.append([tag, "REVIEW", "beam depth", b["mark"], "", "", f"{b['mark']} width {b['w']*1000:.0f} measured, depth not in the drawing"])
+        if b.get("depth_unknown") and not b.get("d"): rows.append([tag, "REVIEW", "beam depth", b["mark"], "", "", f"{b['mark']} width {b['w']*1000:.0f} from the drawing, depth not written - the program's default beam depth is used"])
         se = zone_se(Point(mx))
         extra = ""
         if b.get("inverted"):
@@ -209,7 +209,7 @@ for tag in TAGS:
                                  "rotation": math.degrees(math.atan2(b["p2"][1] - b["p1"][1], b["p2"][0] - b["p1"][0]))})
         note = ("curved " if b.get("curved") else "") + ("INVERTED " if b.get("inverted") else "") + \
                ("axis-drawn " if b.get("axis_beam") else "") + ("opening-edge " if b.get("opening_edge_beam") else "") + \
-               ("depth typo /10 " if b.get("depth_typo") else "") + ("depth=max(span/10, 600) " if b.get("depth_rule") else "") + ("UNLABELLED (drawn only) - review " if b.get("review") else "") + ("width measured " if b.get("width_measured") else "") + f'P={b.get("priority")}' + extra
+               ("depth typo /10 " if b.get("depth_typo") else "") + ("depth = program default " if not b.get("d") else "") + ("UNLABELLED (drawn only) - review " if b.get("review") else "") + ("width measured " if b.get("width_measured") else "") + f'P={b.get("priority")}' + extra
         rows.append([tag, "beam", b["mark"], round(b["w"] * 1000), round(b["d"] * 1000) if b.get("d") else "?", round(math.dist(b["p1"], b["p2"]), 2), note.strip()])
     for b in M.get("dropped_beams", []):
         rows.append([tag, "beam dropped (not logical)", b["mark"], round(b["w"] * 1000), "", round(math.dist(b["p1"], b["p2"]), 2), b["why"]])

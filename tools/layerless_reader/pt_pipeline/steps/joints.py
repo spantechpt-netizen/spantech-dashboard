@@ -93,6 +93,21 @@ parts = base.difference(unary_union(lines).buffer(0.03)) if lines else base
 parts = [q.buffer(0.05, join_style=2).buffer(-0.05, join_style=2).intersection(base) for q in getattr(parts, "geoms", [parts])]
 parts = [max(getattr(q, "geoms", [q]), key=lambda z: z.area) for q in parts if not q.is_empty]
 parts = sorted([p for p in parts if p.area >= 0.02 * slab.area], key=lambda p: (round(-p.centroid.y, -1), p.centroid.x))
+# فاصل حقيقي (≥ 2 أزواج توأم) بس مابيفصلش حاجة (بيقف عند حيطة/كمرة مفردة جوه البلاطة): مايتشالش في
+# صمت - بيطلع REVIEW بمكانه، عشان المهندس يقول الفاصل بيكمّل منين (بدروم رؤية: الفاصل بين نصين الملحق)
+dead = []
+for (n, ux, uy, off, t0, t1, P), ln in zip(raw, lines):
+    mid = ln.interpolate(0.5, normalized=True); nx, ny = -uy, ux
+    a_, b_ = Point(mid.x + 0.3 * nx, mid.y + 0.3 * ny), Point(mid.x - 0.3 * nx, mid.y - 0.3 * ny)
+    ia = [i for i, q in enumerate(parts) if q.contains(a_)]; ib = [i for i, q in enumerate(parts) if q.contains(b_)]
+    if ia and ib and ia == ib:
+        (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
+        dead.append(["expansion joint", f"joint with {n} twin column pairs from ({x0:.1f}, {y0:.1f}) to ({x1:.1f}, {y1:.1f}) "
+                                         f"does not separate the slab (it stops inside it) - kept as one zone; check where the joint continues"])
+        print(f"joint dead end: ({x0:.1f},{y0:.1f}) -> ({x1:.1f},{y1:.1f})")
+if dead:
+    R.setdefault("review", []).extend(dead)
+    json.dump(R, open(f"{tag}_res.json", "w"))
 tags = []
 for i, q in enumerate(parts, 1):
     t = f"{pref}{i}"; tags.append(t)

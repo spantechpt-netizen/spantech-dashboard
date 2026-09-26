@@ -73,7 +73,8 @@ def test_end_to_end(tmp_path, case):
     doc, lay, texts, area, rows = _read(out)
     assert doc.header["$INSUNITS"] == 4
     assert lay["PT-Clean-Columns"] == truth["columns"]
-    assert lay["PT-Clean-Beams"] == truth["beams"]
+    # الكمرة على كل محور بتتلم وبعدين بتتقطع عند آكس كل عمود: حتة لكل بحر، ورا بعض بالظبط
+    assert lay["PT-Clean-Beams"] == truth["spans"]
     assert lay["PT-Clean-Openings"] == truth["openings"]
     assert f"t={truth['thickness']}" in texts
     # الحد على الوش الخارجي للكمرات الطرفية وبيغطي الأعمدة: بين الاتنين

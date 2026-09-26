@@ -668,15 +668,8 @@ def run(tag, W, legmap):
         # جوه فتحة (كور/منحدر/شفت) مش كمرة البلاطة دي
         if any(o.buffer(0.1).contains(band.representative_point()) for o in ops): continue
         if L<1.5 and not any(q.distance(Point(pc["p1"]))<=0.5 or q.distance(Point(pc["p2"]))<=0.5 for q in lab_ends): continue
-        # العمق: كمرات متسمية قريبة بنفس العرض وطول قريب، وإلا عُشر البحر
-        near=[b for b in ub if b.get("d") and abs(b["w"]-pc["t"])<=0.05 and
-              LineString([b["p1"],b["p2"]]).distance(LineString([pc["p1"],pc["p2"]]))<=8.0]
-        similar=[b for b in near if abs(math.dist(b["p1"],b["p2"])-L)<=0.3*L]
-        pool=similar or near
-        if pool:
-            dpt=Counter(round(b["d"],2) for b in pool).most_common(1)[0][0]; src="nearby beams"
-        else:
-            dpt=None; src="depth rule"          # العمق بيتحط بعد الربط: max(البحر/10، الحد الأدنى)
+        # العمق مش مكتوب: مابيتخمّنش من الكمرات اللي جنبها - العرض من المخطط والعمق من إعدادات البرنامج
+        dpt=None; src="depth from the program's default"
         extra.append({"mark":"B?","w":round(pc["t"],3),"d":dpt,"p1":pc["p1"],"p2":pc["p2"],
                       "label":f"unlabelled ({src})","review":True,**({"edge_beam":True} if edge else {}),**({"depth_unknown":True} if dpt is None else {})})
     ub+=extra

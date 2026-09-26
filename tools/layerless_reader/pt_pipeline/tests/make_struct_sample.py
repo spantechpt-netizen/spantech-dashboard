@@ -78,7 +78,7 @@ def build(path, origin=(0.0, 0.0)):
     msp.add_text("SLAB THICKNESS t=250 mm", dxfattribs={"height": 250, "insert": (xs[1] + 1000, ys[1] + 2500)})
 
     doc.saveas(path)
-    #  17 بحر، بس الكمرة على كل محور متصلة فوق الأعمدة (نفس العلامة والمقاس) = 7 كمرات
+    #  الكمرة على كل محور متصلة فوق الأعمدة = 7 كمرات، وبعد القطع عند آكس الأعمدة = 17 حتة (بحر لكل حتة)
     return {"columns": NX * NY, "beams": NX + NY, "spans": beams, "openings": 1,
             "area": (xs[-1] - xs[0] + 2 * e) * (ys[-1] - ys[0] + 2 * e) / 1e6 - 4.0,
             "thickness": 250}
