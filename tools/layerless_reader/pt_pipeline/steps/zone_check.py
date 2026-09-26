@@ -9,17 +9,20 @@ import json, sys, math, itertools
 sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "..", ".."))
 import layerless_reader as LR
 from shapely.geometry import Polygon, LineString
+from shapely.strtree import STRtree
 tags = sys.argv[1:]
 S = {t: Polygon(json.load(open(f"{t}_res_c.json"))["slabs"][0]["outline"]).buffer(0) for t in tags}
+_T = list(S); _G = [S[t] for t in _T]; _TREE = STRtree(_G)      # فهرس: 100+ زون (HDB)
 bad = 0
 for a, b in itertools.combinations(tags, 2):
+    if not S[a].intersects(S[b]): continue
     ov = S[a].intersection(S[b]).area
     if ov > 0.5: print(f"  OVERLAP {a}/{b}: {ov:.1f} m²"); bad += 1
 for t in tags:
     M = json.load(open(f"{t}_members_c.json"))
     els = [("col", Polygon(c["rect"]["corners"]).buffer(0)) for c in M["cols"]] + [("wall", LR._wall_poly(w)) for w in M["walls"]] + \
           [("beam", LR._wall_poly({"p1": x["p1"], "p2": x["p2"], "t": x["w"]})) for x in M["beams"]]
-    foreign = [(k, g) for k, g in els if max([g.intersection(S[o]).area for o in tags if o != t] + [0]) > g.intersection(S[t]).area]
+    foreign = [(k, g) for k, g in els if max([_G[i].intersection(g).area for i in _TREE.query(g) if _T[i] != t] + [0]) > g.intersection(S[t]).area]
     R_ = json.load(open(f"{t}_res_c.json"))
     from shapely.ops import unary_union
     OPS = unary_union([Polygon(o["poly"]).buffer(0) for o in R_["openings"]]) if R_["openings"] else Polygon()

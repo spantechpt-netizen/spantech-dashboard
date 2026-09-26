@@ -10,9 +10,15 @@ sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__im
 import layerless_reader as LR
 from shapely.geometry import Polygon, LineString, Point, box
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
+from shapely.prepared import prep
 TOL = 0.35
 ALL = {t: Polygon(json.load(open(f"{t}_res_c.json"))["slabs"][0]["outline"]).buffer(0) for t in sys.argv[1:]}
 MALL = {t: json.load(open(f"{t}_members_c.json")) for t in sys.argv[1:]}
+# فهارس مكانية: شيت فيه 100+ زون و20 ألف كمرة (HDB) - من غيرها كل عنصر كان بيتقارن بكل الزونات وكل الكمرات
+_ZT = list(ALL); _ZG = [ALL[k] for k in _ZT]; _ZTREE = STRtree(_ZG)
+_BL = [(k, o, LineString([o["p1"], o["p2"]])) for k, MM in MALL.items() for o in MM["beams"]]
+_BTREE = STRtree([l for _, _, l in _BL]) if _BL else None
 for t in sys.argv[1:]:
     R = json.load(open(f"{t}_res_c.json")); M = json.load(open(f"{t}_members_c.json"))
     slab = ALL[t]
@@ -22,7 +28,7 @@ for t in sys.argv[1:]:
         """العنصر بتاع الزون دي إلا لو واقع في زون تانية أكتر منها (توأم الفاصل)."""
         if g.area <= 0: return False
         mine = g.intersection(slab).area
-        other = max([g.intersection(q).area for k, q in ALL.items() if k != t] + [0])
+        other = max([_ZG[i].intersection(g).area for i in _ZTREE.query(g) if _ZT[i] != t] + [0])
         return mine > 0.01 * g.area and mine >= other
     n0 = (len(M["cols"]), len(M["walls"]), len(M["beams"]))
     M["cols"] = [c for c in M["cols"] if own(Polygon(c["rect"]["corners"]).buffer(0))]
@@ -32,18 +38,21 @@ for t in sys.argv[1:]:
         if not own(g): return False
         # تسمية الكمرة واقعة جوه زون تانية = دي كمرة الجار (توأم الفاصل) حتى لو التسمية لقت وشين عندنا
         at = b.get("label_at")
-        if at and any(q.buffer(-0.02).contains(Point(at)) for k, q in ALL.items() if k != t) and not slab.buffer(0.02).contains(Point(at)):
+        if at and any(_ZG[i].buffer(-0.02).contains(Point(at)) for i in _ZTREE.query(Point(at)) if _ZT[i] != t) and not slab.buffer(0.02).contains(Point(at)):
             # إلا لو الجار عنده توأمها (نفس التسمية، موازية، جنبها ≤ 1 م): التسمية بتتكتب مرة للتوأمين
-            twin = any(o.get("label") == b.get("label") and LineString([o["p1"], o["p2"]]).distance(LineString([b["p1"], b["p2"]])) <= 1.0
+            _lb = LineString([b["p1"], b["p2"]])
+            near = [_BL[i] for i in _BTREE.query(_lb.buffer(1.0))] if _BTREE is not None else []
+            twin = any(o.get("label") == b.get("label") and LineString([o["p1"], o["p2"]]).distance(_lb) <= 1.0
                        and abs(math.sin(math.atan2(o["p2"][1] - o["p1"][1], o["p2"][0] - o["p1"][0]) - math.atan2(b["p2"][1] - b["p1"][1], b["p2"][0] - b["p1"][0]))) < 0.05
-                       and LineString([o["p1"], o["p2"]]).distance(LineString([b["p1"], b["p2"]])) > 0.05
-                       for k, MM in MALL.items() if k != t for o in MM["beams"])
+                       and LineString([o["p1"], o["p2"]]).distance(_lb) > 0.05
+                       for k, o, _ in near if k != t)
             if not twin: return False
         # كمرة برّه البلاطة (فوق فراغ الواجهة) أو جوه فتحة/فراغ: مش كمرة البلاطة
         if g.intersection(slab).area < 0.5 * g.area: return False
         return g.intersection(OPS).area < 0.5 * g.area
-    dropped_out = [b for b in M["beams"] if not own_beam(b)]
-    M["beams"] = [b for b in M["beams"] if own_beam(b)]
+    _ok = [own_beam(b) for b in M["beams"]]
+    dropped_out = [b for b, k in zip(M["beams"], _ok) if not k]
+    M["beams"] = [b for b, k in zip(M["beams"], _ok) if k]
     # كمرتين على نفس الخط متداخلين (تسميتين لنفس الكمرة): الأقصر المتغطية ≥ 80% بتتشال
     keep = []
     # المتسمية الأول (الكمرة المتسمية بتكسب اللي من غير تسمية)، وبعدين الأطول
@@ -105,11 +114,13 @@ for t in sys.argv[1:]:
     R["slabs"][0]["outline"] = list(new.exterior.coords)[:-1]
     # طرف كمرة فايت الفاصل/حد البلاطة (اتمدت لآكس عمود التوأم في الزون التانية): يتقص عند الحد
     AREA = unary_union([new] + [Polygon(o["poly"]).buffer(0) for o in R["openings"]])
+    _A2 = prep(AREA.buffer(0.002)); _Ain = {}; _Ap = prep(AREA)
     for b in M["beams"]:
         ax_ = LineString([b["p1"], b["p2"]]); w2 = b["w"] / 2
         for key in ("p1", "p2"):
             P = Point(b[key])
-            if AREA.buffer(-w2 + 0.001).contains(P) or AREA.contains(LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]})): continue
+            if w2 not in _Ain: _Ain[w2] = prep(AREA.buffer(-w2 + 0.001))
+            if _Ain[w2].contains(P) or _Ap.contains(LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]})): continue
             other = b["p2"] if key == "p1" else b["p1"]
             L = math.dist(b[key], other); u = ((b[key][0] - other[0]) / L, (b[key][1] - other[1]) / L)
             # أبعد نقطة على المحور الشريط كله (بعرضه) لسه جوه البلاطة
@@ -117,7 +128,7 @@ for t in sys.argv[1:]:
             for _ in range(30):
                 mid = (lo + hi) / 2
                 q = (other[0] + u[0] * mid, other[1] + u[1] * mid)
-                if AREA.buffer(0.002).contains(LR._wall_poly({"p1": other, "p2": q, "t": b["w"]})): lo = mid
+                if _A2.contains(LR._wall_poly({"p1": other, "p2": q, "t": b["w"]})): lo = mid
                 else: hi = mid
             if lo > 0.3 and L - lo > 0.005: b[key] = [other[0] + u[0] * lo, other[1] + u[1] * lo]
     json.dump(R, open(f"{t}_res_c.json", "w")); json.dump(M, open(f"{t}_members_c.json", "w"))
