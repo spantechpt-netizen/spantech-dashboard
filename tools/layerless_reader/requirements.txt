@@ -1,0 +1,5 @@
+ezdxf>=1.1
+shapely>=2.0
+matplotlib>=3.7
+anthropic>=1.0   # optional, only for --ai
+pytest           # tests

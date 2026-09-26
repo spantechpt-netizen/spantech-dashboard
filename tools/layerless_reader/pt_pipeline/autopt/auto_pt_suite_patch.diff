@@ -1,0 +1,1546 @@
+--- Auto_PT_Suite_v397_CAD_Reader_AI.py
++++ Auto_PT_Suite_v397_CAD_Reader_AI.py
+@@ -2725,6 +2725,16 @@
+ #  منطقة مرجعية) واقع غلط على نفس الليّر - بتتشال بدل ما تتحسب حائط
+ #  بعرض متر أو اتنين وتكسر الموديل.
+ MAX_LINEAR_MEMBER_MM = 1800.0
++#  الكمرات الشايلة (transfer / PB) بتوصل 2-3.5 م عرض، فليها حد لوحدها:
++#  مقبولة لحد 4 م طالما الشكل مستطيل بطول ≥ العرض (كمرة شايلة عريضة ممكن
++#  تبقى قصيرة: 2.0 × 2.8 م بين حيطتين).
++MAX_BEAM_MM = 4000.0
++
++
++def _max_member_width_mm(role, long_m, short_m):
++    if role == "beam" and long_m >= 1.05 * short_m:
++        return MAX_BEAM_MM
++    return MAX_LINEAR_MEMBER_MM
+ 
+ 
+ def clean_mtext(raw):
+@@ -3371,17 +3381,31 @@
+                 best, best_d = b, d
+         return best, best_d
+ 
++    #  **التسمية بتنقل الحائط لو هو أقرب عنصر ليها بس.** الشرط القديم
++    #  (أي حائط على بعد 2.5 م من أي تسمية) كان بيحوّل حوائط الكور اللي
++    #  جنب كمرة متسمية لكمرات - في ملف نضيف فيه الحوائط والكمرات
++    #  منفصلين، ده بيبوّظ الركائز. دلوقتي التسمية بتروح لأقرب عنصر
++    #  (حائط أو كمرة)، ولو الأقرب حائط والعرض المكتوب قريب من عرضه
++    #  المرسوم يبقى هو الكمرة المقصودة.
+     moved = 0
++    to_move = set()
++    for (px, py, label_w, _label_d, _txt) in labels:
++        best, best_d, best_is_wall = None, 1e9, False
++        for pool, is_wall in ((walls, True), (beams, False)):
++            for m_ in pool:
++                d = point_to_segment_dist(px, py, m_["p1"][0], m_["p1"][1],
++                                          m_["p2"][0], m_["p2"][1])
++                if d < best_d:
++                    best, best_d, best_is_wall = m_, d, is_wall
++        if best is None or not best_is_wall or best_d > search_radius_m:
++            continue
++        drawn_w = float(best.get("width") or 0.0)
++        if drawn_w and abs(drawn_w - label_w) > max(tol_mm, tol_frac * max(label_w, drawn_w)):
++            continue
++        to_move.add(id(best))
+     still_walls = []
+     for w in walls:
+-        w_labelled = False
+-        for (px, py, label_w, _label_d, _txt) in labels:
+-            d = point_to_segment_dist(px, py, w["p1"][0], w["p1"][1],
+-                                      w["p2"][0], w["p2"][1])
+-            if d <= search_radius_m:
+-                w_labelled = True
+-                break
+-        if w_labelled:
++        if id(w) in to_move:
+             beams.append(w)
+             moved += 1
+         else:
+@@ -3406,6 +3430,18 @@
+         m_mark = re.match(r"^[A-Za-z0-9\-\.]+", txt)
+         if m_mark:
+             best["mark"] = m_mark.group(0)
++        #  "P=12" جنب المقاس: أولوية الكمرة في RAM. الكمرة الشايلة أعلى من
++        #  المحمولة عليها، فالـ mesh بيقص المحمولة عند وش الشايلة بالظبط.
++        m_pr = re.search(r"\bP\s*=\s*(\d+)", txt)
++        if m_pr:
++            best["priority"] = int(m_pr.group(1))
++        #  كمرة مقلوبة (INV / INVERTED): سطحها فوق سطح البلاطة. "SE=+460"
++        #  = فرق منسوب سطحها بالمم؛ من غيره بيتحسب عمق - سُمك البلاطة.
++        m_se = AREA_SE_RE.search(txt)
++        if m_se:
++            best["surface_elevation_mm"] = float(m_se.group(1))
++        if re.search(r"\bINV(?:ERTED)?\b", txt, re.I):
++            best["inverted"] = True
+ 
+     measured = [b for b in beams if b.get("measured")]
+     mismatches = []
+@@ -3452,6 +3488,58 @@
+ LEVEL_NUMBER_RE = re.compile(r"^[+\-]?\s*\d+(?:\.\d{1,3})?$")
+ 
+ 
++AREA_T_RE = re.compile(r"\bt\s*=\s*(\d{2,4})", re.I)
++AREA_SE_RE = re.compile(r"\bSE\s*=\s*([+\-]?\d{1,5})", re.I)
++#  "LEVEL ..." / "ZONE ...": منطقة بلاطة بمنسوب أو سُمك مختلف - مش دروب،
++#  فمش بتاخد معاملة الدروب في بروفايل الكابلات.
++AREA_ZONE_RE = re.compile(r"^\s*(LEVEL|ZONE|POUR)\b", re.I)
++#  "P=3" جوه ملاحظة المنطقة = أولويتها في رام صريحة (بتغلب الأولوية التلقائية)
++AREA_P_RE = re.compile(r"\bP\s*=\s*(\d{1,2})\b", re.I)
++#  "RELEASE FX FY": شريحة صب (pour strip) - بلاطة بنفس سُمك اللي ماشية فيها، بأولوية
++#  أعلى، ومفكوكة في المستوى (Fx / Fy) عشان الشد مايتنقلش عبرها وقت الشد.
++AREA_RELEASE_RE = re.compile(r"\bRELEASE\b((?:\s*F[XY])*)", re.I)
++RELEASE_FX_ATTRS = ("fx_release", "release_fx", "x_release", "fx_released", "in_plane_release_x", "release_x")
++RELEASE_FY_ATTRS = ("fy_release", "release_fy", "y_release", "fy_released", "in_plane_release_y", "release_y")
++
++
++def read_area_notes(doc, scale):
++    """
++    ملاحظات لكل منطقة بلاطة (الملف النضيف بيكتبها جوه المنطقة نفسها):
++      "t=400"          -> سُمك المنطقة دي بالمم
++      "SE=+300"        -> Service/Surface Elevation: فرق منسوب سطحها عن
++                          سطح البلاطة الأساسية بالمم (+ لفوق، - لتحت)
++    النص بيروح لأصغر منطقة واقع جواها (دروب جوه بلاطة -> للدروب).
++      "POUR STRIP t=220 P=3 RELEASE FX FY" -> شريحة صب: أولوية صريحة + فك Fx/Fy
++    بترجع [(x, y, t_mm|None, se_mm|None, zone, priority|None, (fx, fy))].
++    """
++    out = []
++    for entity, _layer in _iter_entities(doc.modelspace()):
++        if entity.dxftype() not in ("TEXT", "MTEXT"):
++            continue
++        try:
++            ip = safe_get(entity.dxf, "insert") or safe_get(entity.dxf, "align_point")
++            raw_txt = safe_get(entity, "text", None) or safe_get(entity.dxf, "text", "")
++            txt = clean_mtext(raw_txt) if raw_txt else ""
++        except Exception:
++            continue
++        if ip is None or not txt or BEAM_LABEL_RE.search(txt):
++            continue                      # تسمية كمرة ليها قراءتها لوحدها
++        mt, ms = AREA_T_RE.search(txt), AREA_SE_RE.search(txt)
++        mp, mr = AREA_P_RE.search(txt), AREA_RELEASE_RE.search(txt)
++        rel = (False, False)
++        if mr:
++            dirs = (mr.group(1) or "").upper()
++            rel = ("FX" in dirs or not dirs.strip(), "FY" in dirs or not dirs.strip())
++        if mt or ms or mr:
++            out.append((float(ip[0]) * scale, float(ip[1]) * scale,
++                        float(mt.group(1)) if mt else None,
++                        float(ms.group(1)) if ms else None,
++                        bool(AREA_ZONE_RE.search(txt)),
++                        int(mp.group(1)) if mp else None,
++                        rel))
++    return out
++
++
+ def read_slab_notes(doc, scale, job=None, pair_radius_m=2.0):
+     """
+     ملاحظات سمك البلاطة ومناسيبها المكتوبة صراحة في الرسمة - مش من
+@@ -3522,6 +3610,46 @@
+     return {"thickness_mm": thickness, "elevation_m": elevations}
+ 
+ 
++def _mark_supports_above(doc, scale, columns, walls, layer_roles, job):
++    """
++    **الأعمدة والحوائط المزروعة: فوق البلاطة مش تحتها.**
++
++    العمود المزروع بيبدأ من البلاطة دي وطالع لفوق - مش ركيزة تحتها، ده
++    حمل عليها. الملف النضيف بيحطه على طبقة اسمها فيه ABOVE (زي
++    PT-Clean-Columns-Above)، وأي عمود/حائط واقع جوه شكل على طبقة زي دي
++    بياخد below=False، فبيترسم في RAM فوق البلاطة (add_column_above).
++    """
++    above_layers = {n for n, r in (layer_roles or {}).items()
++                    if r in ("column", "wall") and "ABOVE" in (n or "").upper()}
++    if not above_layers:
++        return
++    shapes = []
++    for entity, layer in _iter_entities(doc.modelspace()):
++        if layer not in above_layers:
++            continue
++        pts = _entity_points(entity, entity.dxftype(), flat_tol=0.01 / scale if scale else 0.01)
++        if len(pts) >= 3:
++            shapes.append([(p[0] * scale, p[1] * scale) for p in pts])
++    n_c = n_w = 0
++    #  جوه الشكل بس، مش على حرفه: عمود ركيزة لازق في حائط مزروع (بيشاركه ضلع)
++    #  كان مركزه بيقع على حرف الشكل فبيتقلب "فوق" والركيزة بتضيع.
++    for c in columns:
++        x, y = c["center"]
++        if any(point_in_polygon(x, y, sh) and not point_on_polygon_edge(x, y, sh, tol=0.02) for sh in shapes):
++            c["below"] = False
++            n_c += 1
++    for w in walls:
++        x = (w["p1"][0] + w["p2"][0]) / 2.0
++        y = (w["p1"][1] + w["p2"][1]) / 2.0
++        if any(point_in_polygon(x, y, sh) and not point_on_polygon_edge(x, y, sh, tol=0.02) for sh in shapes):
++            w["below"] = False
++            n_w += 1
++    if n_c or n_w:
++        job.info(f"Above the slab (planted, from the ABOVE layers): {n_c} column(s) "
++                 f"and {n_w} wall(s) - they carry the floor over this one and "
++                 f"are drawn above it in RAM, not as supports below.")
++
++
+ def parse_dxf(dxf_path, layer_roles, unit_label, job, flat_tol=0.05):
+     """
+     القراءة الكاملة. layer_roles: dict {layer_name: role}.
+@@ -3617,7 +3745,9 @@
+                 elif role in ("wall", "beam"):
+                     rect = min_area_rect(clean_polygon(pts))
+                     width_mm = rect["short"] * 1000.0 if rect else 0.0
+-                    if rect and rect["long"] > 0.2 and width_mm <= MAX_LINEAR_MEMBER_MM:
++                    max_w = (_max_member_width_mm(role, rect["long"], rect["short"])
++                             if rect else MAX_LINEAR_MEMBER_MM)
++                    if rect and rect["long"] > 0.2 and width_mm <= max_w:
+                         half = rect["long"] / 2.0
+                         a = math.radians(rect["angle_deg"])
+                         cx, cy = rect["center"]
+@@ -3626,7 +3756,7 @@
+                             "p2": (cx + half * math.cos(a), cy + half * math.sin(a)),
+                             "width": max(width_mm, 100.0),
+                             "measured": True})
+-                    elif rect and width_mm > MAX_LINEAR_MEMBER_MM:
++                    elif rect and width_mm > max_w:
+                         job.warn(f"A shape on the {role} layer '{layer}' measured "
+                                  f"{width_mm:.0f} mm wide - too wide for a real "
+                                  f"{role}, so it was left out instead of becoming "
+@@ -3773,7 +3903,7 @@
+                         if role == "arch_wall":
+                             arch_walls.append({"p1": c1, "p2": c2,
+                                                "width": thk})
+-                        elif thk <= MAX_LINEAR_MEMBER_MM:
++                        elif thk <= _max_member_width_mm(role, dist(c1, c2), thk / 1000.0):
+                             target.append({"p1": c1, "p2": c2,
+                                            "width": max(thk, 100.0),
+                                            "measured": True})
+@@ -3953,6 +4083,44 @@
+                      "guessed to be drop panels; a slab standing on its own is a "
+                      "separate piece. Use an explicit drop layer to be sure.")
+ 
++    #  سُمك ومنسوب كل منطقة من النص المكتوب جواها (t= و SE=): الدروب
++    #  بسُمكه هو مش الرقم العام، ومنطقة بمنسوب مختلف (هبوط/طلوع) بتدخل
++    #  رام بـ Surface Elevation بتاعها.
++    try:
++        _notes = read_area_notes(doc, scale)
++    except Exception as _e:
++        _notes = []
++        job.warn(f"Area notes (t= / SE=) could not be read: {_e}")
++    _n_t = _n_se = _n_z = _n_rel = 0
++    for (nx, ny, nt, nse, nzone, npr, nrel) in _notes:
++        inside = [s for s in slabs if point_in_polygon(nx, ny, s["points"])]
++        if not inside:
++            continue
++        s = min(inside, key=lambda d: d["area"])
++        if nzone and s["is_drop"]:
++            s["is_drop"] = False; s["is_zone"] = True; _n_z += 1
++        if npr is not None:
++            s["priority"] = npr; s["priority_explicit"] = True
++        if any(nrel):
++            s["release_fx"], s["release_fy"] = nrel; s["pour_strip"] = True; _n_rel += 1
++        if nt is not None and s.get("thickness") is None:
++            s["thickness"] = nt; _n_t += 1
++        if nse is not None and s.get("surface_elevation_mm") is None:
++            s["surface_elevation_mm"] = nse; _n_se += 1
++    if _n_t or _n_se:
++        job.ok(f"Area notes: thickness on {_n_t} slab area(s), a level "
++               f"difference (SE) on {_n_se} - each goes into RAM as written.")
++    if _n_rel:
++        job.ok(f"{_n_rel} pour strip(s): slab area at the host thickness, higher "
++               f"priority, released Fx/Fy in RAM.")
++    if _n_z:
++        #  المنطقة أولويتها 2 فوق البلاطة، والدروب اللي جواها لازم يعلى عليها
++        for s in slabs:
++            if s["is_drop"] and not s.get("priority_explicit"):
++                s["priority"] = 3
++        job.ok(f"{_n_z} slab zone(s) with their own level/thickness "
++               f"(priority 2); drop panels raised to priority 3 over them.")
++
+     boundary = ranked[0]["points"] if ranked else None
+     drops = [s["points"] for s in slabs if s["is_drop"]]
+ 
+@@ -4021,6 +4189,7 @@
+ 
+     if walls or beams:
+         apply_beam_mark_labels(doc, walls, beams, scale, job)
++    _mark_supports_above(doc, scale, columns, walls, layer_roles, job)
+ 
+     site = {
+         "boundary": boundary,
+@@ -24088,6 +24257,12 @@
+     return None
+ 
+ 
++#  منسوب سطح العنصر بالنسبة لسطح الدور (Surface Elevation في رام) - أسامي محتملة
++#  للخاصية في الـ API؛ الشغال فيهم بيتسجل في اللوج.
++SURFACE_ELEV_ATTRS = ("surface_elevation", "surfaceElevation", "elevation",
++                      "top_elevation", "service_elevation")
++
++
+ POUR_STRIP_BEHAVIOUR = {
+     # From the RAM dialog: a pour strip carries moment across but almost no
+     # in-plane force, which is what lets the two pours shrink independently.
+@@ -24199,11 +24374,29 @@
+     LineSegment2D = session.api["LineSegment2D"]
+ 
+     structure = session.model.cad_manager.structure_layer
++    #  دكتور الشبكة قبل الرسم: الغلط اللي بيتصلّح هنا مايوصلش لـ RAM أصلًا.
++    #  وكل عنصر بيتضاف بيتسجّل، عشان لو RAM رفض الشبكة يتمسح اللي رسمناه
++    #  بس ويترسم تاني بتسامح أكبر (mesh_doctor_retry).
++    try:
++        mesh_doctor(site, job, int(getattr(session, "_mesh_level", 0) or 0))
++        sanitize_site(site, job)
++    except CancelledError:
++        raise
++    except Exception as e:
++        job.warn(f"Mesh doctor skipped: {type(e).__name__}: {e}")
++    try:
++        session._autopt_site = (site, params)
++        if getattr(session, "_autopt_added", None) is None:
++            session._autopt_added = []
++        structure = _RecordingLayer(structure, session._autopt_added)
++    except Exception:
++        pass
+     counts = {"slabs": 0, "openings": 0, "columns": 0, "walls": 0, "beams": 0}
+     skipped = {"slabs": 0, "openings": 0, "columns": 0, "walls": 0, "beams": 0}
+ 
+     #  18.95: عدّاد الأولويات اللي اتنقلت من المصدر
+     _prio = {"slabs": 0, "beams": 0, "failed": 0}
++    _se_count = {"slabs": 0, "beams": 0, "failed": 0, "attr": None, "members": None}
+     job.step(0.55, "Drawing slab areas")
+     for i, slab in enumerate(site["slabs"]):
+         job.check()
+@@ -24231,6 +24424,22 @@
+                     _prio["slabs"] += 1
+                 except Exception:
+                     _prio["failed"] += 1
++            if slab.get("release_fx") or slab.get("release_fy"):
++                _ok = True
++                if slab.get("release_fx"):
++                    _ok = bool(_set_first_attr(elem, RELEASE_FX_ATTRS, True)) and _ok
++                if slab.get("release_fy"):
++                    _ok = bool(_set_first_attr(elem, RELEASE_FY_ATTRS, True)) and _ok
++                _se_count["released" if _ok else "rel_failed"] = _se_count.get("released" if _ok else "rel_failed", 0) + 1
++                if not _ok and _se_count["members"] is None:
++                    _se_count["members"] = describe_element(elem)
++            if slab.get("surface_elevation_mm") is not None:
++                _se_name = _set_first_attr(elem, SURFACE_ELEV_ATTRS,
++                                           float(slab["surface_elevation_mm"]))
++                _se_count["slabs" if _se_name else "failed"] += 1
++                _se_count["attr"] = _se_name or _se_count["attr"]
++                if not _se_name and _se_count["members"] is None:
++                    _se_count["members"] = describe_element(elem)
+             counts["slabs"] += 1
+         except Exception as e:
+             skipped["slabs"] += 1
+@@ -24428,8 +24637,11 @@
+             set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
+             #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
+             #  كمرة)، وإلا القيمة العامة من الإعدادات.
++            #  التسمية "MARK(WxD)" بتحط العمق في depth_mm (apply_beam_mark_labels)؛
++            #  كان بيتقرا depth بس، فعمق التسمية عمره ما وصل لـ RAM.
+             set_d = _set_first_attr(elem, ("d", "depth", "thickness"),
+-                                    float(b.get("depth") or params.beam_depth))
++                                    float(b.get("depth") or b.get("depth_mm")
++                                          or params.beam_depth))
+             _pr = b.get("priority")
+             if _pr is not None:
+                 try:
+@@ -24437,6 +24649,19 @@
+                     _prio["beams"] += 1
+                 except Exception:
+                     _prio["failed"] += 1
++                #  الأولوية بتشتغل في الـ mesh بس لو الكمرة "Mesh As Slab"
++                _set_first_attr(elem, ("mesh_as_slab", "meshAsSlab", "mesh_as_slab_priority"), True)
++            #  كمرة مقلوبة: Surface Elevation = فرق منسوب سطحها عن سطح البلاطة
++            _bse = b.get("surface_elevation_mm")
++            if _bse is None and b.get("inverted"):
++                _bd = float(b.get("depth") or b.get("depth_mm") or params.beam_depth)
++                _bse = max(_bd - float(params.slab_thickness), 0.0)
++            if _bse is not None:
++                _se_name = _set_first_attr(elem, SURFACE_ELEV_ATTRS, float(_bse))
++                _se_count["beams" if _se_name else "failed"] += 1
++                _se_count["attr"] = _se_name or _se_count["attr"]
++                if not _se_name and _se_count["members"] is None:
++                    _se_count["members"] = describe_element(elem)
+             if beam_report[0] is None:
+                 beam_report[0] = (set_b, set_d, describe_element(elem))
+             counts["beams"] += 1
+@@ -24444,6 +24669,20 @@
+             skipped["beams"] += 1
+             job.warn(f"Beam: {e}")
+ 
++    if job and (_se_count["slabs"] or _se_count["beams"]):
++        job.info(f"    Surface elevation (SE) set via '{_se_count['attr']}': "
++                 f"{_se_count['slabs']} slab area(s) at their own level and "
++                 f"{_se_count['beams']} inverted beam(s) raised above the slab.")
++    if job and _se_count.get("released"):
++        job.info(f"    Pour strips: {_se_count['released']} slab area(s) released Fx/Fy.")
++    if job and _se_count.get("rel_failed"):
++        job.warn(f"{_se_count['rel_failed']} pour strip(s) need Fx/Fy release but this API took "
++                 f"none of {RELEASE_FX_ATTRS} / {RELEASE_FY_ATTRS} - set the release in RAM "
++                 f"by hand. Properties available: {_se_count['members']}")
++    if job and _se_count["failed"]:
++        job.warn(f"{_se_count['failed']} element(s) have a level difference (SE) "
++                 f"but this API took none of {SURFACE_ELEV_ATTRS} - set them in "
++                 f"RAM by hand. Properties available: {_se_count['members']}")
+     if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
+         job.info(f"    Priority carried across from the source: "
+                  f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
+@@ -37183,7 +37422,8 @@
+             _pts = _s.get("points") or []
+             _th = float(_s.get("thickness") or 0.0)
+             if len(_pts) >= 3 and _th > 0:
+-                _drop = bool(_s.get("is_drop")) or int(_s.get("priority") or 1) > 1
++                _drop = bool(_s.get("is_drop")) or (int(_s.get("priority") or 1) > 1
++                                                     and not _s.get("is_zone"))
+                 _site_slabs.append((_pts, _th, _drop))
+         except Exception:
+             continue
+@@ -39908,9 +40148,18 @@
+                                   f"{str(e)[:90]}")
+             for err in errors:
+                 job.warn(f"    {err}")
++            try:
++                session._last_mesh_errors = (list(getattr(session, "_last_mesh_errors", None) or [])
++                                             + errors)[-12:]
++            except Exception:
++                pass
+ 
+-    job.error("No mesh generation method could be called. RAM will refuse to "
+-              "analyse without a mesh.")
++    if getattr(session, "_last_mesh_errors", None):
++        job.error("RAM could not generate the mesh (the errors above). RAM "
++                  "will refuse to analyse without a mesh.")
++    else:
++        job.error("No mesh generation method could be called. RAM will refuse to "
++                  "analyse without a mesh.")
+     return False
+ 
+ 
+@@ -50315,6 +50564,24 @@
+ def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
+     """
+     تشغيل التحليل في RAM Concept بعد الرسم.
++
++    لو RAM رفض الشبكة أو التحليل، دكتور الشبكة بيصنّف الرسالة ويصلّح
++    ويعيد المحاولة (mesh_doctor_retry)، ولو مفيش حاجة نفعت بيقول فين.
++    """
++    try:
++        session._last_mesh_errors = []
++    except Exception:
++        pass
++    res = _run_model_analysis_once(session, job, mesh_size)
++    if res.get("ok") or (res.get("method") is None and not res.get("error")):
++        return res
++    return mesh_doctor_retry(session, job, mesh_size, res,
++                             lambda size: _run_model_analysis_once(session, job, size))
++
++
++def _run_model_analysis_once(session: RamSession, job: Job, mesh_size=None):
++    """
++    توليد الشبكة وتشغيل التحليل مرة واحدة.
+     أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
+     """
+     # The mesh must exist first - this is what "There is no structure to
+@@ -52971,6 +53238,652 @@
+     return rejected
+ 
+ 
++# ==============================================================================
++#  القسم 4هـ — دكتور الشبكة (mesh doctor)
++#
++#  القسم 4د بيرفض العنصر البايظ. الدكتور بيصلّحه قبل ما يترفض، وبيشتغل على
++#  الموديل كله مع بعض: أغلب أخطاء الـ meshing في RAM مش من عنصر لوحده، دي
++#  من علاقة عنصرين ببعض:
++#    • رأسين من مضلعين مختلفين بينهم مليمترات   -> عنصر مثلث إبرة
++#    • حد البلاطة جنب وش الكمرة بسنتيمترات      -> شريحة رفيعة مابتتشبّكش
++#    • فتحة لامسة الحد أو خارجة منه              -> شريحة أو مضلع مقطوع
++#    • كمرة طالعة برّه البلاطة                   -> كمرة على الفاضي
++#    • طرف كمرة قبل الكمرة التانية بسنتيمترات     -> عقدة معلّقة
++#    • منطقتين بنفس الأولوية وسُمك مختلف متداخلين -> السُمك مش معروف
++#
++#  وبعد الـ meshing، لو RAM رفض، `run_model_analysis` بيصنّف الرسالة، وبيعيد
++#  بناء طبقة المنشأ بتسامح أكبر (العناصر اللي البرنامج رسمها بس)، وبعدين
++#  بيجرب مقاسات عناصر تانية. ولو مفيش حاجة نفعت، بيقول الأماكن المشكوك
++#  فيها بالإحداثيات. مابيسكتش.
++# ==============================================================================
++
++MESH_DOCTOR_LEVELS = [
++    #  دمج الرؤوس، أقل ضلع، لزق الحد على وش الكمرة، أعرض شريحة بتتشال (م)
++    {"merge": 0.010, "edge": 0.020, "snap": 0.10, "sliver": 0.05},
++    {"merge": 0.030, "edge": 0.050, "snap": 0.20, "sliver": 0.10},
++    {"merge": 0.050, "edge": 0.100, "snap": 0.30, "sliver": 0.15},
++]
++
++MESH_ERROR_KINDS = [
++    (r"misshap", "geometry",
++     "an element's geometry cannot be meshed (a tiny edge, a sliver, a "
++     "self-intersection or a zero-size member)"),
++    (r"no structure to analy|forget to generate the mesh", "no_mesh",
++     "the mesh was not generated"),
++    (r"self.?intersect|twisted|bow.?tie", "geometry",
++     "a polygon crosses itself"),
++    (r"overlap", "overlap", "two elements overlap in a way RAM cannot resolve"),
++    (r"too small|too short|degenerate|zero (length|area|width|depth|thickness)",
++     "geometry", "an element is too small or has a zero dimension"),
++    (r"mesh", "mesh", "the mesher failed on this geometry or element size"),
++    (r"unstable|singular|mechanism|not (sufficiently )?supported|no support",
++     "stability", "part of the structure has no support or hangs on a point"),
++    (r"memory|too many (elements|nodes)", "size",
++     "the mesh is too fine for this model"),
++]
++
++
++def diagnose_ram_error(text):
++    """(النوع، الشرح) لرسالة الخطأ اللي RAM رجّعها."""
++    t = str(text or "").lower()
++    for pat, kind, why in MESH_ERROR_KINDS:
++        if re.search(pat, t):
++            return kind, why
++    return "unknown", "RAM did not say why"
++
++
++def _md_geom():
++    try:
++        from shapely.geometry import (Polygon as P, LineString as L,
++                                      Point as Pt, MultiPolygon as MP)
++        from shapely.ops import unary_union as U
++        return P, L, Pt, MP, U
++    except Exception:
++        return None
++
++
++def _md_rings(site):
++    """كل المضلعات اللي بتتشبّك: (اسم، getter، setter)."""
++    out = []
++    if site.get("boundary"):
++        out.append(("boundary", lambda: site["boundary"],
++                    lambda v: site.__setitem__("boundary", v)))
++    for i, s in enumerate(site.get("slabs") or []):
++        out.append((f"slab {i + 1}", lambda s=s: s["points"],
++                    lambda v, s=s: s.__setitem__("points", v)))
++    for key in ("openings", "pour_strips"):
++        lst = site.get(key) or []
++        for i in range(len(lst)):
++            out.append((f"{key[:-1].replace('_', ' ')} {i + 1}",
++                        lambda l=lst, i=i: l[i],
++                        lambda v, l=lst, i=i: l.__setitem__(i, v)))
++    return out
++
++
++def _md_merge_vertices(site, tol):
++    """
++    الرؤوس اللي بينها أقل من tol (في أي مضلع) بتبقى رأس واحد.
++    الحد الخارجي الأول، فرؤوسه هي المرجع.
++    """
++    cell = max(tol, 1e-6)
++    grid, moved = {}, 0
++    for _name, get, put in _md_rings(site):
++        pts = get()
++        if not pts:
++            continue
++        new = []
++        for p in pts:
++            p = (float(p[0]), float(p[1]))
++            gx, gy = int(math.floor(p[0] / cell)), int(math.floor(p[1] / cell))
++            hit = None
++            for dx in (-1, 0, 1):
++                for dy in (-1, 0, 1):
++                    for q in grid.get((gx + dx, gy + dy), ()):
++                        if dist(p, q) <= tol and (hit is None or
++                                                  dist(p, q) < dist(p, hit)):
++                            hit = q
++            if hit is None:
++                grid.setdefault((gx, gy), []).append(p)
++                new.append(p)
++            else:
++                if dist(p, hit) > 1e-9:
++                    moved += 1
++                new.append(hit)
++        put(new)
++    return moved
++
++
++def _md_clean_rings(site, edge):
++    """أضلاع أقصر من edge والرؤوس اللي على استقامة بتتشال."""
++    fixed = 0
++    for _name, get, put in _md_rings(site):
++        pts = get()
++        if not pts or len(pts) < 3:
++            continue
++        new = drop_collinear(clean_polygon(list(pts), tol=edge))
++        if len(new) >= 3 and len(new) != len(pts):
++            fixed += len(pts) - len(new)
++            put(new)
++    return fixed
++
++
++def _md_members(site):
++    """الكمرات والحوائط كمستطيلات: (نوع، عنصر، نقطة1، نقطة2، نص العرض بالمتر)."""
++    out = []
++    for key in ("beams", "walls"):
++        for m in site.get(key) or []:
++            try:
++                half = float(m.get("width") or 0.0) / 2000.0
++                a, b = tuple(m["p1"]), tuple(m["p2"])
++            except Exception:
++                continue
++            if half > 0 and dist(a, b) > 1e-6:
++                out.append((key, m, a, b, half))
++    return out
++
++
++def _md_snap_to_faces(site, snap, G):
++    """
++    **حد البلاطة جنب الكمرة لازم يمشي على الوش الخارجي بتاعها بالظبط.**
++
++    لكل كمرة/حيطة على الحد: الوش الخارجي هو الناحية اللي برّه البلاطة.
++    أي رأس للحد واقع بين الوش الداخلي والوش الخارجي + snap بيتنقل على
++    الوش الخارجي؛ والرأس اللي عند ركن كمرتين بيروح لتقاطع الوشّين.
++    """
++    P, L, Pt, MP, U = G
++    members = _md_members(site)
++    if not members:
++        return 0
++    moved = 0
++    drops = {f"slab {i + 1}" for i, s in enumerate(site.get("slabs") or []) if s.get("is_drop")}
++    for name, get, put in _md_rings(site):
++        if name.startswith(("opening", "pour")) or name in drops:
++            continue
++        pts = get()
++        if not pts or len(pts) < 3:
++            continue
++        try:
++            poly = P(pts).buffer(0)
++        except Exception:
++            continue
++        if poly.is_empty or poly.area <= 0:
++            continue
++        ring = poly.exterior
++        faces = []           # (نقطة على الوش، اتجاه، عمودي للخارج، أول، آخر)
++        for _k, m, a, b, half in members:
++            if L([a, b]).distance(ring) > half + snap:
++                continue
++            L0 = dist(a, b)
++            u = ((b[0] - a[0]) / L0, (b[1] - a[1]) / L0)
++            n = (-u[1], u[0])
++            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
++            off = half + 0.02
++            s1 = poly.contains(Pt(mid[0] + n[0] * off, mid[1] + n[1] * off))
++            s2 = poly.contains(Pt(mid[0] - n[0] * off, mid[1] - n[1] * off))
++            if s1 == s2:
++                continue          # كمرة داخلية أو برّه خالص
++            if s1:
++                n = (-n[0], -n[1])
++            o = (a[0] + n[0] * half, a[1] + n[1] * half)
++            faces.append((a, u, n, half, L0, o))
++        if not faces:
++            continue
++        new, changed = [], 0
++        for p in pts:
++            cand = []
++            for a, u, n, half, L0, o in faces:
++                rx, ry = p[0] - a[0], p[1] - a[1]
++                t = rx * u[0] + ry * u[1]
++                s = rx * n[0] + ry * n[1]
++                if -half - 1e-6 <= s <= half + snap and \
++                        -half - snap <= t <= L0 + half + snap and abs(s - half) > 1e-5:
++                    cand.append((abs(s - half), a, u, n, half, t))
++                elif abs(s - half) <= 1e-5 and -half - snap <= t <= L0 + half + snap:
++                    cand.append((0.0, a, u, n, half, t))
++            if not cand:
++                new.append(p)
++                continue
++            cand.sort(key=lambda c: c[0])
++            _d, a, u, n, half, t = cand[0]
++            q = (a[0] + u[0] * t + n[0] * half, a[1] + u[1] * t + n[1] * half)
++            for _d2, a2, u2, n2, h2, _t2 in cand[1:]:
++                den = u[0] * u2[1] - u[1] * u2[0]
++                if abs(den) < 0.2:
++                    continue          # متوازيين: الأقرب كفاية
++                o1 = (a[0] + n[0] * half, a[1] + n[1] * half)
++                o2 = (a2[0] + n2[0] * h2, a2[1] + n2[1] * h2)
++                k = ((o2[0] - o1[0]) * u2[1] - (o2[1] - o1[1]) * u2[0]) / den
++                x = (o1[0] + u[0] * k, o1[1] + u[1] * k)
++                if dist(x, p) <= 2 * (half + h2 + snap):
++                    q = x
++                break
++            if dist(q, p) > 1e-6:
++                changed += 1
++            new.append(q)
++        if changed:
++            try:
++                np_ = P(new).buffer(0)
++                ok = (not np_.is_empty and np_.geom_type == "Polygon"
++                      and abs(np_.area - poly.area) <= 0.05 * poly.area)
++            except Exception:
++                ok = False
++            if ok:
++                put(new)
++                moved += changed
++    return moved
++
++
++def _md_poly(G, pts):
++    P = G[0]
++    try:
++        g = P(pts).buffer(0)
++        return None if g.is_empty else g
++    except Exception:
++        return None
++
++
++def _md_largest(g):
++    if g is None or g.is_empty:
++        return None
++    if g.geom_type == "Polygon":
++        return g
++    parts = [p for p in getattr(g, "geoms", []) if p.geom_type == "Polygon"]
++    return max(parts, key=lambda p: p.area) if parts else None
++
++
++def _md_ring_pts(ring):
++    c = list(ring.coords)[:-1]
++    return [(round(x, 6), round(y, 6)) for x, y in c]
++
++
++def _md_openings_and_slivers(site, sliver, G, job):
++    """
++    البلاطة الصافية = الحد − الفتحات. الشرايح اللي أرفع من sliver (بين فتحة
++    والحد أو بين فتحتين) بتتشال، والفتحة اللي لامسة الحد بتبقى تجويف في
++    الحد. الفتحات المتداخلة بتتدمج. الفتحة اللي برّه البلاطة بتتشال.
++    """
++    P, L, Pt, MP, U = G
++    if not site.get("boundary"):
++        return {}
++    B = _md_poly(G, site["boundary"])
++    if B is None:
++        return {}
++    B = _md_largest(B)
++    ops = [g for g in (_md_poly(G, o) for o in site.get("openings") or []) if g is not None]
++    rep = {}
++    outside = [o for o in ops if not o.intersects(B) or o.intersection(B).area < 1e-4]
++    if outside:
++        rep["openings outside the slab removed"] = len(outside)
++    ops = [o for o in ops if o not in outside]
++    R = B.difference(U(ops)) if ops else B
++    h = sliver / 2.0
++    R2 = R.buffer(-h, join_style=2).buffer(h, join_style=2) if h > 0 else R
++    R2 = R2.intersection(R.buffer(1e-6))
++    main = _md_largest(R2)
++    if main is None or main.area < 0.95 * R.area:
++        return rep            # الإصلاح هيشيل أكتر من 5% - مش شريحة
++    lost_islands = [g for g in getattr(R2, "geoms", []) if g is not main and g.area > 0.01]
++    if lost_islands:
++        rep["small islands of slab dropped"] = len(lost_islands)
++    new_b = _md_ring_pts(main.exterior)
++    new_o = [_md_ring_pts(h_) for h_ in main.interiors]
++    if abs(P(new_b).area - B.area) > 1e-4 or len(new_o) != len(site.get("openings") or []):
++        if len(new_o) < len(ops):
++            rep["openings merged or turned into edge notches"] = len(ops) - len(new_o)
++        if R.area - main.area > 1e-4:
++            rep["concrete slivers removed (m²)"] = round(R.area - main.area, 3)
++        site["boundary"] = new_b
++        site["openings"] = new_o
++        fill = P(new_b)
++        slabs = []
++        for s in site.get("slabs") or []:
++            g = _md_poly(G, s["points"])
++            if g is None:
++                continue
++            c = g.intersection(fill)
++            parts = [c] if c.geom_type == "Polygon" else [q for q in getattr(c, "geoms", []) if q.geom_type == "Polygon"]
++            for q in parts:
++                if q.area < 1e-3:
++                    continue
++                s2 = dict(s)
++                s2["points"] = _md_ring_pts(q.exterior)
++                s2["area"] = q.area
++                slabs.append(s2)
++        site["slabs"] = slabs
++        site["drops"] = [s["points"] for s in slabs if s.get("is_drop")]
++        ps = []
++        for st in site.get("pour_strips") or []:
++            g = _md_poly(G, st)
++            c = _md_largest(g.intersection(fill)) if g is not None else None
++            if c is not None and c.area > 1e-3:
++                ps.append(_md_ring_pts(c.exterior))
++        if site.get("pour_strips") is not None:
++            site["pour_strips"] = ps
++    return rep
++
++
++def _md_trim_beams(site, G):
++    """الكمرة بتتقص على البلاطة. اللي ≥ 50% منها برّه أو أقصر من الحد بتتشال."""
++    P, L, Pt, MP, U = G
++    area = _md_poly(G, site["boundary"]) if site.get("boundary") else None
++    if area is None:
++        slabs = [g for g in (_md_poly(G, s["points"]) for s in site.get("slabs") or []) if g is not None]
++        area = U(slabs) if slabs else None
++    if area is None:
++        return {}
++    loose = area.buffer(0.01, join_style=2)
++    keep, trimmed, dropped = [], 0, []
++    for b in site.get("beams") or []:
++        a, c = tuple(b["p1"]), tuple(b["p2"])
++        L0 = dist(a, c)
++        if L0 < 1e-6:
++            keep.append(b)
++            continue
++        segs = []
++        for zone in (area, loose):        # على الحد بالظبط، ولو فيه فرق تقريب بالتسامح
++            inter = L([a, c]).intersection(zone)
++            segs = [inter] if inter.geom_type == "LineString" else \
++                [g for g in getattr(inter, "geoms", []) if g.geom_type == "LineString"]
++            segs = [s for s in segs if s.length > 0]
++            if segs:
++                break
++        if not segs:
++            dropped.append((b, "outside the slab"))
++            continue
++        s = max(segs, key=lambda g: g.length)
++        if s.length < 0.5 * L0:
++            dropped.append((b, f"{(1 - s.length / L0) * 100:.0f}% outside the slab"))
++            continue
++        if s.length < MIN_MEMBER_LENGTH_M:
++            dropped.append((b, "shorter than the minimum after trimming"))
++            continue
++        q1, q2 = s.coords[0], s.coords[-1]
++        if dist(q1, a) > dist(q2, a):
++            q1, q2 = q2, q1
++        if dist(q1, a) > 0.005 or dist(q2, c) > 0.005:
++            b = dict(b)
++            b["p1"], b["p2"] = (q1[0], q1[1]), (q2[0], q2[1])
++            trimmed += 1
++        keep.append(b)
++    site["beams"] = keep
++    rep = {}
++    if trimmed:
++        rep["beam ends trimmed to the slab"] = trimmed
++    if dropped:
++        rep["beams outside the slab removed"] = len(dropped)
++        site.setdefault("mesh_doctor_dropped", []).extend(
++            {"p1": b["p1"], "p2": b["p2"], "why": w} for b, w in dropped)
++    return rep
++
++
++def _md_close_beam_gaps(site, tol):
++    """
++    طرف الكمرة اللي واقف قبل كمرة/حيطة تانية بأقل من tol بيتمد لمحورها
++    (أو بيتقص لو عدّاه بأقل من tol). ده بيشيل العقد المعلّقة.
++    """
++    mem = _md_members(site)
++    fixed = 0
++    for key, m, a, b, half in mem:
++        if key != "beams":
++            continue
++        L0 = dist(a, b)
++        u = ((b[0] - a[0]) / L0, (b[1] - a[1]) / L0)
++        ends = [list(a), list(b)]
++        for ei in (0, 1):
++            e = ends[ei]
++            best = None
++            for key2, m2, a2, b2, h2 in mem:
++                if m2 is m:
++                    continue
++                L2 = dist(a2, b2)
++                u2 = ((b2[0] - a2[0]) / L2, (b2[1] - a2[1]) / L2)
++                den = u[0] * u2[1] - u[1] * u2[0]
++                if abs(den) < 0.2:
++                    continue
++                k = ((a2[0] - e[0]) * u2[1] - (a2[1] - e[1]) * u2[0]) / den
++                x = (e[0] + u[0] * k, e[1] + u[1] * k)
++                t2 = (x[0] - a2[0]) * u2[0] + (x[1] - a2[1]) * u2[1]
++                if not (-h2 <= t2 <= L2 + h2):
++                    continue
++                if 1e-4 < abs(k) <= tol and (best is None or abs(k) < abs(best[0])):
++                    best = (k, x)
++            if best is not None:
++                ends[ei] = [best[1][0], best[1][1]]
++        if (tuple(ends[0]) != a or tuple(ends[1]) != b) and \
++                dist(ends[0], ends[1]) >= MIN_MEMBER_LENGTH_M:
++            m["p1"], m["p2"] = tuple(ends[0]), tuple(ends[1])
++            fixed += 1
++    return {"beam ends closed onto the member they almost touch": fixed} if fixed else {}
++
++
++def _md_same_priority(site, G):
++    """منطقتين بنفس الأولوية وسُمك مختلف متداخلين: الأصغر بياخد أولوية أعلى."""
++    slabs = site.get("slabs") or []
++    polys = [_md_poly(G, s["points"]) for s in slabs]
++    n = 0
++    for i in range(len(slabs)):
++        for j in range(i + 1, len(slabs)):
++            a, b = slabs[i], slabs[j]
++            pa, pb = polys[i], polys[j]
++            if pa is None or pb is None or a.get("priority") is None \
++                    or a.get("priority") != b.get("priority"):
++                continue
++            if (a.get("thickness") or 0) == (b.get("thickness") or 0):
++                continue
++            if pa.intersection(pb).area < 0.05:
++                continue
++            small = a if pa.area < pb.area else b
++            small["priority"] = int(small["priority"]) + 1
++            n += 1
++    return {"overlapping areas given a higher priority": n} if n else {}
++
++
++def mesh_doctor(site, job=None, level=0):
++    """
++    إصلاح الهندسة قبل البناء في RAM. بيعدّل site في مكانه وبيرجّع تقرير.
++    كل خطوة لوحدها في try: الدكتور عمره ما يوقف البناء.
++    """
++    lv = MESH_DOCTOR_LEVELS[max(0, min(level, len(MESH_DOCTOR_LEVELS) - 1))]
++    G = _md_geom()
++    rep = {}
++
++    def _do(label, fn):
++        try:
++            r = fn()
++            if isinstance(r, dict):
++                rep.update({k: v for k, v in r.items() if v})
++            elif r:
++                rep[label] = r
++        except Exception as e:
++            if job:
++                job.warn(f"Mesh doctor: {label} skipped ({type(e).__name__}: {e})")
++
++    _do("vertices closer than %.0f mm merged" % (lv["merge"] * 1000),
++        lambda: _md_merge_vertices(site, lv["merge"]))
++    _do("edges shorter than %.0f mm removed" % (lv["edge"] * 1000),
++        lambda: _md_clean_rings(site, lv["edge"]))
++    if G is not None:
++        _do("slab edge vertices moved onto the outer face of the edge beam",
++            lambda: _md_snap_to_faces(site, lv["snap"], G))
++        _do("openings", lambda: _md_openings_and_slivers(site, lv["sliver"], G, job))
++        _do("beams", lambda: _md_trim_beams(site, G))
++        _do("priorities", lambda: _md_same_priority(site, G))
++    elif job and level == 0:
++        job.warn("Mesh doctor: shapely is not installed, so only vertex and "
++                 "edge fixes ran ('pip install shapely' for the full set).")
++    _do("beam gaps", lambda: _md_close_beam_gaps(site, lv["snap"]))
++    _do("edges shorter than %.0f mm removed (after the fixes)" % (lv["edge"] * 1000),
++        lambda: _md_clean_rings(site, lv["edge"]))
++    if job:
++        if rep:
++            job.ok(f"Mesh doctor (level {level}): fixed before RAM sees it:")
++            for k, v in rep.items():
++                job.info(f"    · {k}: {v}")
++        else:
++            job.ok(f"Mesh doctor (level {level}): the geometry is clean.")
++    return rep
++
++
++def mesh_doctor_findings(site, limit=12):
++    """
++    الأماكن المشكوك فيها بالإحداثيات - لما RAM يرفض وكل الإصلاحات فشلت،
++    الرسالة لازم تقول فين.
++    """
++    out = []
++    for name, get, _put in _md_rings(site):
++        pts = get() or []
++        n = len(pts)
++        for i in range(n):
++            e = dist(pts[i], pts[(i + 1) % n])
++            if e < 0.15:
++                out.append((e, f"{name}: edge {e * 1000:.0f} mm at "
++                               f"({pts[i][0]:.2f}, {pts[i][1]:.2f})"))
++        for i in range(n):
++            a, b, c = pts[i - 1], pts[i], pts[(i + 1) % n]
++            v1 = (a[0] - b[0], a[1] - b[1])
++            v2 = (c[0] - b[0], c[1] - b[1])
++            l1, l2 = math.hypot(*v1), math.hypot(*v2)
++            if l1 < 1e-9 or l2 < 1e-9:
++                continue
++            cosang = max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2)))
++            ang = math.degrees(math.acos(cosang))
++            if ang < 8.0:
++                out.append((ang / 100.0, f"{name}: spike of {ang:.1f}° at "
++                                         f"({b[0]:.2f}, {b[1]:.2f})"))
++    G = _md_geom()
++    if G is not None and site.get("boundary"):
++        B = _md_poly(G, site["boundary"])
++        if B is not None:
++            for k, m, a, b, half in _md_members(site):
++                #  كمرة ماشية بطول الحد (الطرفين على نفس البعد تقريبًا)
++                q1 = G[2](a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25)
++                q2 = G[2](a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75)
++                da, db = q1.distance(B.exterior), q2.distance(B.exterior)
++                d = min(da, db)
++                if half + 0.005 < d < half + 0.20 and abs(da - db) < 0.05 and B.contains(q1):
++                    out.append((d, f"{k[:-1]} ({a[0]:.2f}, {a[1]:.2f})-({b[0]:.2f}, "
++                                   f"{b[1]:.2f}): outer face {(d - half) * 1000:.0f} mm "
++                                   f"from the slab edge"))
++            sup = [G[2](c["center"]).buffer(0.5) for c in site.get("columns") or [] if c.get("center")]
++            sup += [G[1]([w["p1"], w["p2"]]).buffer(0.3) for w in site.get("walls") or []]
++            if sup:
++                S = G[4](sup)
++                for i, s in enumerate(site.get("slabs") or []):
++                    g = _md_poly(G, s["points"])
++                    if g is not None and not s.get("is_drop") and g.area > 5 and not g.intersects(S):
++                        c = g.representative_point()
++                        out.append((0.0, f"slab {i + 1} near ({c.x:.2f}, {c.y:.2f}) "
++                                         f"has no column or wall under it"))
++    out.sort(key=lambda r: r[0])
++    return [r[1] for r in out[:limit]]
++
++
++class _RecordingLayer:
++    """
++    طبقة المنشأ بس بتفتكر كل عنصر اتضاف من البرنامج - عشان إعادة البناء
++    تمسح اللي البرنامج رسمه بس، ومايقربش من حاجة كانت في الـ template.
++    """
++
++    def __init__(self, layer, sink):
++        object.__setattr__(self, "_layer", layer)
++        object.__setattr__(self, "_sink", sink)
++
++    def __getattr__(self, name):
++        v = getattr(self._layer, name)
++        if name.startswith("add_") and callable(v):
++            def rec(*a, **k):
++                r = v(*a, **k)
++                if r is not None:
++                    self._sink.append(r)
++                return r
++            return rec
++        return v
++
++    def __setattr__(self, name, value):
++        setattr(self._layer, name, value)
++
++
++def _rebuild_structure(session, job, level):
++    """
++    امسح العناصر اللي البرنامج رسمها، وصلّح بمستوى أعلى، وارسم تاني.
++    لو فيه عنصر مالوش delete، مابيبدأش خالص: نص موديل ممسوح أسوأ من الغلط.
++    """
++    saved = getattr(session, "_autopt_site", None)
++    added = getattr(session, "_autopt_added", None)
++    if not saved or not added:
++        return False, "the structure was not drawn by this run"
++    if not all(callable(getattr(e, "delete", None)) for e in added):
++        return False, "this RAM API cannot delete elements"
++    for e in list(added):
++        try:
++            e.delete()
++        except Exception as ex:
++            job.error(f"Mesh doctor: deleting an element failed ({ex}) - the "
++                      f"structure layer may be incomplete.")
++            return False, "delete failed"
++    added.clear()
++    site, params = saved
++    session._mesh_level = level
++    build_structure_in_ram(session, site, params, job)
++    return True, f"structure rebuilt with the level-{level} fixes"
++
++
++def mesh_doctor_retry(session, job, mesh_size, first, once):
++    """
++    RAM رفض: صنّف السبب، صلّح، وأعد المحاولة. `once(size)` بيولّد الشبكة
++    ويحلّل مرة واحدة.
++    """
++    if getattr(session, "_md_active", False):
++        return first
++    text = " ".join(str(x) for x in [first.get("error") or ""] +
++                    list(getattr(session, "_last_mesh_errors", []) or []))
++    kind, why = diagnose_ram_error(text)
++    job.warn(f"Mesh doctor: RAM refused the model - {kind}: {why}.")
++    session._md_active = True
++    tried = []
++    try:
++        if kind in ("geometry", "overlap", "mesh", "unknown"):
++            for level in range(max(1, getattr(session, "_mesh_level", 0) + 1),
++                               len(MESH_DOCTOR_LEVELS)):
++                ok, what = _rebuild_structure(session, job, level)
++                if not ok:
++                    job.warn(f"Mesh doctor: cannot rebuild ({what}).")
++                    break
++                tried.append(what)
++                r = once(mesh_size)
++                if r.get("ok"):
++                    job.ok(f"Mesh doctor: fixed - {what}.")
++                    r["fixed_by"] = what
++                    return r
++        if kind != "stability":
++            base = float(mesh_size) if mesh_size else None
++            sizes = ([base * 0.75, base * 0.5, base * 1.5] if base
++                     else [1.0, 0.75, 0.5])
++            for s in sizes:
++                what = f"mesh element size {s:.2f} m"
++                tried.append(what)
++                r = once(round(s, 3))
++                if r.get("ok"):
++                    job.ok(f"Mesh doctor: fixed - {what}. Use this size for "
++                           f"this model.")
++                    r["fixed_by"] = what
++                    return r
++    finally:
++        session._md_active = False
++    job.error(f"Mesh doctor: RAM still refuses after: "
++              f"{'; '.join(tried) or 'no automatic fix applies'}.")
++    saved = getattr(session, "_autopt_site", None)
++    if saved:
++        spots = mesh_doctor_findings(saved[0])
++        if spots:
++            job.error("Check these places in the DXF:")
++            for s in spots:
++                job.error(f"    · {s}")
++    out = dict(first)
++    out["diagnosis"] = {"kind": kind, "why": why, "tried": tried}
++    return out
++
++
+ def _pa_from_tendons(tendons, params, direction, area_m2):
+     """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
+     force = 0.0
+@@ -56564,6 +57477,86 @@
+             self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
+ 
+ 
++class DrawingZonesDialog(ModalDialog):
++    """
++    الزونات اللي أداة قراءة المخطط طلّعتها: اسم كل زون وأعداد عناصرها
++    وعدد اللي محتاج مراجعة، وصورتها بضغطة. المختار بيتحط في خانة الـ DXF.
++    """
++
++    def __init__(self, parent, info, out_dir, check_ok=True):
++        super().__init__(parent, "Zones read from the drawing", 860, 560)
++        self.info, self.out_dir = info, out_dir
++
++        head = tk.Frame(self, bg=PALETTE["brand"], height=S(64))
++        head.pack(fill="x")
++        head.pack_propagate(False)
++        tk.Label(head, text=f"{len(info)} zone(s) read from the drawing",
++                 bg=PALETTE["brand"], fg="white",
++                 font=F(13, "bold")).pack(anchor="e", padx=18, pady=(10, 0))
++        tk.Label(head, text=("Zone check passed. " if check_ok else
++                             "ZONE CHECK FAILED - see the log. ") +
++                 "Pick the zones to put in the DXF box; open a zone's picture "
++                 "to compare it with the drawing.",
++                 bg=PALETTE["brand"], fg="#c9dcea" if check_ok else "#ffd7d7",
++                 font=F(9)).pack(anchor="e", padx=18)
++
++        body = tk.Frame(self, bg=PALETTE["bg"])
++        body.pack(fill="both", expand=True, padx=16, pady=10)
++        cols = ("columns", "walls", "beams", "review")
++        self.tree = ttk.Treeview(body, columns=cols, show="tree headings",
++                                 selectmode="extended")
++        self.tree.heading("#0", text="Zone")
++        self.tree.column("#0", width=S(330))
++        for c, t in zip(cols, ("Columns", "Walls", "Beams", "To review")):
++            self.tree.heading(c, text=t)
++            self.tree.column(c, width=S(90), anchor="center")
++        for i, z in enumerate(info):
++            self.tree.insert("", "end", iid=str(i), text=z["tag"],
++                             values=(z["columns"], z["walls"], z["beams"],
++                                     z["review"] or ""))
++        self.tree.selection_set([str(i) for i in range(len(info))])
++        self.tree.pack(side="left", fill="both", expand=True)
++        sb = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
++        sb.pack(side="left", fill="y")
++        self.tree.configure(yscrollcommand=sb.set)
++        self.tree.bind("<Double-1>", lambda e: self._image())
++
++        foot = tk.Frame(self, bg=PALETTE["bg"])
++        foot.pack(fill="x", padx=16, pady=(0, 14))
++        ttk.Button(foot, text="Put in the DXF box", style="Primary.TButton",
++                   command=self._use).pack(side="right")
++        ttk.Button(foot, text="Open picture", command=self._image
++                   ).pack(side="right", padx=8)
++        ttk.Button(foot, text="Open folder", command=lambda: self._open(self.out_dir)
++                   ).pack(side="right")
++        ttk.Button(foot, text="Cancel", command=self._cancel).pack(side="left")
++
++    @staticmethod
++    def _open(path):
++        try:
++            if os.name == "nt":
++                os.startfile(path)
++            else:
++                subprocess.Popen(["xdg-open", path])
++        except Exception:
++            pass
++
++    def _image(self):
++        sel = self.tree.selection() or self.tree.get_children()[:1]
++        for s in sel[:3]:
++            img = self.info[int(s)].get("image")
++            if img:
++                self._open(img)
++
++    def _use(self):
++        sel = [self.info[int(s)]["path"] for s in self.tree.selection()]
++        if not sel:
++            messagebox.showinfo("Zones", "Select at least one zone.", parent=self)
++            return
++        self.result = sel
++        self.destroy()
++
++
+ class ZoneReviewDialog(ModalDialog):
+     """
+     شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
+@@ -63618,7 +64611,8 @@
+             _pts = _s.get("points") or []
+             _th = float(_s.get("thickness") or 0.0)
+             if len(_pts) >= 3 and _th > 0:
+-                _drop = bool(_s.get("is_drop")) or int(_s.get("priority") or 1) > 1
++                _drop = bool(_s.get("is_drop")) or (int(_s.get("priority") or 1) > 1
++                                                     and not _s.get("is_zone"))
+                 _site_slabs.append((_pts, _th, _drop))
+         except Exception:
+             continue
+@@ -68863,6 +69857,9 @@
+             "cleanup_col_min": V(value="150"),
+             "cleanup_col_max": V(value="1500"),
+             "cleanup_split_zones": B(value=False),
++            #  قارئ المخططات (pt_pipeline) - فولدره و dwgread بيتفتكروا
++            "drawing_reader_dir": V(),
++            "dwgread_path": V(),
+             "xfer_src": V(),
+             "xfer_factor": V(value="1"),
+             "xfer_analyse": B(value=True),
+@@ -69903,6 +70900,14 @@
+                 "each against the same .cpt template below if only one is "
+                 "set, or matched file-for-model if the .cpt box also has "
+                 "several, separated by ';'.")
++        #  **مخطط المكتب زي ما هو (DWG أو DXF، من غير ليّرات مظبوطة):**
++        #  القارئ بيطلع ملف نضيف لكل زون ويحطهم في الخانة اللي فوق.
++        _dr = c.row()
++        ttk.Button(_dr, text="📐  Read a DWG / DXF drawing…",
++                   command=self._drawing_clicked).pack(side="right", padx=4)
++        ttk.Label(_dr, style="Muted.TLabel",
++                  text="Any structural/architectural drawing -> one clean "
++                       "file per zone").pack(side="right", padx=8)
+         c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
+                                                           multi=True),
+                 "Opened as a template; a new copy is saved. The original is "
+@@ -69950,6 +70955,14 @@
+                 self._file_row(c.body, self.v["api_path"], "dir"),
+                 "Leave empty to auto-detect. Set it if RAM is installed somewhere "
+                 "unusual - either the python folder or the version folder.")
++        c.field("Drawing reader folder",
++                self._file_row(c.body, self.v["drawing_reader_dir"], "dir"),
++                "The folder that has 'pt_pipeline' in it (tools\\layerless_reader). "
++                "Empty = looked for next to the program; asked once if not found.")
++        c.field("LibreDWG dwgread.exe (DWG only)",
++                self._file_row(c.body, self.v["dwgread_path"], "exe"),
++                "Only needed to read .dwg directly. A DXF saved from AutoCAD "
++                "needs nothing extra.")
+ 
+         return outer
+ 
+@@ -70014,6 +71027,11 @@
+                     title="Select a RAM Concept file", parent=top,
+                     initialdir=self._last_dir(var),
+                     filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
++            elif kind == "exe":
++                p = filedialog.askopenfilename(
++                    title="Select the program", parent=top,
++                    initialdir=self._last_dir(var),
++                    filetypes=[("Program", "*.exe"), ("All files", "*.*")])
+             elif kind == "json":
+                 #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
+                 #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
+@@ -74993,6 +76011,301 @@
+                "It offers to fill the DXF box there with it.")
+         return outer
+ 
++    # ------------------------------------------------------------------
++    #  قراءة مخطط DWG/DXF كامل (pt_pipeline) -> ملفات زونات جاهزة
++    #
++    #  الزرار في كارت Files بياخد المخطط زي ما هو من المكتب - DWG أو
++    #  DXF، شيت فيه كذا دور، من غير أي ليّرات مظبوطة - ويشغّل أداة
++    #  القراءة (`python -m pt_pipeline.convert`) في الخلفية. الأداة بتطلع
++    #  ملف DXF نضيف لكل زون، والشاشة بعدها بتخلّي المهندس يختار الزونات
++    #  اللي تتحط في خانة الـ DXF. القواعد كلها في pt_pipeline/RULES.md.
++    # ------------------------------------------------------------------
++
++    def _find_reader_dir(self):
++        """الفولدر اللي فيه pt_pipeline/convert.py (tools/layerless_reader)."""
++        here = os.path.dirname(os.path.abspath(sys.argv[0] or __file__))
++        cands = [(self.v["drawing_reader_dir"].get() or "").strip(),
++                 os.environ.get("AUTOPT_DRAWING_READER", ""),
++                 here, os.path.join(here, "layerless_reader"),
++                 os.path.join(here, "tools", "layerless_reader"),
++                 os.path.join(os.path.dirname(here), "tools", "layerless_reader")]
++        for c in cands:
++            if not c:
++                continue
++            for d in (c, os.path.join(c, "tools", "layerless_reader"),
++                      os.path.dirname(c)):
++                if os.path.isfile(os.path.join(d, "pt_pipeline", "convert.py")):
++                    return os.path.abspath(d)
++        return None
++
++    def _find_dwgread(self, reader_dir):
++        """LibreDWG dwgread - لازم بس لملفات DWG."""
++        names = ("dwgread.exe", "dwgread")
++        cands = [(self.v["dwgread_path"].get() or "").strip(),
++                 os.environ.get("LIBREDWG_DWGREAD", ""),
++                 shutil.which("dwgread") or ""]
++        if reader_dir:
++            for sub in ("", "libredwg", os.path.join("libredwg", "bin"), "bin"):
++                for n in names:
++                    cands.append(os.path.join(reader_dir, sub, n))
++        for c in cands:
++            if c and os.path.isfile(c):
++                return c
++        return None
++
++    @staticmethod
++    def _reader_python():
++        """
++        البايثون اللي يشغّل الأداة. لو البرنامج نفسه شغّال من بايثون
++        بياخده؛ ولو متحزّم exe (sys.executable هو البرنامج) بيدور على
++        python في الـ PATH.
++        """
++        exe = sys.executable or ""
++        base = os.path.basename(exe).lower()
++        if not getattr(sys, "frozen", False) and base.startswith("python"):
++            con = os.path.join(os.path.dirname(exe), "python.exe")
++            if base.startswith("pythonw") and os.path.isfile(con):
++                return [con]
++            return [exe]
++        for c in (["python"], ["py", "-3"], ["python3"]):
++            if shutil.which(c[0]):
++                return c
++        return None
++
++    def _drawing_clicked(self):
++        if self._reject_if_busy():
++            return
++        src = filedialog.askopenfilename(
++            title="The drawing to read (structural or architectural)",
++            parent=self.root, initialdir=self._last_dir(self.v["dxf"]),
++            filetypes=[("AutoCAD drawing", "*.dwg *.dxf"), ("DWG", "*.dwg"),
++                       ("DXF", "*.dxf"), ("All files", "*.*")])
++        if not src:
++            return
++        rdir = self._find_reader_dir()
++        if not rdir:
++            messagebox.showinfo(
++                "Drawing reader",
++                "Pick the folder of the drawing reader once (the folder that "
++                "has 'pt_pipeline' inside it - tools\\layerless_reader in the "
++                "repository). It is remembered after that.", parent=self.root)
++            p = filedialog.askdirectory(title="The drawing reader folder",
++                                        parent=self.root)
++            if p:
++                self.v["drawing_reader_dir"].set(p)
++                rdir = self._find_reader_dir()
++            if not rdir:
++                messagebox.showerror(
++                    "Drawing reader", "That folder has no pt_pipeline\\convert.py.",
++                    parent=self.root)
++                return
++        self.v["drawing_reader_dir"].set(rdir)
++        dwgread = None
++        if src.lower().endswith(".dwg"):
++            dwgread = self._find_dwgread(rdir)
++            if not dwgread:
++                if messagebox.askyesno(
++                        "DWG needs LibreDWG",
++                        "Reading a DWG needs LibreDWG's dwgread.exe (free). "
++                        "Point to it now?\n\n(Or save the drawing as DXF from "
++                        "AutoCAD and pick the DXF - that needs nothing extra.)",
++                        parent=self.root):
++                    p = filedialog.askopenfilename(
++                        title="LibreDWG dwgread.exe", parent=self.root,
++                        filetypes=[("dwgread", "dwgread*"), ("All files", "*.*")])
++                    if p:
++                        self.v["dwgread_path"].set(p)
++                        dwgread = p
++                if not dwgread:
++                    return
++        py = self._reader_python()
++        if not py:
++            messagebox.showerror(
++                "Drawing reader",
++                "No Python was found to run the drawing reader. Install "
++                "Python 3 and run once:\n\n  pip install ezdxf shapely matplotlib",
++                parent=self.root)
++            return
++        stem = os.path.splitext(os.path.basename(src))[0]
++        out = os.path.join(os.path.dirname(src), f"{stem}_PT")
++        try:
++            os.makedirs(out, exist_ok=True)
++            probe = os.path.join(out, f".__pt_write_test_{os.getpid()}.tmp")
++            with open(probe, "w") as f:
++                f.write("x")
++            os.remove(probe)
++        except Exception:
++            p = filedialog.askdirectory(
++                title="That folder is not writable - choose where to put the "
++                      "zone files", parent=self.root)
++            if not p:
++                return
++            out = os.path.join(p, f"{stem}_PT")
++            os.makedirs(out, exist_ok=True)
++        self.nav.select("run")
++        self._clear_log()
++        job = Job(log_cb=self._log_async, progress_cb=self._progress_async)
++        job.log(f"— Read a drawing — {os.path.basename(src)}", "head")
++        self.run_btn.configure(state="disabled", text="Working...")
++        self.stop_btn.configure(state="normal")
++        self.job = job
++        self._run_dir = out
++        #  الدروب المرسوم من غير سُمك مكتوب بياخد سُمك الدروب من صفحة Project
++        try:
++            drop_t = float(self.v["drop_thickness"].get() or 0) or None
++        except Exception:
++            drop_t = None
++        self.worker = threading.Thread(
++            target=self._drawing_pipeline,
++            args=(src, out, rdir, dwgread, py, job, drop_t), daemon=True)
++        self.worker.start()
++
++    def _drawing_pipeline(self, src, out, rdir, dwgread, py, job, drop_t=None):
++        import queue as _q
++        proc = None
++        try:
++            env = dict(os.environ)
++            env["PYTHONIOENCODING"] = "utf-8"
++            if dwgread:
++                env["LIBREDWG_DWGREAD"] = dwgread
++            flags = 0x08000000 if os.name == "nt" else 0      # CREATE_NO_WINDOW
++            job.step(0.02, "Checking the drawing reader")
++            chk = subprocess.run(py + ["-c", "import ezdxf, shapely, matplotlib"],
++                                 cwd=rdir, env=env, capture_output=True,
++                                 text=True, creationflags=flags)
++            if chk.returncode != 0:
++                job.error("The drawing reader needs three Python packages. Run "
++                          "once in a command prompt:")
++                job.error(f"    {' '.join(py)} -m pip install ezdxf shapely matplotlib")
++                job.log((chk.stderr or "")[-600:], "error")
++                return
++            job.info(f"Reader: {rdir}")
++            job.info(f"Output: {out}")
++            if drop_t:
++                job.info(f"Drop panels drawn with no thickness written take "
++                         f"{drop_t:g} mm (Project page); a thickness written in "
++                         f"the drawing always wins.")
++            job.step(0.05, "Reading the drawing (a few minutes on a big set)")
++            proc = subprocess.Popen(
++                py + ["-m", "pt_pipeline.convert", src, "-o", out]
++                + (["--drop-thickness", f"{drop_t:g}"] if drop_t else []),
++                cwd=rdir, env=env, stdout=subprocess.PIPE,
++                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
++                errors="replace", creationflags=flags)
++            lines = _q.Queue()
++
++            def _pump():
++                for ln in proc.stdout:
++                    lines.put(ln.rstrip("\n"))
++                lines.put(None)
++
++            threading.Thread(target=_pump, daemon=True).start()
++            tail, frac = [], 0.05
++            while True:
++                if job.cancel_event.is_set():
++                    proc.kill()
++                    raise CancelledError()
++                try:
++                    ln = lines.get(timeout=0.4)
++                except _q.Empty:
++                    continue
++                if ln is None:
++                    break
++                tail = (tail + [ln])[-40:]
++                if ln.startswith("[convert]"):
++                    msg = ln[len("[convert]"):].strip()
++                    frac = min(frac + 0.06, 0.9)
++                    job.step(frac, msg[:80])
++                    (job.warn if "FAIL" in msg or "skipped" in msg
++                     else job.info)(msg)
++            rc = proc.wait()
++            files = sorted(glob.glob(os.path.join(out, "*_slab_clean.dxf")))
++            rep = {}
++            try:
++                with open(os.path.join(out, "report.json"), encoding="utf-8") as f:
++                    rep = json.load(f)
++            except Exception:
++                pass
++            if rc not in (0, 2) or not files:
++                job.error(f"The drawing reader stopped (code {rc}). Last lines:")
++                for ln in tail[-15:]:
++                    job.log("    " + ln, "error")
++                return
++            if rc == 2:
++                job.flag("The zone check FAILED - an element from another zone, "
++                         "an element outside its slab, or a duplicated beam. "
++                         "Check these zones before sending them to RAM:")
++                for ln in rep.get("zone_check") or []:
++                    if "CHECK" in ln or re.search(r"foreign 0 not covered by slab 0 "
++                                                  r"twin beams in zone 0\b", ln):
++                        continue
++                    job.flag("    " + ln)
++            info = self._drawing_zone_info(out, files)
++            n_rev = sum(z["review"] for z in info)
++            job.step(1.0, "Done")
++            job.log("=" * 62, "head")
++            job.ok(f"{len(files)} zone file(s) written to {out}")
++            if n_rev:
++                job.flag(f"{n_rev} item(s) need an engineer's look (REVIEW in "
++                         f"members.csv) - nothing was guessed into the model.")
++            picked = self.bridge.ask(
++                lambda: DrawingZonesDialog(self.root, info, out,
++                                           check_ok=(rc == 0)).show())
++            if not picked:
++                job.warn("No zone was put in the DXF box - the files stay in "
++                         f"{out}.")
++                return
++            self.v["dxf"].set("; ".join(picked))
++            self._last_drawing = picked[0]
++            job.ok(f"{len(picked)} zone file(s) are in the DXF box on the "
++                   f"Project page" + (" - they run one after another (a RAM "
++                                      "model per zone)." if len(picked) > 1
++                                      else "."))
++            self.root.after(0, lambda: self.nav.select("project"))
++        except CancelledError:
++            job.warn("Stopped.")
++        except Exception as e:
++            job.error(f"Reading the drawing failed: {e}")
++            job.log(traceback.format_exc(), "error")
++        finally:
++            if proc is not None and proc.poll() is None:
++                try:
++                    proc.kill()
++                except Exception:
++                    pass
++            self.root.after(0, self._finish)
++
++    @staticmethod
++    def _drawing_zone_info(out, files):
++        """لكل زون: أعدادها من members.csv وصورتها."""
++        counts = {}
++        try:
++            with open(os.path.join(out, "members.csv"), encoding="utf-8-sig") as f:
++                for row in csv.reader(f):
++                    if len(row) < 2 or row[0] == "sheet":
++                        continue
++                    c = counts.setdefault(row[0], {"columns": 0, "walls": 0,
++                                                   "beams": 0, "review": 0})
++                    el = row[1]
++                    if el.startswith("column"):
++                        c["columns"] += 1
++                    elif el == "wall" or el.startswith("wall "):
++                        c["walls"] += 1
++                    elif el == "beam":
++                        c["beams"] += 1
++                    if el == "REVIEW" or "review" in (row[-1] or "").lower():
++                        c["review"] += 1
++        except Exception:
++            pass
++        info = []
++        for p in files:
++            tag = os.path.basename(p)[:-len("_slab_clean.dxf")]
++            c = counts.get(tag, {"columns": 0, "walls": 0, "beams": 0, "review": 0})
++            img = os.path.join(out, "images", tag + ".png")
++            info.append(dict(c, tag=tag, path=p,
++                             image=img if os.path.isfile(img) else None))
++        return info
++
+     def _cleanup_browse_dxf(self):
+         p = filedialog.askopenfilename(
+             title="The raw architectural DXF to clean",
