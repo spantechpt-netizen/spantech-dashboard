@@ -161,7 +161,8 @@ def test_box_drops_take_given_thickness(tmp_path):
 
 def test_section_headers_and_separate_buildings(tmp_path):
     """أقسام بعناوين كبيرة (FRAMING / LOADING) + مبنيين منفصلين في كل دور -> زون لكل مبنى في كل دور.
-    الدور الأول فيه خطين بيقفلوا الفراغ بين المبنيين (زي أرضي HDB): بيتقسم زي الدور التاني."""
+    الدور الأول فيه خطين بيقفلوا الفراغ بين المبنيين (زي أرضي HDB): سقف واحد، ومابيتقسمش بالأبراج
+    اللي فوق - زونات الأرضي من فواصل التمدد بس (ومفيش فواصل هنا)، والسقف بيطلع REVIEW."""
     src = str(tmp_path / "sec.dxf")
     truth = MS.build_sections(src)
     out = tmp_path / "out"
@@ -169,11 +170,11 @@ def test_section_headers_and_separate_buildings(tmp_path):
                        cwd=ROOT, capture_output=True, text=True, timeout=900)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
     assert "from section headers" in r.stdout
-    assert "buildings like 02_FRAMING" in r.stdout
+    assert "zones only at expansion joints" in r.stdout
     files = sorted(f for f in os.listdir(out) if f.endswith("_slab_clean.dxf"))
-    assert len(files) == truth["zones"], files
-    assert all("-B1" in f or "-B2" in f for f in files), files
+    assert files == ["01_FRAMING_slab_clean.dxf", "02_FRAMING-B1_slab_clean.dxf", "02_FRAMING-B2_slab_clean.dxf"], files
     for f in files:
         msp = ezdxf.readfile(os.path.join(out, f)).modelspace()
-        assert len(msp.query('LWPOLYLINE[layer=="PT-Clean-Columns"]')) == truth["columns"], f
+        n = len(msp.query('LWPOLYLINE[layer=="PT-Clean-Columns"]'))
+        assert n == truth["columns"] * (2 if f.startswith("01_") else 1), (f, n)
         assert len(msp.query('LWPOLYLINE[layer=="PT-Clean-Boundary"]')) == 1, f
