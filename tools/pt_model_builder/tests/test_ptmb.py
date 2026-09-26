@@ -15,7 +15,9 @@ import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-READER = os.path.join(os.path.dirname(ROOT), "layerless_reader")
+# جوه الـ zip: PT_Model_Builder/layerless_reader؛ في الريبو: tools/layerless_reader
+READER = next(p for p in (os.path.join(ROOT, "layerless_reader"), os.path.join(os.path.dirname(ROOT), "layerless_reader"))
+              if os.path.isdir(p))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(READER, "pt_pipeline", "tests"))
 import make_struct_sample as MS                      # noqa: E402
