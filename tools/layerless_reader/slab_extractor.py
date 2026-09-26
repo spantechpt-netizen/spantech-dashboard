@@ -655,7 +655,12 @@ def extract_slab(doc, view: PlanView, gap=0.10, log=print) -> SlabResult:
         q = p.buffer(-0.2 - gap, join_style=2).buffer(0.2, join_style=2)
         opened += [g for g in getattr(q, "geoms", [q]) if g.geom_type == "Polygon" and not g.is_empty]
     big = max((p.area for p in opened), default=0.0)
-    parts = [p.bounds for p in opened if p.area >= max(50.0, 0.25 * big)]
+    # مبنى = حتة ≥ 50 م² و(≥ 25% من الأكبر، أو فيها ≥ 4 أعمدة). الأعمدة دليل إنشائي: الحتة الكبيرة
+    # ممكن تكبر بمساحات مقفولة بخطوط المحاور (أرضي HDB) فتخلّي الأبراج التانية "صغيرة" وتضيع.
+    colc = [h.centroid for h in hatches if 0.04 <= h.area <= 3.0 and _rect_dims(h)[1] >= 0.12]
+    # (سلم خارجي متهاشر 14×4 م: هاتش درجاته بيتحسب أعمدة - فطريق الأعمدة محتاج ≥ 100 م²)
+    parts = [p.bounds for p in opened
+             if p.area >= 50.0 and (p.area >= 0.25 * big or (p.area >= 100.0 and sum(1 for c in colc if p.contains(c)) >= 4))]
     slab = max(filled, key=lambda p: p.area).buffer(-gap, join_style=2).buffer(0)
     # حاجة لازقة في الحد برقبة أرفع من 40 سم (دايرة رمز، خط مستوى...) مش بلاطة
     slab = slab.buffer(-0.2, join_style=2).buffer(0.2, join_style=2).intersection(slab)
