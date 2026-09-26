@@ -315,7 +315,7 @@ def draw(out, tags, title):
 
 
 # ---------------------------------------------------------------- الأمر
-def run(src, out, sheets_json=None, keep_work=False):
+def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     out = os.path.abspath(out); work = os.path.join(out, "work"); os.makedirs(work, exist_ok=True)
     open(os.path.join(work, "pipeline.log"), "w").close()
     report = {"input": os.path.basename(src), "steps": {}, "review": []}
@@ -378,7 +378,7 @@ def run(src, out, sheets_json=None, keep_work=False):
     step("thick.py", "m.dxf", *zones, cwd=work, check=False)
     step("drops_notes.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
     step("drops_dashed.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
-    step("drops_boxes.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
+    step("drops_boxes.py", *zones, env={"DXF": "m.dxf", **({"DROP_T": str(int(drop_t))} if drop_t else {})}, cwd=work, check=False)
     step("pourstrips.py", cwd=work, check=False)
     pour = os.path.exists(os.path.join(work, "pourstrips.json")) and json.load(open(os.path.join(work, "pourstrips.json")))
     lvl_env = {"EXCL_POLYS": "pourstrips.json"} if pour else {}
@@ -431,8 +431,10 @@ def main(argv=None):
     ap.add_argument("input"); ap.add_argument("-o", "--out", default="pt_out")
     ap.add_argument("--sheets", help="json {name: [x0,y0,x1,y1]} in metres after unit conversion (skips detection)")
     ap.add_argument("--keep-work", action="store_true")
+    ap.add_argument("--drop-thickness", type=float, default=None,
+                    help="mm - for drop panels drawn with no thickness written (a written thickness always wins)")
     a = ap.parse_args(argv)
-    ok = run(a.input, a.out, a.sheets, a.keep_work)
+    ok = run(a.input, a.out, a.sheets, a.keep_work, a.drop_thickness)
     sys.exit(0 if ok else 2)
 
 

@@ -1242,7 +1242,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76011,291 @@
+@@ -74993,6 +76011,301 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  
@@ -1385,12 +1385,17 @@
 +        self.stop_btn.configure(state="normal")
 +        self.job = job
 +        self._run_dir = out
++        #  الدروب المرسوم من غير سُمك مكتوب بياخد سُمك الدروب من صفحة Project
++        try:
++            drop_t = float(self.v["drop_thickness"].get() or 0) or None
++        except Exception:
++            drop_t = None
 +        self.worker = threading.Thread(
 +            target=self._drawing_pipeline,
-+            args=(src, out, rdir, dwgread, py, job), daemon=True)
++            args=(src, out, rdir, dwgread, py, job, drop_t), daemon=True)
 +        self.worker.start()
 +
-+    def _drawing_pipeline(self, src, out, rdir, dwgread, py, job):
++    def _drawing_pipeline(self, src, out, rdir, dwgread, py, job, drop_t=None):
 +        import queue as _q
 +        proc = None
 +        try:
@@ -1411,9 +1416,14 @@
 +                return
 +            job.info(f"Reader: {rdir}")
 +            job.info(f"Output: {out}")
++            if drop_t:
++                job.info(f"Drop panels drawn with no thickness written take "
++                         f"{drop_t:g} mm (Project page); a thickness written in "
++                         f"the drawing always wins.")
 +            job.step(0.05, "Reading the drawing (a few minutes on a big set)")
 +            proc = subprocess.Popen(
-+                py + ["-m", "pt_pipeline.convert", src, "-o", out],
++                py + ["-m", "pt_pipeline.convert", src, "-o", out]
++                + (["--drop-thickness", f"{drop_t:g}"] if drop_t else []),
 +                cwd=rdir, env=env, stdout=subprocess.PIPE,
 +                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
 +                errors="replace", creationflags=flags)

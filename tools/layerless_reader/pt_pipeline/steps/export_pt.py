@@ -142,6 +142,10 @@ for tag in TAGS:
         msp.add_text(txt, dxfattribs={"layer": "PT-Clean-Drops", "height": 250, "insert": T((c.x, c.y))})
         rows.append([tag, "drop panel", d.get("src", ""), d["thickness_mm"] if d.get("thickness_mm") is not None else "?", "",
                      round(dp.area, 2), f"slab {t_slab}" + (f" SE={se:+d}" if se else "")])
+    n_tg = sum(1 for _, d in drops if d.get("t_given"))
+    if n_tg:
+        rows.append([tag, "note", "drop thickness", "", "", n_tg,
+                     f"{n_tg} drop panel(s) with no thickness in the drawing - thickness given by the user (--drop-thickness)"])
     n_tu = sum(1 for _, d in drops if d.get("thickness_mm") is None)
     if n_tu:
         rows.append([tag, "REVIEW", "drop thickness", "", "", n_tu,

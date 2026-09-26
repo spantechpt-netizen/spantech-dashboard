@@ -7,8 +7,9 @@
   - فيه مركز عمود واحد على الأقل، ومساحته ≥ 3 أضعاف العمود (مش هو العمود نفسه).
   - متكرر: ≥ 4 مستطيلات في الرسمة كلها (كل الزونات) مقاسها في حدود ±20% من المقاس النمطي -
     مستطيل لوحده ممكن يبقى أي حاجة.
-السُمك من نص "400mm THK" أو "TH=400" جوه الدروب أو لازق فيه؛ من غير نص السُمك بيفضل فاضي
-والبرنامج بياخد سُمك الدروب الافتراضي من صفحة Project - والدروب بيطلع REVIEW.
+السُمك من نص "400mm THK" أو "TH=400" جوه الدروب أو لازق فيه؛ من غير نص بياخد السُمك اللي
+المستخدم قاله (--drop-thickness، والزرار في البرنامج بيبعت سُمك الدروب من صفحة Project)؛
+ولو مفيش خالص السُمك بيفضل فاضي والبرنامج بياخد الافتراضي - والدروب بيطلع REVIEW.
 usage: python drops_boxes.py TAG...   (DXF=m.dxf بالمتر)"""
 import collections, json, os, pickle, re, sys
 import ezdxf
@@ -76,7 +77,11 @@ for tag, (R, slab, cand) in per.items():
     new = []
     for p, k in keep:
         th = [v for v, pt in notes if p.buffer(0.8).contains(pt)]
-        d = {"poly": list(p.exterior.coords)[:-1], "thickness_mm": th[0] if th else (typ[0][0] if typ else None), "src": "box"}
+        # سُمك مكتوب > السُمك النمطي من دروب تاني > السُمك اللي المستخدم قاله (--drop-thickness)
+        given = int(os.environ["DROP_T"]) if os.environ.get("DROP_T") else None
+        d = {"poly": list(p.exterior.coords)[:-1], "thickness_mm": th[0] if th else (typ[0][0] if typ else given), "src": "box"}
+        if not th and not typ and given:
+            d["t_given"] = True
         if not th and typ:
             d["typ"] = True
         if d["thickness_mm"] is None:

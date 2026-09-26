@@ -15,6 +15,7 @@ export LIBREDWG_DWGREAD=/path/to/dwgread    # لملفات DWG بس (LibreDWG) -
 python -m pt_pipeline.convert project.dwg -o out/
 python -m pt_pipeline.convert sheet.dxf -o out/ --keep-work          # يسيب الملفات الوسيطة
 python -m pt_pipeline.convert sheet.dxf -o out/ --sheets wins.json    # شبابيك المساقط بإيدك
+python -m pt_pipeline.convert plan.dwg -o out/ --drop-thickness 400    # سُمك الدروب لو مش مكتوب في الرسمة
 ```
 
 الأمر لازم يتشغّل من فولدر `tools/layerless_reader`.

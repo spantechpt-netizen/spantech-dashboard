@@ -143,3 +143,17 @@ def test_flat_slab_box_drops_and_planted_note(tmp_path, note):
     else:
         assert all(not t.startswith("DROP t=") for t in drops)
         assert [x for x in rows if x and x[1] == "REVIEW" and x[2] == "drop thickness"]
+
+
+def test_box_drops_take_given_thickness(tmp_path):
+    """دروب من غير سُمك مكتوب + --drop-thickness 400 -> DROP t=400، والسُمك المكتوب لو موجود يغلب."""
+    src = str(tmp_path / "f.dxf")
+    MS.build_flat(src, drop_note=False)
+    out = tmp_path / "out"
+    r = subprocess.run([sys.executable, "-m", "pt_pipeline.convert", src, "-o", str(out), "--drop-thickness", "400"],
+                       cwd=ROOT, capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stdout[-2000:]
+    doc, lay, texts, area, rows = _read(out)
+    drops = [t for t in texts if t.startswith("DROP")]
+    assert drops and all(t.startswith("DROP t=400") for t in drops)
+    assert not [x for x in rows if x and x[1] == "REVIEW" and x[2] == "drop thickness"]
