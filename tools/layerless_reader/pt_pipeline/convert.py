@@ -442,6 +442,8 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     step("edge_fit.py", *zones, cwd=work)
     step("beam_merge.py", *zones, cwd=work)
     step("beam_split.py", *zones, cwd=work)
+    # الكمرة الملمومة اتعدلت على المحور (بسنتيمترات): الحد لازم يتظبط على وشها تاني
+    step("edge_fit.py", *zones, cwd=work)
     step("region_snap.py", *zones, cwd=work)
     chk = step("zone_check.py", *zones, cwd=work, check=False)
     ok = "CHECK OK" in chk
