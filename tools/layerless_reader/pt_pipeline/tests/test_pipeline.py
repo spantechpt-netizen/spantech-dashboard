@@ -157,3 +157,23 @@ def test_box_drops_take_given_thickness(tmp_path):
     drops = [t for t in texts if t.startswith("DROP")]
     assert drops and all(t.startswith("DROP t=400") for t in drops)
     assert not [x for x in rows if x and x[1] == "REVIEW" and x[2] == "drop thickness"]
+
+
+def test_section_headers_and_separate_buildings(tmp_path):
+    """أقسام بعناوين كبيرة (FRAMING / LOADING) + مبنيين منفصلين في كل دور -> زون لكل مبنى في كل دور.
+    الدور الأول فيه خطين بيقفلوا الفراغ بين المبنيين (زي أرضي HDB): بيتقسم زي الدور التاني."""
+    src = str(tmp_path / "sec.dxf")
+    truth = MS.build_sections(src)
+    out = tmp_path / "out"
+    r = subprocess.run([sys.executable, "-m", "pt_pipeline.convert", src, "-o", str(out)],
+                       cwd=ROOT, capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
+    assert "from section headers" in r.stdout
+    assert "buildings like 02_FRAMING" in r.stdout
+    files = sorted(f for f in os.listdir(out) if f.endswith("_slab_clean.dxf"))
+    assert len(files) == truth["zones"], files
+    assert all("-B1" in f or "-B2" in f for f in files), files
+    for f in files:
+        msp = ezdxf.readfile(os.path.join(out, f)).modelspace()
+        assert len(msp.query('LWPOLYLINE[layer=="PT-Clean-Columns"]')) == truth["columns"], f
+        assert len(msp.query('LWPOLYLINE[layer=="PT-Clean-Boundary"]')) == 1, f

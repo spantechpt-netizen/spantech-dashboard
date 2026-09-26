@@ -133,3 +133,51 @@ def build_flat(path, drop_note=True):
     msp.add_text("SLAB THICKNESS t=250 mm", dxfattribs={"height": 250, "insert": (xs[1] + 1500, ys[1] - 2500)})
     doc.saveas(path)
     return {"columns": NX * NY, "planted": 1, "drops": NX * NY, "drop_t": 400 if drop_note else None}
+
+
+def build_sections(path, frame=True):
+    """
+    رسمة مقسومة أقسام بعناوين كبيرة (زي HDB): تحت كل قسم عنوان "FRAMING PLANS" / "LOADING PLANS"
+    ارتفاعه أضعاف أي كتابة تانية، وفي قسم البلاطات صفين (دورين)، كل صف فيه مبنيين منفصلين
+    (بينهم 12 م). من غير عناوين مساقط، فالتجميع العادي مابيلاقيش شيتات.
+    الحقيقة: 4 زونات (دورين × مبنيين)، كل زون 3×3 أعمدة 400×400.
+    """
+    doc = ezdxf.new("R2010", setup=True)
+    doc.header["$INSUNITS"] = 4
+    msp = doc.modelspace()
+
+    def rect(x0, y0, x1, y1):
+        msp.add_lwpolyline([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True)
+
+    def building(ox, oy):
+        for i in range(3):
+            for j in range(3):
+                x, y = ox + i * BAY, oy + j * BAY
+                h = COL / 2
+                rect(x - h, y - h, x + h, y + h)
+                hat = msp.add_hatch()
+                hat.paths.add_polyline_path([(x - h, y - h), (x + h, y - h), (x + h, y + h), (x - h, y + h)], is_closed=True)
+                msp.add_text("C1", dxfattribs={"height": 200, "insert": (x + 300, y + 300)})
+        rect(ox - 1000, oy - 1000, ox + 2 * BAY + 1000, oy + 2 * BAY + 1000)
+        msp.add_text("SLAB THICKNESS t=250 mm", dxfattribs={"height": 200, "insert": (ox + 1500, oy + 2500)})
+
+    W = 2 * BAY + 2000                     # عرض المبنى 14 م
+    for row in range(2):
+        oy = row * 40000.0
+        for k in range(2):
+            building(k * (W + 12000.0), oy)
+        # قسم الأحمال (نفس المباني من غير سُمك) بعيد 150 م
+        for k in range(2):
+            ox = 150000.0 + k * (W + 12000.0)
+            for i in range(3):
+                for j in range(3):
+                    x, y = ox + i * BAY, oy + j * BAY
+                    rect(x - 200, y - 200, x + 200, y + 200)
+    if frame:
+        # الدور الأول: خطوط محاور بتوصل المبنيين وبتقفل الفراغ اللي بينهم (زي أرضي HDB) - لازم يتقسم زي التاني
+        msp.add_line((2 * BAY + 1000, 0), (W + 12000 - 1000, 0))
+        msp.add_line((2 * BAY + 1000, 2 * BAY), (W + 12000 - 1000, 2 * BAY))
+    msp.add_text("FRAMING PLANS", dxfattribs={"height": 6000, "insert": (-5000, -20000)})
+    msp.add_text("LOADING PLANS", dxfattribs={"height": 6000, "insert": (145000, -20000)})
+    doc.saveas(path)
+    return {"zones": 4, "columns": 9}

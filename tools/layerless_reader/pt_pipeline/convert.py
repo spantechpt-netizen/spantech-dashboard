@@ -205,9 +205,13 @@ def members_config(work, wins, tx, H, lone):
 
 
 # ---------------------------------------------------------------- مساعدات الشيت
-def extract(work, tag, win, wins=None):
+_DOC = None
+
+
+def extract(work, tag, win, wins=None, grow=True):
     """حد البلاطة جوه إطار الشيت. لو خطوط طويلة كتير بتعدّي ضلع من الإطار (المسقط أكبر من فقاعات
-    المحاور) الضلع ده بيتوسع 3 م كل مرة لحد 15 م، ومايعدّيش نص المسافة للشيت اللي جنبه."""
+    المحاور) الضلع ده بيتوسع 3 م كل مرة لحد 15 م، ومايعدّيش نص المسافة للشيت اللي جنبه.
+    grow=False: الشباك محسوب من الرسم نفسه (صف قسم، أو مبنى منفصل) - مابيكبرش، عشان مايدخلش إطار الموقع."""
     import ezdxf, slab_extractor as SX
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
@@ -228,7 +232,7 @@ def extract(work, tag, win, wins=None):
         if ox and w[3] <= win[1]: lim[1] = min(lim[1], (win[1] - w[3]) / 2)
         if ox and w[1] >= win[3]: lim[3] = min(lim[3], (w[1] - win[3]) / 2)
     grown = [0.0] * 4
-    for _ in range(5):
+    for _ in range(5 if grow else 0):
         sides = [LineString([(win[0], win[1]), (win[0], win[3])]), LineString([(win[0], win[1]), (win[2], win[1])]),
                  LineString([(win[2], win[1]), (win[2], win[3])]), LineString([(win[0], win[3]), (win[2], win[3])])]
         cross = [sum(1 for k in tree.query(sd) if L[int(k)].intersects(sd)) for sd in sides]
@@ -237,11 +241,15 @@ def extract(work, tag, win, wins=None):
             if cross[k_] >= 6 and grown[k_] + 3.0 <= lim[k_]:
                 win[k_] += sgn * 3.0; grown[k_] += 3.0; grew = True
         if not grew: break
-    doc = ezdxf.readfile(os.path.join(work, "m.dxf"))
+    global _DOC
+    if _DOC is None or _DOC[0] != work:
+        _DOC = (work, ezdxf.readfile(os.path.join(work, "m.dxf")))
+    doc = _DOC[1]
     v = SX.PlanView(name=tag, title=tag, window=tuple(win), source="struct")
     r = SX.extract_slab(doc, v, log=lambda *a, **k: None)
     res = {"tag": tag, "window": list(win), "slabs": [{"outline": [tuple(p) for p in r.outline]}],
-           "openings": [{"poly": [tuple(p) for p in o.poly], "kind": o.kind, "status": o.status} for o in r.openings]}
+           "openings": [{"poly": [tuple(p) for p in o.poly], "kind": o.kind, "status": o.status} for o in r.openings],
+           "parts": [list(b) for b in r.parts]}
     json.dump(res, open(os.path.join(work, f"{tag}_res.json"), "w"))
     json.dump({"segs": [[list(a), list(b)] for a, b in r.segs]}, open(os.path.join(work, f"{tag}_geo.json"), "w"))
     return r.area
@@ -336,8 +344,58 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     json.dump(wins, open(os.path.join(work, "wins.json"), "w"))
     # 4) البلاطة والفتحات لكل شيت
     tags = []; sheet_of = {}
+    # شبابيك محسوبة من الرسم نفسه (صفوف الأقسام والمباني المنفصلة) مابتكبرش
+    fixed = set(wins) if (not sheets_json and getattr(SH, "LAST_SOURCE", None) == "section") else set()
+    # إطار فيه كذا مبنى منفصل (أبراج جنب بعض): كل مبنى شيت لوحده (-B1, -B2... من فوق لتحت، شمال ليمين)
+    for t, w in list(wins.items()):
+        extract(work, t, w, wins, grow=t not in fixed)
+        parts = json.load(open(os.path.join(work, f"{t}_res.json"))).get("parts") or []
+        if len(parts) >= 2:
+            parts.sort(key=lambda b: (-round((b[1] + b[3]) / 2, -1), b[0]))
+            del wins[t]
+            for k, b in enumerate(parts, 1):
+                wins[f"{t}-B{k}"] = (b[0] - 1.5, b[1] - 1.5, b[2] + 1.5, b[3] + 1.5)
+                fixed.add(f"{t}-B{k}")
+            log(f"sheet {t}: {len(parts)} separate buildings -> {t}-B1..B{len(parts)}")
+    # صف قسم فضل مبنى واحد (خطوط محاور بتوصل الأبراج) وصف تاني في نفس القسم اتقسم: الأبراج نفسها
+    # بتتكرر من دور لدور، فلو ≥ 60% من أعمدة الصف جوه مباني الصف التاني (بعد إزاحة رأسية)، بيتقسم زيه.
+    # الأعمدة اللي برّه المباني بتطلع REVIEW.
+    if fixed:
+        split_rows = {}
+        for k in wins:
+            m = re.match(r"(.+)-B\d+$", k)
+            if m: split_rows.setdefault(m.group(1), []).append(k)
+        for t in [k for k in list(wins) if k in fixed and not re.search(r"-B\d+$", k)]:
+            w = wins[t]
+            pts = [(x, y) for x, y in SH.LAST_COLS if w[0] <= x <= w[2] and w[1] <= y <= w[3]]
+            best = None
+            for ref, parts in split_rows.items():
+                boxes = [wins[q] for q in parts]
+                ry0 = min(b[1] for b in boxes)
+                ref_pts = [(x, y) for x, y in SH.LAST_COLS if any(b[0] <= x <= b[2] and b[1] <= y <= b[3] for b in boxes)]
+                if not pts or not ref_pts: continue
+                base = min(y for _, y in pts) - min(y for _, y in ref_pts)
+                ns = {k: sum(1 for x, y in pts if any(b[0] <= x <= b[2] and b[1] <= y - (base + 0.25 * k) <= b[3] for b in boxes))
+                      for k in range(-20, 21)}
+                top = max(ns.values())
+                # كل الإزاحات اللي بتدي نفس العدد (هامش الشباك): الوسطانية
+                ks = [k for k in ns if ns[k] == top]
+                dy = base + 0.25 * ks[len(ks) // 2]
+                if best is None or top > best[0]: best = (top, ref, dy, boxes)
+            if best and best[0] >= 0.6 * len(pts):
+                n, ref, dy, boxes = best
+                del wins[t]
+                for k, b in enumerate(boxes, 1):
+                    wins[f"{t}-B{k}"] = (b[0], b[1] + dy, b[2], b[3] + dy); fixed.add(f"{t}-B{k}")
+                out_n = len(pts) - n
+                log(f"sheet {t}: {len(boxes)} buildings like {ref} ({n}/{len(pts)} columns inside them)")
+                if out_n:
+                    report["review"].append([t, f"{out_n} columns outside the buildings of {ref} - not in any zone, check them"])
+        # صفوف الأقسام اسمها بيبدأ برقمها (01_، 02_...): الترتيب من تحت لفوق
+        wins = {k: wins[k] for k in sorted(wins, key=lambda k: (k.split("-B")[0], int(k.rsplit("-B", 1)[1]) if re.search(r"-B\d+$", k) else 0))}
+    json.dump(wins, open(os.path.join(work, "wins.json"), "w"))
     for t, w in wins.items():
-        a = extract(work, t, w, wins); log(f"sheet {t}: slab {a:.0f} m²")
+        a = extract(work, t, w, wins, grow=t not in fixed); log(f"sheet {t}: slab {a:.0f} m²")
         step("xvoids.py", t, cwd=work)
         parts = split_xvoid_parts(work, t)
         tags += parts

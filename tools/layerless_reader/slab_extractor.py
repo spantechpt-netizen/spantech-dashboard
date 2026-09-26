@@ -329,6 +329,7 @@ class SlabResult:
     segs: list = field(default_factory=list)       # للرسم بس
     rejected: dict = field(default_factory=dict)
     shift: tuple = (0.0, 0.0)                       # للمحاذاة المشتركة
+    parts: list = field(default_factory=list)       # حدود كل مبنى منفصل كبير في نفس الإطار (bounds)
 
     @property
     def area(self):
@@ -647,6 +648,14 @@ def extract_slab(doc, view: PlanView, gap=0.10, log=print) -> SlabResult:
     # ---- حد البلاطة ----
     thick = unary_union([l.buffer(gap, cap_style=2, join_style=2) for l in lines] + [x.buffer(0.01) for x, _ in xs])
     filled = [Polygon(p.exterior) for p in getattr(thick, "geoms", [thick])]
+    # كذا مبنى منفصل في نفس الإطار (أبراج جنب بعض): كل واحد ≥ 25% من الأكبر و ≥ 50 م² بيتسجل
+    # المباني بتتوصل ببعض أحيانًا بخط لوحده (محور، خط منسوب): رقبة أرفع من 40 سم مش بلاطة، فبتتشال الأول
+    opened = []
+    for p in filled:
+        q = p.buffer(-0.2 - gap, join_style=2).buffer(0.2, join_style=2)
+        opened += [g for g in getattr(q, "geoms", [q]) if g.geom_type == "Polygon" and not g.is_empty]
+    big = max((p.area for p in opened), default=0.0)
+    parts = [p.bounds for p in opened if p.area >= max(50.0, 0.25 * big)]
     slab = max(filled, key=lambda p: p.area).buffer(-gap, join_style=2).buffer(0)
     # حاجة لازقة في الحد برقبة أرفع من 40 سم (دايرة رمز، خط مستوى...) مش بلاطة
     slab = slab.buffer(-0.2, join_style=2).buffer(0.2, join_style=2).intersection(slab)
@@ -697,7 +706,9 @@ def extract_slab(doc, view: PlanView, gap=0.10, log=print) -> SlabResult:
     ops += [Opening(list(w.exterior.coords)[:-1], "label:" + lab, "ok", f"مكتوب {lab}") for w, lab in labelled]
     ops = [o for o in ops if Polygon(o.poly).area > 0.05]
     ops.sort(key=lambda o: (-round(Polygon(o.poly).centroid.y / 2), Polygon(o.poly).centroid.x))
-    return SlabResult(view, list(slab.exterior.coords)[:-1], ops, notes, segs, rejected)
+    out = SlabResult(view, list(slab.exterior.coords)[:-1], ops, notes, segs, rejected)
+    out.parts = parts if len(parts) >= 2 else []
+    return out
 
 
 # ------------------------------------------------------------------------------
