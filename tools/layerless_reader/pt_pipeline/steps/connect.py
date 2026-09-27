@@ -64,6 +64,9 @@ def connect(M, R, reach=0.8):
         best=None
         for c,col,cc in zip(cpoly,sup_cols,ccen):
             d=c.distance(Point(P))
+            # العمود الأقرب للطرف التاني = ركيزة الطرف التاني، مش ده (كمرة قصيرة 0.8 م من الكمرة الطرفية للعمود
+            # جوه الدروب - CA3(400X900) HDB: الطرفين كانوا بيروحوا لنفس العمود والكمرة تختفي)
+            if math.dist(proj(cc,b["p1"],b["p2"]),other)<math.dist(proj(cc,b["p1"],b["p2"]),P): continue
             if d<=reach+b["w"]/2 and lateral(cc,b["p1"],b["p2"])<=b["w"]/2+col["b"]/2 and (best is None or d<best[0]): best=(d,cc)
         if best:
             # على آكس العمود: إسقاط مركزه على خط الكمرة (الكمرة تفضل مستقيمة ووشها على حد البلاطة)
