@@ -44,8 +44,13 @@ for tag in sys.argv[1:]:
                 # "P.T=220" = سُمك البلاطة البوست تنشن نفسها (مش drop)
                 if t[0].startswith("P"): slab_explicit.append(v)
                 else: thick.append((v,t[1]))
-    faces=[f for f in polygonize(unary_union([LineString(s) for s in g])) if 0.5<f.area<60]
+    allf=list(polygonize(unary_union([LineString(s) for s in g])))
+    faces=[f for f in allf if 0.5<f.area<60]
     cols=[Polygon(c["rect"]["corners"]) for c in M["cols"]]
+    # العمود ممكن يبقى مرسوم مستطيل من غير هاتش (HDB: T=550 جوه مستطيل 3×3 حوالين عمود مش مهاشر):
+    # أي وش صغير مستطيل (0.05–2.5 م²، ضلعه ≥ 0.2) بيتحسب عمود هنا
+    cols+=[f for f in allf if 0.05<=f.area<=2.5 and f.area>=0.9*f.minimum_rotated_rectangle.area
+           and min(SX._rect_dims(f))>=0.2]
     st=min(slab_explicit) if slab_explicit else min(slab_t) if slab_t else (min(v for v,_ in thick) if thick else None)
     R.pop("thickness_review",None)
     thin=[v for v,_ in thick if st and v<st]
@@ -61,6 +66,10 @@ for tag in sys.argv[1:]:
         if f.area>=0.9*f.minimum_rotated_rectangle.area and not any(f.equals(d["poly_g"]) for d in drops):
             drops.append({"poly_g":f,"t":v})
     R["drops"]=R.get("drops",[])+[{"poly":list(d["poly_g"].exterior.coords)[:-1],"thickness_mm":d["t"]} for d in drops]
+    # منطقة سُمك (thick.py) ملاحظتها وقعت جوه دروب = هي الدروب نفسه، مش منطقة
+    if drops and R.get("thick_zones"):
+        DG=unary_union([d["poly_g"] for d in drops])
+        R["thick_zones"]=[z for z in R["thick_zones"] if not (z.get("at") and DG.buffer(0.3).contains(Point(z["at"])))]
     if st is not None: R["slab_thickness_mm"]=st
     json.dump(R,open(f"{tag}_res_c.json","w"))
     print(tag,"slab t",st,R.get("thickness_review",""),"drops",[(round(d["poly_g"].area,1),d["t"]) for d in drops])

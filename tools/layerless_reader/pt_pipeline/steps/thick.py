@@ -61,11 +61,11 @@ for tag in sys.argv[2:]:
         if f is not None and f.area <= 0.4 * slab.area:
             q = f.intersection(box(p))
             f = max(getattr(q, "geoms", [q]), key=lambda k: k.area) if not q.is_empty else f
-        (main if f is None or f.area > 0.4 * slab.area else zones).append((v, f, t))
-    st = max(set(v for v, _, _ in main), key=[v for v, _, _ in main].count) if main else (zones[0][0] if zones else None)
+        (main if f is None or f.area > 0.4 * slab.area else zones).append((v, f, t, p))
+    st = max(set(v for v, _, _, _ in main), key=[v for v, _, _, _ in main].count) if main else (zones[0][0] if zones else None)
     if st is not None: R["slab_thickness_mm"] = st
-    _tz = [{"poly": list(f.intersection(slab).exterior.coords)[:-1], "thickness_mm": v, "note": t}
-                        for v, f, t in zones if v != st]
+    _tz = [{"poly": list(f.intersection(slab).exterior.coords)[:-1], "thickness_mm": v, "note": t, "at": [p.x, p.y]}
+                        for v, f, t, p in zones if v != st]
     if _tz or not R.get("thick_zones"): R["thick_zones"] = _tz        # مايمسحش مناطق لقاها بلوك السُمك
     json.dump(R, open(f"{tag}_res_c.json", "w"))
     print(tag, "slab t", st, "zones", [(z["thickness_mm"], round(Polygon(z["poly"]).area, 1), z["note"]) for z in R["thick_zones"]])

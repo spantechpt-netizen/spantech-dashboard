@@ -55,7 +55,8 @@ for tag in TAGS:
     t_slab = res.get("slab_thickness_mm"); main = res.get("main_level_m")
     zones = [(Polygon(z["poly"]), z) for z in res.get("level_zones", [])]
     drops = [(Polygon(d["poly"]), d) for d in res.get("drops", [])]
-    tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", [])]
+    # منطقة سُمك بنفس سُمك البلاطة (السُمك النهائي اتحدد بعد ما اتعملت) مالهاش معنى
+    tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", []) if z.get("thickness_mm") != t_slab]
     # منطقة المنسوب ومنطقة السُمك بنفس الأولوية (2): لو اتداخلوا RAM مايعرفش مين يغلب.
     # فمنطقة المنسوب بتتكتب من غير أجزاء السُمك، وكل جزء من منطقة السُمك بياخد SE المنطقة اللي هو فيها.
     def _no_holes(g):
