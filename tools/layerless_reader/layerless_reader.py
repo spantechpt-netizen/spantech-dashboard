@@ -530,6 +530,15 @@ def hatch_rings(hatch, tol=0.01):
                 pts += (q[::-1] if rev else q)[1:]
         if len(pts) >= 3:
             rings.append(pts)
+    # حدود الـ HATCH بإحداثيات الـ OCS بتاعه. في بلوك معكوس (scale x = -1) الـ extrusion = (0, 0, -1) والـ x
+    # معكوسة: عمود على -566.5 كان بيتقرا على +566.5 (HDB الأرضي: كل أعمدة البلوكات المعكوسة ضاعت)
+    try:
+        ext = hatch.dxf.get("extrusion", (0, 0, 1))
+        if abs(ext[0]) > 1e-9 or abs(ext[1]) > 1e-9 or ext[2] < 0:
+            ocs = hatch.ocs(); z = hatch.dxf.elevation.z
+            rings = [[tuple(ocs.to_wcs((x, y, z)))[:2] for x, y in r] for r in rings]
+    except Exception:
+        pass
     return rings
 
 def _dedupe_consecutive(pts, tol=1e-4):

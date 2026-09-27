@@ -181,6 +181,15 @@ def hatch_area(e):
             rings=[pg for pg in polygonize(net) if pg.area>1e-6]
         for hp in rings:
             acc=hp if acc is None else acc.symmetric_difference(hp)
+    # الحدود بإحداثيات الـ OCS: بلوك معكوس (extrusion = (0,0,-1)) الـ x بتاعه معكوسة (HDB: أعمدة الأرضي في بلوكات معكوسة ضاعت)
+    try:
+        ext=e.dxf.get("extrusion",(0,0,1))
+        if acc is not None and (abs(ext[0])>1e-9 or abs(ext[1])>1e-9 or ext[2]<0):
+            from shapely.ops import transform as _tf
+            ocs=e.ocs(); z=e.dxf.elevation.z
+            acc=_tf(lambda x,y,zz=None: tuple(zip(*[tuple(ocs.to_wcs((a,b,z)))[:2] for a,b in zip(x,y)])),acc)
+    except Exception:
+        pass
     return acc
 
 
