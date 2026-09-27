@@ -411,6 +411,26 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     step("drops_notes.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
     step("drops_dashed.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
     step("drops_boxes.py", *zones, env={"DXF": "m.dxf", **({"DROP_T": str(int(drop_t))} if drop_t else {})}, cwd=work, check=False)
+    # سُمك البلاطة المكتوب صراحةً ("PT Slab T=220") بيتكتب مرة للمبنى: الزونات التانية من نفس الشيت
+    # اللي مالهاش ملاحظة صريحة بتاخده (بدل أقل T= لقيته جواها) - وبتطلع REVIEW
+    # الأول نفس المبنى (الشيت)، وبعدين نفس الدور (صف القسم: كل مباني الدور)
+    for level, key in (("building", lambda q: sheet_of.get(q)), ("floor", lambda q: re.sub(r"-B\d+.*$", "", sheet_of.get(q) or q))):
+        for sh in set(key(q) for q in zones):
+            zs = [q for q in zones if key(q) == sh]
+            Rs = {q: json.load(open(os.path.join(work, f"{q}_res_c.json"))) for q in zs}
+            ex = {R_.get("slab_t_explicit") for R_ in Rs.values() if R_.get("slab_t_explicit")}
+            if len(ex) != 1:
+                continue
+            v = ex.pop()
+            for q, R_ in Rs.items():
+                if R_.get("slab_t_explicit"):
+                    continue
+                if R_.get("slab_thickness_mm") != v:
+                    R_.setdefault("review", []).append(["thickness", f"slab thickness {v} mm from the PT slab note of the same {level} "
+                                                                      f"(this zone alone would give {R_.get('slab_thickness_mm')})"])
+                    R_["slab_thickness_mm"] = v
+                R_["slab_t_explicit"] = v
+                json.dump(R_, open(os.path.join(work, f"{q}_res_c.json"), "w"))
     step("pourstrips.py", cwd=work, check=False)
     pour = os.path.exists(os.path.join(work, "pourstrips.json")) and json.load(open(os.path.join(work, "pourstrips.json")))
     lvl_env = {"EXCL_POLYS": "pourstrips.json"} if pour else {}

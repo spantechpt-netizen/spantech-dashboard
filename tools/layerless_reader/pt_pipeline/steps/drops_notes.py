@@ -33,6 +33,9 @@ for tag in sys.argv[1:]:
     T=texts(win)
     slab_t=[int(t[0]) for t in T if len(t)==3 and t[2]=="THK" and t[0].isdigit()]
     thick=[(int(m.group(1)),t[1]) for t in T for m in [re.search(r"\bTH?\s*=\s*(\d{3,4})",t[0])] if m]
+    # "PT Slab" + "T=220" (نصين جنب بعض ≤ 1.5 م، أو نص واحد): ده سُمك البلاطة نفسها صراحةً (HDB)
+    ptl=[t[1] for t in T if re.search(r"\bP\.?\s*T\.?\s*SLAB\b|POST.?TENSION",t[0],re.I)]
+    pt_explicit=[v for v,p in thick if any(p.distance(q)<=1.5 for q in ptl)]
     thick+=[(int(t[0]),t[1]) for t in T if len(t)==3 and t[2]=="THK" and t[0].isdigit()]
     # "T=" و"400" نصين منفصلين: الرقم الأقرب على بعد ≤ 1.2 م
     slab_explicit=[]
@@ -51,7 +54,10 @@ for tag in sys.argv[1:]:
     # أي وش صغير مستطيل (0.05–2.5 م²، ضلعه ≥ 0.2) بيتحسب عمود هنا
     cols+=[f for f in allf if 0.05<=f.area<=2.5 and f.area>=0.9*f.minimum_rotated_rectangle.area
            and min(SX._rect_dims(f))>=0.2]
+    slab_explicit+=pt_explicit
     st=min(slab_explicit) if slab_explicit else min(slab_t) if slab_t else (min(v for v,_ in thick) if thick else None)
+    if slab_explicit: R["slab_t_explicit"]=min(slab_explicit)
+    else: R.pop("slab_t_explicit",None)
     R.pop("thickness_review",None)
     thin=[v for v,_ in thick if st and v<st]
     if thin: R["thickness_review"]=f"notes T={sorted(set(thin))} thinner than slab {st} - ignored"
@@ -59,7 +65,8 @@ for tag in sys.argv[1:]:
     for v,p in thick:
         if st is None or v<=st: continue
         # العمود بيعمل "فتحة" في الوش، فنقارن بالحد الخارجي للوش
-        cand=[Polygon(f.exterior) for f in faces if f.buffer(0.05).contains(p)]
+        # بالحد الخارجي: إطار الملاحظة نفسها (مستطيل صغير حوالين "T=550") بيعمل خرم في وش الدروب، والنقطة بتقع فيه
+        cand=[Polygon(f.exterior) for f in faces if Polygon(f.exterior).buffer(0.05).contains(p)]
         cand=[f for f in cand if any(f.contains(c.centroid) for c in cols)]
         if not cand: continue
         f=min(cand,key=lambda f:f.area)

@@ -7,7 +7,7 @@
   - فيه مركز عمود واحد على الأقل، ومساحته ≥ 3 أضعاف العمود (مش هو العمود نفسه).
   - متكرر: ≥ 4 مستطيلات في الرسمة كلها (كل الزونات) مقاسها في حدود ±20% من المقاس النمطي -
     مستطيل لوحده ممكن يبقى أي حاجة.
-السُمك من نص "400mm THK" أو "TH=400" جوه الدروب أو لازق فيه؛ من غير نص بياخد السُمك اللي
+السُمك من نص "400mm THK" أو "TH=400" أو "T=550" جوه الدروب أو لازق فيه؛ من غير نص بياخد السُمك اللي
 المستخدم قاله (--drop-thickness، والزرار في البرنامج بيبعت سُمك الدروب من صفحة Project)؛
 ولو مفيش خالص السُمك بيفضل فاضي والبرنامج بياخد الافتراضي - والدروب بيطلع REVIEW.
 usage: python drops_boxes.py TAG...   (DXF=m.dxf بالمتر)"""
@@ -16,7 +16,8 @@ import ezdxf
 from shapely.geometry import Polygon, Point
 from shapely.ops import unary_union
 
-RE = re.compile(r"(?:(\d{3,4})\s*mm\.?\s*TH(?:K|ICK)|TH(?:K|ICK)?\s*[=:]\s*(\d{3,4}))", re.I)
+# "T=550" جوه المستطيل كمان (HDB)؛ "P.T=" / "PT Slab T=" = سُمك البلاطة مش الدروب، بس دي مابتبقاش جوه مستطيل فيه عمود
+RE = re.compile(r"(?:(\d{3,4})\s*mm\.?\s*TH(?:K|ICK)|TH(?:K|ICK)?\s*[=:]\s*(\d{3,4})|(?<![\w.])T\s*=\s*(\d{3,4}))", re.I)
 _, tx, _ = pickle.load(open("cache.pkl", "rb"))[:3]
 doc = ezdxf.readfile(os.environ.get("DXF", "m.dxf"))
 rects = []
@@ -72,7 +73,7 @@ for tag, (R, slab, cand) in per.items():
     for t, pt, h in tx:
         m = RE.search(t)
         if m and slab.contains(Point(pt)):
-            notes.append((int(m.group(1) or m.group(2)), Point(pt)))
+            notes.append((int(m.group(1) or m.group(2) or m.group(3)), Point(pt)))
     typ = collections.Counter(v for v, pt in notes if any(p.buffer(0.8).contains(pt) for p, _ in keep)).most_common(1)
     new = []
     for p, k in keep:
