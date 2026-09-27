@@ -142,6 +142,12 @@ for t in sys.argv[1:]:
             R["openings"].append({"poly": list(hp.simplify(0.005).exterior.coords)[:-1], "kind": "X", "status": "ok", "src": "void enclosed by edge beams"})
     new = Polygon(new.exterior).simplify(0.005)
     R["slabs"][0]["outline"] = list(new.exterior.coords)[:-1]
+    # عمود برّه البلاطة كله بعد لزق الحد على وش الكمرة الطرفية (عمود كوبري/مظلة برّه الكمرة): مش بتاع الزون دي
+    # (Drawing3: عمودين على طرف الكوبري الحديد برّه الكمرة الطرفية - كانوا بيفضلوا في الزون والفحص بيفشل)
+    _out = [c for c in M["cols"] if Polygon(c["rect"]["corners"]).buffer(0).intersection(new).area < 0.1 * Polygon(c["rect"]["corners"]).area]
+    if _out:
+        M["cols"] = [c for c in M["cols"] if c not in _out]
+        M.setdefault("dropped_cols", []).extend({**c, "why": "outside the slab beyond its edge beam"} for c in _out)
     # طرف كمرة فايت الفاصل/حد البلاطة (اتمدت لآكس عمود التوأم في الزون التانية): يتقص عند الحد
     AREA = unary_union([new] + [Polygon(o["poly"]).buffer(0) for o in R["openings"]])
     _A2 = prep(AREA.buffer(0.002)); _Ain = {}; _Ap = prep(AREA)

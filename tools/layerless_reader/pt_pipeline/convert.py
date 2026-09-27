@@ -586,7 +586,13 @@ def finish(work, out, st, start=None):
                 if not w or not zs:
                     continue
                 polys = [_P(json.load(open(os.path.join(work, f"{q}_res_c.json")))["slabs"][0]["outline"]).buffer(0.3) for q in zs]
-                out_ = [p for p in pts if w[0] <= p[0] <= w[2] and w[1] <= p[1] <= w[3] and not any(g.contains(_Pt(p)) for g in polys)]
+                # عمود جوه فتحة (كور) أو فراغ X / كوبري حديد (xvoids) مش "بلاطة ناقصة"
+                holes = [_P(o["poly"]).buffer(0) for q in zs for o in json.load(open(os.path.join(work, f"{q}_res_c.json"))).get("openings", [])]
+                xf = os.path.join(work, f"{sh}_xvoids.json")
+                if os.path.exists(xf):
+                    holes += [_P(v).buffer(0.5) for v in json.load(open(xf)).get("voids", [])]
+                out_ = [p for p in pts if w[0] <= p[0] <= w[2] and w[1] <= p[1] <= w[3] and not any(g.contains(_Pt(p)) for g in polys)
+                        and not any(h.contains(_Pt(p)) for h in holes)]
                 if out_:
                     msg = (f"{len(out_)} column(s) inside sheet {sh} are outside every zone (e.g. at "
                            f"{', '.join(f'({x:.1f}, {y:.1f})' for x, y in out_[:3])}) - a building or part of the slab may be missing")
