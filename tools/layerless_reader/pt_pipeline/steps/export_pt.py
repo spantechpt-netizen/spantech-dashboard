@@ -106,6 +106,36 @@ for tag in TAGS:
                 rest = rest.difference(zp.buffer(0))
             tt += [(g, dict(t, se_fixed=0)) for g in getattr(rest, "geoms", [rest]) if g.geom_type == "Polygon" and g.area >= 0.5]
         zones, tz = zz, tt
+    # منسوب الدروب من المناطق الأصلية (قبل ما الدروبات تتشال منها)
+    zones_se = list(zones)
+    # الدروب مابيتكتبش فوق منطقة منسوب/سُمك: المنطقة بتتكتب من غيره (مافيش مضلعين فوق بعض على نفس الليّر).
+    # الحتة اللي فضلت رفيعة (< 0.25 م) أو صغيرة (< 0.5 م²) بعد الشيل = حرف دروب قريب من حرف المنطقة:
+    # بتتضم للدروب اللازق فيها (نفس المنسوب)، مش حتة بلاطة لوحدها في الشبكة
+    if drops and (zones or tz):
+        DR = unary_union([p.buffer(0) for p, _ in drops])
+        dpolys = [p.buffer(0) for p, _ in drops]
+
+        def _thin(g):
+            return g.area < 0.5 or g.area / max(g.length / 2, 1e-9) < 0.25
+
+        def _cut(items):
+            out = []
+            for zp, z in items:
+                q = zp.buffer(0).difference(DR)
+                for g in getattr(q, "geoms", [q]):
+                    if g.geom_type != "Polygon" or g.area < 1e-4:
+                        continue
+                    if _thin(g):
+                        k = min(range(len(dpolys)), key=lambda i: dpolys[i].distance(g))
+                        if dpolys[k].distance(g) < 0.02:
+                            u = unary_union([dpolys[k], g.buffer(0.001)])
+                            dpolys[k] = max(getattr(u, "geoms", [u]), key=lambda x: x.area)
+                        continue
+                    out += [(h, z) for h in _no_holes(g) if h.area >= 0.5]
+            return out
+        zones, tz = _cut(zones), _cut(tz)
+        drops = [(Polygon(dpolys[i].exterior.coords), dict(d, poly=[tuple(c) for c in dpolys[i].exterior.coords][:-1]))
+                 for i, (_, d) in enumerate(drops)]
     ops = [Polygon(o["poly"]) for o in res["openings"]]
     # شرايح الصب (pour strips): بلاطة بنفس سُمك ومنسوب اللي ماشية فيه، أولوية أعلى، Fx/Fy مفكوكين
     strips = []
@@ -114,10 +144,11 @@ for tag in TAGS:
             q = Polygon(ring).buffer(0).intersection(slab).difference(unary_union(ops) if ops else Polygon())
             strips += [g for g in getattr(q, "geoms", [q]) if g.geom_type == "Polygon" and g.area >= 0.5]
     # الأولويات: منطقة منسوب/سُمك 2، دروب 3، شريحة الصب 4 (بتغلب الدروب: متقطّعة عنده وبسُمكه)
-    P_Z, P_D, P_S = (2, 3, 4) if strips else (None, None, None)
+    # دايمًا مكتوبة (مش بس مع شرايح الصب): منطقتين على نفس الليّر من غير أولوية = RAM مايعرفش مين يغلب
+    P_Z, P_D, P_S = 2, 3, 4
 
     def zone_se(pt):
-        for zp, z in zones:
+        for zp, z in zones_se:
             if zp.contains(pt):
                 return z["se_mm"]
         return 0
@@ -223,6 +254,23 @@ for tag in TAGS:
             continue
         _keep.append(b)
     M["beams"] = _keep
+    # كمرتين متقاطعتين (مش حتتين ورا بعض) بنفس الأولوية: RAM مايعرفش خصايص مين تغلب في التقاطع.
+    # الأعرض ثم الأطول بتعلى 1 (نفس فكرة "الأعمق أعلى" في connect)
+    _bp = [LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]}) for b in M["beams"]]
+    for _ in range(20):
+        bumped = 0
+        for i in range(len(M["beams"])):
+            for j in range(i + 1, len(M["beams"])):
+                a, c = M["beams"][i], M["beams"][j]
+                if a.get("priority", 10) != c.get("priority", 10) or not _bp[i].intersects(_bp[j]):
+                    continue
+                if _bp[i].intersection(_bp[j]).area <= 0.005:
+                    continue
+                ka = (a["w"], math.dist(a["p1"], a["p2"])); kc = (c["w"], math.dist(c["p1"], c["p2"]))
+                hi = a if ka >= kc else c
+                hi["priority"] = hi.get("priority", 10) + 1; bumped += 1
+        if not bumped:
+            break
     for b in M["beams"]:
         msp.add_lwpolyline([T(p) for p in LR._rect_pts(b["p1"], b["p2"], b["w"])], close=True, dxfattribs={"layer": "PT-Clean-Beams"})
         mx = ((b["p1"][0] + b["p2"][0]) / 2, (b["p1"][1] + b["p2"][1]) / 2)

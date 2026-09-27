@@ -180,78 +180,84 @@ def insert_vertices(pts, ref_vertices):
     return clean
 
 
-for tag in sys.argv[1:]:
-    fn = f"{tag}_res_c.json"
-    R = json.load(open(fn))
-    slab_pts = ring(R["slabs"][0]["outline"])
-    slab = Polygon(slab_pts).buffer(0)
-    fixed = [slab_pts]
-    # وشوش العناصر (كمرات، حوائط، أعمدة): ثابتة. الفتحة أو المنطقة اللي حدها على بعد ≤ 10 سم من
-    # وش عنصر بتتلزق عليه (دروب على 24 مم من وش كمرة في بدروم رؤية)
-    M = json.load(open(f"{tag}_members_c.json")) if os.path.exists(f"{tag}_members_c.json") else {}
-    mem = []
-    for b in M.get("beams", []):
-        try: mem.append(ring(list(LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]}).exterior.coords)[:-1]))
-        except Exception: pass
-    for w in M.get("walls", []):
-        try: mem.append(ring(list(LR._wall_poly(w).exterior.coords)[:-1]))
-        except Exception: pass
-    cols = [ring(c["rect"]["corners"]) for c in M.get("cols", []) if c.get("rect")]
-    # وش الكمرة/الحيطة الأول: العمود ممكن يبرز عن وش الكمرة بمليمترات، ولو النقط اتوزعت بين
-    # الاتنين الحد بيتعرّج. العمود بيتاخد بس للنقط اللي مالهاش كمرة/حيطة قريبة.
-    bw_e = edges(mem); bw_v = [q for pts in mem for q in pts]
-    col_e = edges(cols); col_v = [q for pts in cols for q in pts]
 
-    BW = unary_union([LineString(e) for e in bw_e]) if bw_e else None
+def main(tags):
+    for tag in tags:
+        fn = f"{tag}_res_c.json"
+        R = json.load(open(fn))
+        slab_pts = ring(R["slabs"][0]["outline"])
+        slab = Polygon(slab_pts).buffer(0)
+        fixed = [slab_pts]
+        # وشوش العناصر (كمرات، حوائط، أعمدة): ثابتة. الفتحة أو المنطقة اللي حدها على بعد ≤ 10 سم من
+        # وش عنصر بتتلزق عليه (دروب على 24 مم من وش كمرة في بدروم رؤية)
+        M = json.load(open(f"{tag}_members_c.json")) if os.path.exists(f"{tag}_members_c.json") else {}
+        mem = []
+        for b in M.get("beams", []):
+            try: mem.append(ring(list(LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]}).exterior.coords)[:-1]))
+            except Exception: pass
+        for w in M.get("walls", []):
+            try: mem.append(ring(list(LR._wall_poly(w).exterior.coords)[:-1]))
+            except Exception: pass
+        cols = [ring(c["rect"]["corners"]) for c in M.get("cols", []) if c.get("rect")]
+        # وش الكمرة/الحيطة الأول: العمود ممكن يبرز عن وش الكمرة بمليمترات، ولو النقط اتوزعت بين
+        # الاتنين الحد بيتعرّج. العمود بيتاخد بس للنقط اللي مالهاش كمرة/حيطة قريبة.
+        bw_e = edges(mem); bw_v = [q for pts in mem for q in pts]
+        col_e = edges(cols); col_v = [q for pts in cols for q in pts]
 
-    def snap_members(pts):
-        pts, n0 = snap_edges(pts, bw_e, MTOL)
-        pts, n1 = snap_edges(pts, col_e, MTOL) if not n0 else (pts, 0)
-        out, n = [], n0 + n1
-        for p in pts:
-            q, m = snap_pts([p], bw_e, bw_v, MTOL)
-            if not m and not (BW is not None and BW.distance(Point(p)) <= MTOL):
-                q, m = snap_pts([p], col_e, col_v, MTOL)
-            out += q; n += m
-        return out, n
-    stats = {}
-    n_op = 0
-    for o in R.get("openings", []):
-        pts = ring(o["poly"]); old = Polygon(pts).buffer(0)
-        new, moved = snap_members(pts)
-        g = Polygon(new).buffer(0) if len(new) >= 3 else None
-        if moved and g is not None and g.geom_type == "Polygon" and abs(g.area - old.area) <= 0.10 * old.area:
-            o["poly"] = [list(q) for q in list(g.exterior.coords)[:-1]]; n_op += moved
-        fixed.append(ring(o["poly"]))
-    stats["openings"] = n_op
-    for key in ("level_zones", "thick_zones", "drops"):
-        items = R.get(key) or []
-        n_moved = n_items = 0
-        for it in items:
-            # المرجع: الأعلى + اللي قبلها من نفس النوع (منطقتين جنب بعض ضلعهم واحد)
-            ref_e = edges(fixed); ref_v = [q for pts in fixed for q in pts]
-            pts = ring(it["poly"])
-            if len(pts) < 3:
-                continue
-            old = Polygon(pts).buffer(0)
-            new, m1 = snap_members(pts)
-            new, moved = snap_pts(new, ref_e, ref_v)
-            moved += m1
-            new = insert_vertices(new, ref_v)
+        BW = unary_union([LineString(e) for e in bw_e]) if bw_e else None
+
+        def snap_members(pts):
+            pts, n0 = snap_edges(pts, bw_e, MTOL)
+            pts, n1 = snap_edges(pts, col_e, MTOL) if not n0 else (pts, 0)
+            out, n = [], n0 + n1
+            for p in pts:
+                q, m = snap_pts([p], bw_e, bw_v, MTOL)
+                if not m and not (BW is not None and BW.distance(Point(p)) <= MTOL):
+                    q, m = snap_pts([p], col_e, col_v, MTOL)
+                out += q; n += m
+            return out, n
+        stats = {}
+        n_op = 0
+        for o in R.get("openings", []):
+            pts = ring(o["poly"]); old = Polygon(pts).buffer(0)
+            new, moved = snap_members(pts)
             g = Polygon(new).buffer(0) if len(new) >= 3 else None
-            if g is not None and not g.is_empty:
-                g = g.intersection(slab)
-                g = max(getattr(g, "geoms", [g]), key=lambda q: q.area) if not g.is_empty else None
-            if g is None or g.is_empty or g.geom_type != "Polygon" or abs(g.area - old.area) > 0.10 * old.area:
-                fixed.append(pts)
-                R.setdefault("review", []).append([key, f"edge of a {key[:-1].replace('_', ' ')} at "
-                                                   f"({old.centroid.x:.2f}, {old.centroid.y:.2f}) is within "
-                                                   f"{TOL:.2f} m of another edge but could not be snapped - check it"])
-                continue
-            if moved or g.area != old.area:
-                it["poly"] = [list(q) for q in list(g.exterior.coords)[:-1]]
-                n_items += 1; n_moved += moved
-            fixed.append(ring(it["poly"]))
-        stats[key] = (n_items, n_moved)
-    json.dump(R, open(fn, "w"))
-    print(tag, "snapped (regions, points):", stats)
+            if moved and g is not None and g.geom_type == "Polygon" and abs(g.area - old.area) <= 0.10 * old.area:
+                o["poly"] = [list(q) for q in list(g.exterior.coords)[:-1]]; n_op += moved
+            fixed.append(ring(o["poly"]))
+        stats["openings"] = n_op
+        for key in ("level_zones", "thick_zones", "drops"):
+            items = R.get(key) or []
+            n_moved = n_items = 0
+            for it in items:
+                # المرجع: الأعلى + اللي قبلها من نفس النوع (منطقتين جنب بعض ضلعهم واحد)
+                ref_e = edges(fixed); ref_v = [q for pts in fixed for q in pts]
+                pts = ring(it["poly"])
+                if len(pts) < 3:
+                    continue
+                old = Polygon(pts).buffer(0)
+                new, m1 = snap_members(pts)
+                new, moved = snap_pts(new, ref_e, ref_v)
+                moved += m1
+                new = insert_vertices(new, ref_v)
+                g = Polygon(new).buffer(0) if len(new) >= 3 else None
+                if g is not None and not g.is_empty:
+                    g = g.intersection(slab)
+                    g = max(getattr(g, "geoms", [g]), key=lambda q: q.area) if not g.is_empty else None
+                if g is None or g.is_empty or g.geom_type != "Polygon" or abs(g.area - old.area) > 0.10 * old.area:
+                    fixed.append(pts)
+                    R.setdefault("review", []).append([key, f"edge of a {key[:-1].replace('_', ' ')} at "
+                                                       f"({old.centroid.x:.2f}, {old.centroid.y:.2f}) is within "
+                                                       f"{TOL:.2f} m of another edge but could not be snapped - check it"])
+                    continue
+                if moved or g.area != old.area:
+                    it["poly"] = [list(q) for q in list(g.exterior.coords)[:-1]]
+                    n_items += 1; n_moved += moved
+                fixed.append(ring(it["poly"]))
+            stats[key] = (n_items, n_moved)
+        json.dump(R, open(fn, "w"))
+        print(tag, "snapped (regions, points):", stats)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

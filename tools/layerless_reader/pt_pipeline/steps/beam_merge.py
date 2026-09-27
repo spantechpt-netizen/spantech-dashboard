@@ -81,19 +81,21 @@ for tag in sys.argv[1:]:
     # الحقيقية بتطلّع كمرة مايلة (3 سم على 69 م في بدروم رؤية) - ووشها المايل بيخلي حد البلاطة
     # والدروب ومنطقة المنسوب اللي بتتلزق عليه يتعرّجوا بمليمترات. لو الميل عن المحور < 0.5°
     # الكمرة بتتعدل على المحور، والإحداثي الثابت = متوسط الحتت بالطول.
+    # وكمان أي كمرة (مش ملمومة) مايلة < 1.5° وإزاحتها الكلية ≤ 10 سم: طرف اتشد على آكس عمود والتاني لأ
+    # (HDB الأرضي: B4 من -473.45 لـ -473.40 على 3.3 م جنب الكور - وشها المايل مابيتلزقش عليه حد منطقة المنسوب)
     n_str = 0
     for b in beams:
-        if b.get("merged", 1) < 2:
-            continue
         (x1, y1), (x2, y2) = b["p1"], b["p2"]
         dx, dy = x2 - x1, y2 - y1
         L = math.hypot(dx, dy)
         if L < 1e-6:
             continue
         ang = math.degrees(math.atan2(abs(dy), abs(dx)))
-        if 0 < ang < 0.5:
+        merged = b.get("merged", 1) >= 2
+        lim = 0.5 if merged else 1.5
+        if 0 < ang < lim and (merged or abs(dy) <= 0.10):
             yc = (y1 + y2) / 2; b["p1"], b["p2"] = [x1, yc], [x2, yc]; n_str += 1
-        elif 0 < 90 - ang < 0.5:
+        elif 0 < 90 - ang < lim and (merged or abs(dx) <= 0.10):
             xc = (x1 + x2) / 2; b["p1"], b["p2"] = [xc, y1], [xc, y2]; n_str += 1
     json.dump(M, open(f"{tag}_members_c.json", "w"))
     print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined), {n_str} straightened onto the grid axis")

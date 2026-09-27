@@ -27,7 +27,8 @@ for t in tags:
     from shapely.ops import unary_union
     OPS = unary_union([Polygon(o["poly"]).buffer(0) for o in R_["openings"]]) if R_["openings"] else Polygon()
     # الجزء اللي فوق فتحة (كمرة حرف فتحة / فوق سلم) مش مشكلة؛ المشكلة جزء برّه البلاطة ومش في فتحة
-    uncovered = [(k, g) for k, g in els if k != "wall" and g.difference(S[t]).difference(OPS).area > 0.02 * g.area]
+    # عمود بارز عن حد البلاطة ≤ 5 سم (أعرض من الكمرة الطرفية بسنتيمترات) متغطي: الحد بيمشي على خط الكمرة (slab_snap)
+    uncovered = [(k, g) for k, g in els if k != "wall" and (lambda d: d.area > 0.02 * g.area and not (k == "col" and d.buffer(-0.026).is_empty))(g.difference(S[t]).difference(OPS))]
     tw = 0
     bs = M["beams"]
     for x, y in itertools.combinations(bs, 2):
