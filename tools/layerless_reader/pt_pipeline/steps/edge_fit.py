@@ -61,6 +61,19 @@ for t in sys.argv[1:]:
         unl = str(b.get("label", "")).startswith("unlabelled")
         # كمرة من غير تسمية بتتشال لو متداخلة مع متسمية بأي جزء محسوس (≥ 30% منها)
         if any(g.intersection(LR._wall_poly({"p1": k["p1"], "p2": k["p2"], "t": k["w"]})).area >= (0.3 * g.area if unl else 0.8 * min(g.area, k["w"] * math.dist(k["p1"], k["p2"]))) for k in keep): continue
+        # على نفس الخط (المحور نفسه) ومتداخلة ≥ 80% من طولها في كمرة أطول بتسمية تانية (عرض مختلف فالمساحة
+        # مابتمسكهاش): تسميتين على نفس الكمرة المرسومة (CA2(200X700) + B4(300X900) في HDB). الأطول بتفضل،
+        # والتانية بتطلع REVIEW - الرسمة مابتقولش القطاع بيتغير فين.
+        lb = LineString([b["p1"], b["p2"]]); Lb = lb.length
+        host = next((k for k in keep if Lb > 0 and abs(math.sin(math.atan2(k["p2"][1] - k["p1"][1], k["p2"][0] - k["p1"][0])
+                                                       - math.atan2(b["p2"][1] - b["p1"][1], b["p2"][0] - b["p1"][0]))) < 0.02
+                     and LineString([k["p1"], k["p2"]]).distance(lb) <= max(k["w"], b["w"]) / 2
+                     and LineString([k["p1"], k["p2"]]).buffer(max(k["w"], b["w"]) / 2, cap_style=2).intersection(lb).length >= 0.8 * Lb), None)
+        if host is not None:
+            if host.get("label") != b.get("label"):
+                R.setdefault("review", []).append(["beam label", f"{b.get('label')} and {host.get('label')} are on the same beam line near "
+                                                   f"({b['p1'][0]:.1f}, {b['p1'][1]:.1f}) - kept {host.get('label')} over the whole length; check where the section changes"])
+            continue
         keep.append(b)
     M["beams"] = keep
     M.setdefault("dropped_beams", []).extend({**b, "why": "belongs to the neighbouring zone / outside this slab / inside a void"} for b in dropped_out)
