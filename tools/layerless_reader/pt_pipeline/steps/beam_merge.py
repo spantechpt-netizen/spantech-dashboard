@@ -169,6 +169,38 @@ for tag in sys.argv[1:]:
         if best is not None:
             b["p1"] = [bx1 + nrm[0] * best, by1 + nrm[1] * best]; b["p2"] = [bx2 + nrm[0] * best, by2 + nrm[1] * best]
             moved_.add(k); n_flush += 1
+    # طرف حيطة قاصر/فايت وش كمرة عمودية عليه بـ ≤ 3 سم (حيطة الكور بتقف على 70.40 ووش B4 على 70.375 في HDB):
+    # طرف الحيطة بيتنقل على الوش بالظبط - غير كده ركن الحيطة بيشد حد المنطقة بعيد عن وش الكمرة
+    n_wend = 0
+    for w in M.get("walls", []):
+        (wx1, wy1), (wx2, wy2) = w["p1"], w["p2"]
+        Lw = math.hypot(wx2 - wx1, wy2 - wy1)
+        if Lw < 0.3:
+            continue
+        uw = ((wx2 - wx1) / Lw, (wy2 - wy1) / Lw)
+        for ek in ("p1", "p2"):
+            E = w[ek]
+            best = None
+            for b in beams:
+                (bx1, by1), (bx2, by2) = b["p1"], b["p2"]
+                Lb = math.hypot(bx2 - bx1, by2 - by1)
+                if Lb < 0.3:
+                    continue
+                ub = ((bx2 - bx1) / Lb, (by2 - by1) / Lb); nb = (-ub[1], ub[0])
+                if abs(uw[0] * ub[0] + uw[1] * ub[1]) > 0.02:          # مش عمودية
+                    continue
+                t = (E[0] - bx1) * ub[0] + (E[1] - by1) * ub[1]
+                if not (-0.05 <= t <= Lb + 0.05):
+                    continue
+                off = (E[0] - bx1) * nb[0] + (E[1] - by1) * nb[1]
+                for face in (b["w"] / 2, -b["w"] / 2):
+                    dl = face - off
+                    if 0.002 < abs(dl) <= 0.03 and (best is None or abs(dl) < abs(best[0])):
+                        best = (dl, nb)
+            if best:
+                dl, nb = best
+                w[ek] = [E[0] + nb[0] * dl, E[1] + nb[1] * dl]; n_wend += 1
     json.dump(M, open(f"{tag}_members_c.json", "w"))
+    print(f"{tag}: {n_wend} wall end(s) moved onto the face of the beam across them")
     print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined), {n_str} straightened onto the grid axis, "
           f"{n_flush} made flush with the beam next to them on the same line")

@@ -413,14 +413,16 @@ def run(tag, W, legmap):
                 # التسمية بالعرض على الكمرة مقبولة بس لكمرة قصيرة عريضة (طول ≤ 2× العرض، زي PB5 2.0×2.47)؛
                 # غير كده ده زوج خطوط تاني (خطوط سلم/درج) بيعدّي تحت التسمية
                 if da>12 and not (inside and hi-lo<=2.0*max(W_,0.3)): continue
-                if loose and not inside: continue       # المسموح الواسع بس لو التسمية جوه الشريط نفسه
+                # المسموح الواسع (15–30%) لو التسمية جوه الشريط نفسه، أو جنبه على طوله (≤ 0.8 م من الوش): B9(400X900)
+                # مرسومة 300 على حرف مبنى HDB والتسمية فوقها - القطاع من التسمية + REVIEW
+                if loose and not (inside or (along == 0 and perp <= W_ / 2 + 0.8)): continue
                 score=perp+along+(0.005 if inside else 0.05)*da+(0 if _unk else 2.0*abs(sp-W_))+(5.0 if loose else 0)   # العرض الأقرب للمكتوب أولى
                 cands.append((score,ai,oi,oj,lo,hi))
         cands.sort(key=lambda c_:c_[0])
         # أقل طول مقبول لكمرة بالعرض ده: وشين أقصر من كده = مش كمرة (نهايات حوائط،
         # حرف بسطة سلم...) فالتسمية تروح للمرشح اللي بعده، أو تتعلّم "مش متربطة"
         min_len=max(1.0,W_)          # الكمرة الشايلة العريضة ممكن تبقى قصيرة (PB5 2.0 × 2.46)
-        found=None; valid=[]
+        found=None; valid=[]; short_=[]
         for sc_,ai,o1,o2,lo,hi in cands[:12]:
             _sp=abs(o2-o1)
             th=math.radians(ai); ux,uy=math.cos(th),math.sin(th); nx,ny=-uy,ux
@@ -452,6 +454,17 @@ def run(tag, W, legmap):
                 _bp=LR._wall_poly({"p1":p1,"p2":p2,"t":_sp if _unk else W_})
                 if _bp.area>0 and _bp.intersection(supports).area>=0.5*_bp.area: continue
             if s1-s0>=min_len-0.05: valid.append((sc_,p1,p2,_sp))
+            elif s1-s0>=0.4: short_.append((sc_,p1,p2,_sp))
+        # كمرة قصيرة (0.4 م لأقل من الحد) مقبولة لو طرف منها على ركيزة: كمرة من العمود للكمرة الطرفية جوه
+        # الدروب (CA3(400X900) 0.6 م في HDB) - هي اللي شايلة الكمرة الطرفية
+        if not valid and short_ and supports is not None:
+            def _on_sup(p1_,p2_):
+                u_=((p2_[0]-p1_[0]),(p2_[1]-p1_[1])); L_=math.hypot(*u_) or 1; u_=(u_[0]/L_,u_[1]/L_); n_=(-u_[1],u_[0])
+                for P_ in (p1_,p2_):
+                    cap=LineString([(P_[0]-n_[0]*W_/2,P_[1]-n_[1]*W_/2),(P_[0]+n_[0]*W_/2,P_[1]+n_[1]*W_/2)])
+                    if cap.intersection(supports.buffer(0.08)).length>=0.5*W_: return True
+                return False
+            valid=[v for v in short_ if _on_sup(v[1],v[2])]
         if not valid: miss.append(lb); continue
         # من المرشحين القريبين في السكور: اللي طرفيه على ركائز أولى
         # (التسمية ممكن تبقى مكتوبة بالعرض على كمرة قصيرة عريضة)
