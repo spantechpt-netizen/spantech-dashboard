@@ -47,7 +47,33 @@ for tag in sys.argv[1:]:
                 # "P.T=220" = سُمك البلاطة البوست تنشن نفسها (مش drop)
                 if t[0].startswith("P"): slab_explicit.append(v)
                 else: thick.append((v,t[1]))
-    allf=list(polygonize(unary_union([LineString(s) for s in g])))
+    _U=unary_union([LineString(s) for s in g]); _UB=_U.buffer(0.03)
+    allf=list(polygonize(_U))
+    def _drawn_rect(f):
+        import math
+        from shapely import affinity
+        # المستطيل الأصغر ممكن يطلع مايل (شق العمود بيطلع برّه الإطار)؛ فبنجرب كمان الغلاف في اتجاه أطول ضلع في الوش
+        ex=list(f.exterior.coords); e=max(zip(ex,ex[1:]),key=lambda ab:math.dist(*ab))
+        ang=math.degrees(math.atan2(e[1][1]-e[0][1],e[1][0]-e[0][0]))
+        env=affinity.rotate(affinity.rotate(f,-ang,origin=f.centroid).envelope,ang,origin=f.centroid)
+        for r in (f.minimum_rotated_rectangle,env):
+            c=list(r.exterior.coords)
+            if all(LineString([c[i],c[i+1]]).intersection(_UB).length>=0.9*LineString([c[i],c[i+1]]).length for i in range(4)): return r
+        # ضلع مش على خط (سن من طرف خط سايب طالع من الوش): بيتزحلق ≤ 0.35 م لأقرب خط موازي مرسوم
+        o=f.centroid; x0,y0,x1,y1=affinity.rotate(f,-ang,origin=o).bounds
+        UR=affinity.rotate(_UB,-ang,origin=o)
+        def cov(a,b): L=LineString([a,b]); return L.intersection(UR).length>=0.9*L.length
+        def slide(v,mk):
+            for d in sorted([k/100 for k in range(-35,36)],key=abs):
+                if cov(*mk(v+d)): return v+d
+            return None
+        nx0=slide(x0,lambda v:((v,y0),(v,y1))); nx1=slide(x1,lambda v:((v,y0),(v,y1)))
+        ny0=slide(y0,lambda v:((x0,v),(x1,v))); ny1=slide(y1,lambda v:((x0,v),(x1,v)))
+        if None in (nx0,nx1,ny0,ny1) or nx1-nx0<0.5 or ny1-ny0<0.5: return None
+        from shapely.geometry import box as _box
+        r=affinity.rotate(_box(nx0,ny0,nx1,ny1),ang,origin=o)
+        c=list(r.exterior.coords)
+        return r if all(LineString([c[i],c[i+1]]).intersection(_UB).length>=0.9*LineString([c[i],c[i+1]]).length for i in range(4)) else None
     faces=[f for f in allf if 0.5<f.area<60]
     cols=[Polygon(c["rect"]["corners"]) for c in M["cols"]]
     # العمود ممكن يبقى مرسوم مستطيل من غير هاتش (HDB: T=550 جوه مستطيل 3×3 حوالين عمود مش مهاشر):
@@ -67,12 +93,23 @@ for tag in sys.argv[1:]:
         # العمود بيعمل "فتحة" في الوش، فنقارن بالحد الخارجي للوش
         # بالحد الخارجي: إطار الملاحظة نفسها (مستطيل صغير حوالين "T=550") بيعمل خرم في وش الدروب، والنقطة بتقع فيه
         cand=[Polygon(f.exterior) for f in faces if Polygon(f.exterior).buffer(0.05).contains(p)]
-        cand=[f for f in cand if any(f.contains(c.centroid) for c in cols)]
+        # الوش مش مستطيل لأن خطوط تانية (عمود/كمرة) قاطعة إطار الدروب، والإطار نفسه مرسوم كامل:
+        # المستطيل المحيط بيتاخد لو كل ضلع فيه مرسوم ≥ 90% (HDB الأرضي: 67 دروب T=550 من 252 كانوا بيضيعوا)
+        cand=[f if f.area>=0.9*f.minimum_rotated_rectangle.area else _drawn_rect(f) for f in cand]
+        cand=[f for f in cand if f is not None and any(f.buffer(0.02).contains(c.centroid) for c in cols)]
         if not cand: continue
         f=min(cand,key=lambda f:f.area)
         if f.area>=0.9*f.minimum_rotated_rectangle.area and not any(f.equals(d["poly_g"]) for d in drops):
             drops.append({"poly_g":f,"t":v})
     R["drops"]=R.get("drops",[])+[{"poly":list(d["poly_g"].exterior.coords)[:-1],"thickness_mm":d["t"]} for d in drops]
+    # دروب مكتوب (T= في إطار مرسوم كامل) من غير عمود/حيطة حقيقية تحته: بيتاخد (الرسمة صريحة) + REVIEW
+    _real=[Polygon(c["rect"]["corners"]) for c in M["cols"]]
+    import layerless_reader as _LR
+    _real+=[_LR._wall_poly(w) for w in M["walls"]]
+    _bare=[d for d in drops if not any(d["poly_g"].buffer(0.05).intersects(q) for q in _real)]
+    if _bare:
+        R.setdefault("review",[]).append(["drop",f"{len(_bare)} drop(s) with an explicit T= in a fully drawn box but no column or wall under them "
+                                                f"(e.g. at ({_bare[0]['poly_g'].centroid.x:.1f}, {_bare[0]['poly_g'].centroid.y:.1f})) - check the support"])
     # منطقة سُمك (thick.py) ملاحظتها وقعت جوه دروب = هي الدروب نفسه، مش منطقة
     if drops and R.get("thick_zones"):
         DG=unary_union([d["poly_g"] for d in drops])
