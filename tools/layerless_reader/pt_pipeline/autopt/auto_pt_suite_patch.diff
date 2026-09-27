@@ -264,7 +264,140 @@
  
      site = {
          "boundary": boundary,
-@@ -24088,6 +24257,35 @@
+@@ -15458,6 +15627,132 @@
+     return out
+ 
+ 
++def _level_regions(site, params):
++    """مناطق المنسوب: (points, SE mm, سُمك mm, مساحة) - من غير الدروبات. الأصغر الأول."""
++    out = []
++    for s in (site or {}).get("slabs") or []:
++        try:
++            if s.get("is_drop") or s.get("surface_elevation_mm") is None:
++                continue
++            pts = s.get("points") or []
++            if len(pts) < 3:
++                continue
++            a = abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
++                        for i in range(len(pts)))) / 2.0
++            th = float(s.get("thickness") or 0.0) or float(params.slab_thickness)
++            out.append((pts, float(s["surface_elevation_mm"]), th, a))
++        except Exception:
++            continue
++    out.sort(key=lambda r: r[3])
++    return out
++
++
++def split_tendons_at_level_steps(tendons, params, job=None, site=None, tol_mm=5.0, gap=0.05, min_piece=1.0):
++    """
++    **الكابل اللي بيعدّي بين منسوبين (18.160).** العمق جوّه البرنامج ورام
++    بيتقاس من السطح العلوي للبلاطة اللي النقطة فيها، فالكابل اللي بيعدّي حد
++    منسوب كان بيقفز بفرق المنسوب.
++
++    عند حد المنسوب: الكابل على غطاء السطح (50 / 70 مم حسب الاتجاه، من
++    الإعدادات) تحت السطح العلوي للمنسوب **المنخفض**. نفس النقطة في البلاطة
++    العالية عمقها = فرق المنسوب + الغطاء:
++      * لو أعمق من نص سُمك البلاطة العالية -> الكابل بيتقطع عند الحد، وكل
++        بلاطة ليها كابلاتها لوحدها (مرساة في نص سُمك كل بلاطة عند الحد).
++      * غير كده -> الكابل بيكمّل، ونقطتين على جنبين الحد بنفس المنسوب المطلق.
++    بترجّع (الكابلات, كام قطع, كام مرور).
++    """
++    regions = _level_regions(site, params)
++    if not regions or not tendons:
++        return tendons, 0, 0
++
++    def level_at(pos):
++        for pts, se, th, _a in regions:
++            if point_in_polygon(pos[0], pos[1], pts):
++                return se, th
++        return 0.0, float(params.slab_thickness)
++
++    def lerp(a, b, u):
++        return (a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1]))
++
++    out, cuts, passes, dropped = [], 0, 0, 0
++    for t in tendons:
++        pr = t.get("profile") or []
++        if len(pr) < 2:
++            out.append(t)
++            continue
++        cover = float(params.covers_for(t.get("dir") or "X")[0])
++        #  نقط عبور حد المنسوب على المسار: (رقم القطعة, u, نقطة, (se, th) قبل, (se, th) بعد)
++        steps = []
++        for k, (p, q) in enumerate(zip(pr, pr[1:])):
++            a, b = p["pos"], q["pos"]
++            L = dist(a, b)
++            n = max(1, int(L / 0.10))
++            prev_u, prev = 0.0, level_at(a)
++            for j in range(1, n + 1):
++                u = j / n
++                cur = level_at(lerp(a, b, u))
++                if abs(cur[0] - prev[0]) > tol_mm:
++                    lo_u, hi_u = prev_u, u
++                    for _ in range(12):
++                        mid = (lo_u + hi_u) / 2.0
++                        if abs(level_at(lerp(a, b, mid))[0] - prev[0]) > tol_mm:
++                            hi_u = mid
++                        else:
++                            lo_u = mid
++                    uu = (lo_u + hi_u) / 2.0
++                    steps.append((k, uu, lerp(a, b, uu), prev, cur, L))
++                prev_u, prev = u, cur
++        #  عبور لازق في طرف الكابل (الطرف نفسه على حد المنطقة) مش عبور
++        steps = [st for st in steps if dist(st[2], pr[0]["pos"]) > 2 * gap and dist(st[2], pr[-1]["pos"]) > 2 * gap]
++        if not steps:
++            out.append(t)
++            continue
++        pieces, cur_pts = [], [dict(pr[0])]
++        k_done = 0
++        for k, uu, P, A, B, L in steps:
++            cur_pts += [dict(q) for q in pr[k_done + 1:k + 1]]
++            k_done = max(k_done, k)
++            d = (pr[k + 1]["pos"][0] - pr[k]["pos"][0], pr[k + 1]["pos"][1] - pr[k]["pos"][1])
++            n_ = math.hypot(*d) or 1e-9
++            before = (P[0] - d[0] / n_ * gap, P[1] - d[1] / n_ * gap)
++            after = (P[0] + d[0] / n_ * gap, P[1] + d[1] / n_ * gap)
++            #  النقط الأصلية اللي لازقة في الحد بتتشال
++            cur_pts = [q for q in cur_pts if dist(q["pos"], P) > 2 * gap] or cur_pts[:1]
++            (se_a, th_a), (se_b, th_b) = A, B
++            delta = abs(se_b - se_a)
++            th_high = th_b if se_b > se_a else th_a
++            if delta + cover > th_high / 2.0:
++                cur_pts.append({"pos": before, "depth": th_a / 2.0, "level_step_end": True})
++                pieces.append(cur_pts)
++                cur_pts = [{"pos": after, "depth": th_b / 2.0, "level_step_end": True}]
++                cuts += 1
++            else:
++                cur_pts.append({"pos": before, "depth": cover if se_a < se_b else delta + cover, "level_step": True})
++                cur_pts.append({"pos": after, "depth": cover if se_b < se_a else delta + cover, "level_step": True})
++                passes += 1
++        cur_pts += [dict(q) for q in pr[k_done + 1:] if dist(q["pos"], steps[-1][2]) > 2 * gap]
++        pieces.append(cur_pts)
++        for pc in pieces:
++            pc = _dedupe_profile_points(pc)
++            length = sum(dist(a["pos"], b["pos"]) for a, b in zip(pc, pc[1:]))
++            if len(pc) < 2 or length < min_piece:
++                dropped += 1
++                continue
++            nt = dict(t)
++            nt["profile"] = pc
++            nt["length"] = length
++            out.append(nt)
++    if job and cuts:
++        job.ok(f"{cuts} tendon(s) were cut at a level step: at the cover under the top of the lower slab the "
++               f"tendon would sit below mid-depth of the higher slab, so each level gets its own tendons, "
++               f"anchored at mid-depth on its side of the step.")
++    if job and passes:
++        job.ok(f"{passes} level-step crossing(s) kept continuous: the tendon crosses at the top cover of the "
++               f"lower slab, which is above mid-depth of the higher one.")
++    if job and dropped:
++        job.warn(f"{dropped} tendon piece(s) shorter than {min_piece:.1f} m between level steps were dropped.")
++    return out, cuts, passes
++
+ def order_along_route(tendons, p, job=None):
+     """شبكة أمان: أي بروفايل عقده مش مرتّبة مع سير الكابل تترتّب.
+ 
+@@ -24088,6 +24383,35 @@
      return None
  
  
@@ -300,7 +433,7 @@
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24397,29 @@
+@@ -24199,11 +24523,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -330,7 +463,7 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24447,21 @@
+@@ -24231,6 +24573,21 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -352,7 +485,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24659,11 @@
+@@ -24428,8 +24785,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -365,7 +498,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24671,19 @@
+@@ -24437,6 +24797,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -385,7 +518,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24691,20 @@
+@@ -24444,6 +24817,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -406,7 +539,29 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -37183,7 +37444,8 @@
+@@ -35863,6 +36250,10 @@
+     enforce_plan_rules(tendons, params, job, site)
+     enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
+                           walls=_walls, shapes=_shapes)
++    try:
++        tendons[:] = split_tendons_at_level_steps(tendons, params, job, site)[0]   # 18.160
++    except Exception as _e:
++        job.warn(f"The tendons across level steps were left as designed ({_e}).")
+ 
+     m = measure_design(site, tendons, lines, None, params)
+     m["model"] = os.path.basename(dxf_path)
+@@ -37157,6 +37548,10 @@
+     enforce_plan_rules(tendons, params, job, site=site)
+     enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
+                           shapes=_shapes)
++    try:
++        tendons[:] = split_tendons_at_level_steps(tendons, params, job, site)[0]   # 18.160
++    except Exception as _e:
++        job.warn(f"The tendons across level steps were left as designed ({_e}).")
+     _LAST_DRAWN["tendons"] = tendons                   # 17.27
+     _LAST_DRAWN["params"] = params
+     Point2D = session.api["Point2D"]
+@@ -37183,7 +37578,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -416,7 +571,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -39908,9 +40170,18 @@
+@@ -39908,9 +40304,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -437,7 +592,7 @@
      return False
  
  
-@@ -50315,6 +50586,24 @@
+@@ -50315,6 +50720,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -462,7 +617,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53260,652 @@
+@@ -52971,6 +53394,652 @@
      return rejected
  
  
@@ -1115,7 +1270,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57499,86 @@
+@@ -56564,6 +57633,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1202,7 +1357,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64633,8 @@
+@@ -63618,7 +64767,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1212,7 +1367,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +69879,9 @@
+@@ -68863,6 +70013,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1222,7 +1377,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +70922,14 @@
+@@ -69903,6 +71056,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1237,7 +1392,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +70977,14 @@
+@@ -69950,6 +71111,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1252,7 +1407,7 @@
  
          return outer
  
-@@ -70014,6 +71049,11 @@
+@@ -70014,6 +71183,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1264,7 +1419,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76033,340 @@
+@@ -74993,6 +76167,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  
