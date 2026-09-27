@@ -146,8 +146,17 @@ def snap_edges(pts, faces, tol):
     return out, moved
 
 
+_VIDX = {}
+
+
 def insert_vertices(pts, ref_vertices):
     """ركن منطقة أعلى واقع على ضلع المنطقة دي (≤ 1 مم) بيتضاف كنقطة، فالضلعين يتطابقوا."""
+    from shapely.strtree import STRtree
+    key = (id(ref_vertices), len(ref_vertices))
+    if key not in _VIDX:
+        _VIDX.clear()
+        _VIDX[key] = STRtree([Point(v) for v in ref_vertices]) if ref_vertices else None
+    vt = _VIDX[key]
     out = []
     n = len(pts)
     for i in range(n):
@@ -156,8 +165,9 @@ def insert_vertices(pts, ref_vertices):
         L = LineString([a, b])
         if L.length < 1e-6:
             continue
-        mids = [v for v in ref_vertices if L.distance(Point(v)) <= 1e-3
-                and Point(v).distance(Point(a)) > 1e-3 and Point(v).distance(Point(b)) > 1e-3]
+        cand = sorted(int(j) for j in vt.query(L.buffer(2e-3))) if vt is not None else []
+        mids = [ref_vertices[j] for j in cand if L.distance(Point(ref_vertices[j])) <= 1e-3
+                and Point(ref_vertices[j]).distance(Point(a)) > 1e-3 and Point(ref_vertices[j]).distance(Point(b)) > 1e-3]
         mids.sort(key=lambda v: L.project(Point(v)))
         out += mids
     # نقط مكررة ورا بعض
