@@ -18,6 +18,7 @@ python -m pt_pipeline.convert sheet.dxf -o out/ --keep-work          # يسيب 
 python -m pt_pipeline.convert sheet.dxf -o out/ --sheets wins.json    # شبابيك المساقط بإيدك
 python -m pt_pipeline.convert plan.dwg -o out/ --drop-thickness 400    # سُمك الدروب لو مش مكتوب في الرسمة
 python -m pt_pipeline.convert plan.dwg -o out/ --resume-from region_snap # يعيد من خطوة تشطيب (نفس -o، كان بـ --keep-work) - الناتج = تحويل كامل (FLOW جزء 12)
+python -m pt_pipeline.regress projects.json -o reg_out --baseline pt_pipeline/tests/baseline.json  # كل المشاريع القديمة ضد المرجع (FLOW جزء 8)
 ```
 
 الأمر لازم يتشغّل من فولدر `tools/layerless_reader`.

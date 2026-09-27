@@ -323,6 +323,55 @@ def draw(out, tags, title):
         fig.savefig(os.path.join(out, "images", f"{t}.png"), dpi=70, bbox_inches="tight"); plt.close(fig)
 
 
+
+def draw_floors(out, work, tags, sheet_of):
+    """صورة الدور كله (كل زوناته فوق خطوط الرسمة نفسها) - الـ checklist قبل التسليم (FLOW 11): بلاطة ناقصة،
+    فاصل ماقطعش، مبنى معكوس ناقصه فتحة بيبانوا هنا ومابيبانوش في صورة زون زون."""
+    import matplotlib
+    matplotlib.use("Agg"); import matplotlib.pyplot as plt
+    from shapely.geometry import Polygon
+    floors = collections.defaultdict(list)
+    for t in tags:
+        floors[re.sub(r"-B\d+$", "", sheet_of.get(t, t))].append(t)
+    os.makedirs(os.path.join(out, "images"), exist_ok=True)
+    cm = plt.get_cmap("Pastel1")
+    for fl, zs in floors.items():
+        fig, ax = plt.subplots(figsize=(22, 12))
+        seen = set()
+        for t in zs:
+            sh = sheet_of.get(t, t)
+            gf = os.path.join(work, f"{sh}_geo.json")
+            if sh not in seen and os.path.exists(gf):
+                seen.add(sh)
+                for a, b in json.load(open(gf))["segs"]:
+                    ax.plot([a[0], b[0]], [a[1], b[1]], color="#bbb", lw=0.25, zorder=0)
+        for i, t in enumerate(zs):
+            R = json.load(open(os.path.join(work, f"{t}_res_c.json")))
+            g = Polygon(R["slabs"][0]["outline"]).buffer(0)
+            if g.is_empty:
+                continue
+            g = max(getattr(g, "geoms", [g]), key=lambda q: q.area)
+            ax.fill(*g.exterior.xy, color=cm(i % 9), alpha=0.75, zorder=1); ax.plot(*g.exterior.xy, "k-", lw=1.1, zorder=3)
+            for o in R.get("openings", []):
+                q = Polygon(o["poly"])
+                ax.fill(*q.exterior.xy, color="w", zorder=2); ax.plot(*q.exterior.xy, color="#e33", lw=0.5, zorder=3)
+            for z in R.get("level_zones") or []:
+                ax.plot(*Polygon(z["poly"]).exterior.xy, "--", color="purple", lw=0.6, zorder=3)
+            mf = os.path.join(work, f"{t}_members_c.json")
+            if os.path.exists(mf):
+                M = json.load(open(mf))
+                for c in M.get("cols", []):
+                    ax.fill(*zip(*c["rect"]["corners"]), color="k", zorder=4)
+                for b in M.get("beams", []):
+                    ax.plot([b["p1"][0], b["p2"][0]], [b["p1"][1], b["p2"][1]], color="#23c", lw=0.5, zorder=3)
+            c = g.representative_point(); ml = R.get("main_level_m")
+            lab = t[len(fl):].lstrip("-_") or t
+            ax.text(c.x, c.y, f"{lab}\n{g.area:.0f} m²" + (f"\n{ml:+.2f}" if ml is not None else ""), fontsize=8,
+                    ha="center", weight="bold", zorder=6)
+        ax.set_aspect("equal"); ax.axis("off")
+        ax.set_title(f"{fl}: {len(zs)} zone(s) over the drawing (grey) - dashed purple = level zones, red = openings", fontsize=13)
+        fig.savefig(os.path.join(out, "images", f"_floor_{fl}.png"), dpi=70, bbox_inches="tight"); plt.close(fig)
+
 # ---------------------------------------------------------------- الأمر
 def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     out = os.path.abspath(out); work = os.path.join(out, "work"); os.makedirs(work, exist_ok=True)
@@ -559,6 +608,10 @@ def finish(work, out, st, start=None):
     if pour: exp_env["POUR_JSON"] = "pourstrips.json"
     report["steps"]["export"] = step("export_pt.py", env=exp_env, cwd=work).splitlines()
     draw(out, zones, report["input"])
+    try:
+        draw_floors(out, work, zones, sheet_of)
+    except Exception as e:
+        log(f"floor images skipped: {e}")
     report["zones"] = zones; report["ok"] = ok
     json.dump(report, open(os.path.join(out, "report.json"), "w"), indent=1, ensure_ascii=False, default=str)
     log("DONE", "CHECK OK" if ok else "CHECK FAILED - see report.json")
