@@ -40,19 +40,37 @@ def edges(polys):
     return out
 
 
+_IDX = {}
+
+
+def _index(ref_edges, ref_vertices):
+    """فهرس مكاني للأضلاع والرؤوس (زون فيها آلاف الكمرات - HDB)؛ النتيجة نفسها بالظبط."""
+    from shapely.strtree import STRtree
+    key = (id(ref_edges), len(ref_edges), id(ref_vertices), len(ref_vertices))
+    if key not in _IDX:
+        lines = [LineString(e) for e in ref_edges]
+        pts = [Point(v) for v in ref_vertices]
+        if len(_IDX) > 8:                 # أضلاع الكمرات/الأعمدة (ثابتة) + المناطق (بتكبر)
+            _IDX.pop(next(iter(_IDX)))
+        _IDX[key] = (lines, STRtree(lines) if lines else None, pts, STRtree(pts) if pts else None)
+    return _IDX[key]
+
+
 def snap_pts(pts, ref_edges, ref_vertices, tol=None):
     tol = TOL if tol is None else tol
     moved = 0
     new = []
+    lines, lt, vpts, vt = _index(ref_edges, ref_vertices)
     for p in pts:
         P = Point(p)
         # ركن قريب الأول (≤ tol): النقطة بتروح عليه
-        v = min(ref_vertices, key=lambda q: P.distance(Point(q)), default=None)
-        if v is not None and 1e-6 < P.distance(Point(v)) <= tol:
-            new.append(v); moved += 1; continue
+        cand = sorted(int(i) for i in vt.query(P.buffer(tol))) if vt is not None else []
+        v = min(cand, key=lambda i: P.distance(vpts[i]), default=None)
+        if v is not None and 1e-6 < P.distance(vpts[v]) <= tol:
+            new.append(ref_vertices[v]); moved += 1; continue
         best = None
-        for a, b in ref_edges:
-            L = LineString([a, b]); d = L.distance(P)
+        for i in (sorted(int(i) for i in lt.query(P.buffer(tol))) if lt is not None else []):
+            L = lines[i]; d = L.distance(P)
             if d <= tol and (best is None or d < best[0]):
                 best = (d, L)
         if best and best[0] > 1e-6:
@@ -70,8 +88,10 @@ def snap_edges(pts, faces, tol):
     الضلع فيها بعيدة عن أطراف الوش (حيطة بتغطي نص ضلع الفتحة).
     """
     import math
+    from shapely.strtree import STRtree
     n = len(pts)
     lines, moved = [], 0
+    ftree = STRtree([LineString(f) for f in faces]) if faces else None
     for i in range(n):
         a, b = pts[i], pts[(i + 1) % n]
         L = math.dist(a, b)
@@ -79,7 +99,9 @@ def snap_edges(pts, faces, tol):
             lines.append(None); continue
         u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         best = None
-        for c, d in faces:
+        _E = LineString([a, b]).buffer(tol + 0.01)
+        for j in (sorted(int(i) for i in ftree.query(_E)) if ftree is not None else []):
+            c, d = faces[j]
             M_ = math.dist(c, d)
             if M_ < 0.3:
                 continue
