@@ -94,7 +94,7 @@ def split_at_faces(pts, faces, tol):
         if L < 1.0:
             continue
         u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-        ts = []
+        ts = []; offs = set()
         for c, d in faces:
             M_ = math.dist(c, d)
             if M_ < 0.3:
@@ -102,12 +102,19 @@ def split_at_faces(pts, faces, tol):
             v = ((d[0] - c[0]) / M_, (d[1] - c[1]) / M_)
             if abs(u[0] * v[1] - u[1] * v[0]) > math.sin(math.radians(1.0)):
                 continue
-            if max(abs((q[0] - a[0]) * u[1] - (q[1] - a[1]) * u[0]) for q in (c, d)) > tol:
+            off = [(q[0] - a[0]) * u[1] - (q[1] - a[1]) * u[0] for q in (c, d)]
+            if max(abs(o) for o in off) > tol:
                 continue
-            for q in (c, d):
-                t = (q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1]
+            tq = sorted((q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1] for q in (c, d))
+            if min(L, tq[1]) - max(0.0, tq[0]) < 0.3:
+                continue
+            offs.add(round(sum(off) / 2, 3))
+            for t in tq:
                 if 0.3 < t < L - 0.3:
                     ts.append(t)
+        # بس لو الضلع ماشي جنب وشّين بإزاحتين مختلفتين؛ وش واحد جنب نص الضلع = الضلع كله بيتنقل عليه
+        if len(offs) < 2:
+            ts = []
         for t in sorted(set(round(t, 3) for t in ts)):
             q = (a[0] + u[0] * t, a[1] + u[1] * t)
             if math.dist(out[-1], q) > 0.3 and math.dist(q, b) > 0.3:
