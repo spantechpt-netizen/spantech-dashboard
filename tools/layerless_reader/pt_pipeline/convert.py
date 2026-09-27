@@ -309,6 +309,7 @@ def draw(out, tags, title):
                 L = e.dxf.layer; p = [(v[0] / 1000, v[1] / 1000) for v in e.get_points()]; p.append(p[0])
                 xs = [q[0] for q in p]; ys = [q[1] for q in p]
                 if L == "PT-Clean-Boundary": ax.fill(xs, ys, color="#eef3fb", zorder=0); ax.plot(xs, ys, "k-", lw=1.6); area = Polygon(p).area
+                elif L == "PT-Clean-Loads": ax.plot(xs, ys, color="teal", lw=0.8, ls="--", zorder=1)      # حدود مناطق الأحمال بس
                 else: ax.fill(xs, ys, color=C[L], alpha=0.7 if L != "PT-Clean-Openings" else 0.4, lw=0, zorder=2); ax.plot(xs, ys, color=C[L], lw=0.6)
             elif e.dxftype() == "TEXT":
                 if e.dxf.layer == "PT-Clean-Beams":

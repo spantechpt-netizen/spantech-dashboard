@@ -22,6 +22,8 @@ for i, a in enumerate(L):
         if min(ang, 180 - ang) < 8: continue
         q = MultiPoint([a[0], a[1], b[0], b[1]]).convex_hull
         if q.area < 6.0 or abs(la.length - lb.length) > 0.15 * max(la.length, lb.length): continue
+        # X = قطرين المستطيل: أطرافهم الأربعة أركان مستطيل. "+" (خط فاصل عمودي على حيطة) بيدّي معيّن نص المستطيل
+        if q.area < 0.85 * q.minimum_rotated_rectangle.area: continue
         voids.append(q)
 # مساحة متهاشرة عليها STEEL/BRIDGE
 steel = [Point(p) for t, p, h in tx if re.search(r"STEEL|BRIDGE", t, re.I)]

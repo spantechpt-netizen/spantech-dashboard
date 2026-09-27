@@ -139,10 +139,13 @@ def main(tags, dxf):
     if not T:
         print("LOADING section found but no load table (SIDL / LL / Usage) - loads come from the defaults"); return
     dx0 = (fram_h[0][1] - load_h[0][1]) if fram_h else None
+    # المرحلة 1: إزاحة كل زون من أعمدتها
+    info = {}
     for tag in tags:
         R = json.load(open(f"{tag}_res_c.json"))
+        R["review"] = [r for r in R.get("review", []) if r[0] != "loads"]      # إعادة التشغيل مابتكررش الملاحظات
+        R.pop("load_areas", None)
         slab = Polygon(R["slabs"][0]["outline"]).buffer(0)
-        ops = unary_union([Polygon(o["poly"]).buffer(0) for o in R.get("openings", [])]) if R.get("openings") else Polygon()
         x0, y0, x1, y1 = slab.bounds
         if dx0 is None:
             continue
@@ -151,7 +154,6 @@ def main(tags, dxf):
         if not cands:
             print(tag, "no load table in this row"); continue
         tab = min(cands, key=lambda t: abs(t["y"] - (y0 + y1) / 2))
-        # الإزاحة الدقيقة من الأعمدة
         F = [(x, y) for x, y in cols if slab.buffer(1).contains(Point(x, y))]
         L = [(x, y) for x, y in cols if x0 - dx0 - 20 < x < x1 - dx0 + 20 and y0 - 20 < y < y1 + 20]
         votes = collections.Counter()
@@ -160,17 +162,43 @@ def main(tags, dxf):
                 d = (round(fx - lx, 1), round(fy - ly, 1))
                 if abs(d[0] - dx0) < 30 and abs(d[1]) < 30:
                     votes[d] += 1
-        if not votes:
-            print(tag, "no column pairs to align", len(F), len(L)); continue
+
         # كل إزاحة مرشحة بتتقيّم بعدد أعمدة البلاطة اللي ليها عمود في مسقط الأحمال على ≤ 25 سم (مش بالتقريب لـ 10 سم)
-        def score(d):
+        def score(d, F=F, L=L):
             return sum(1 for fx, fy in F if any(abs(fx - lx - d[0]) <= 0.25 and abs(fy - ly - d[1]) <= 0.25 for lx, ly in L))
-        best = max((d for d, _ in votes.most_common(8)), key=score)
-        n = score(best); dx, dy = best
-        if n < 0.5 * len(F):
-            print(tag, "alignment too weak", n, len(F), len(L), votes.most_common(3))
-            R.setdefault("review", []).append(["loads", f"loading plan found but could not be aligned with this slab ({n} of {len(F)} columns) - default loads used"])
+        best = max((d for d, _ in votes.most_common(8)), key=score) if votes else None
+        n = score(best) if best else 0
+        # مسقط الأحمال ممكن مايبينش كل الهاتشات الصغيرة (دروبات/علامات): النسبة من الأقل عددًا، وبحد أدنى 6 أعمدة
+        strong = best is not None and n >= max(6, 0.4 * min(len(F), len(L)))
+        info[tag] = dict(R=R, slab=slab, tab=tab, F=F, L=L, best=best, n=n, strong=strong, score=score, votes=votes)
+    # المرحلة 2: إجماع الدور - كل مساقط الأحمال في نفس الدور مزاحة بنفس القيمة. الزون اللي مطابقتها ضعيفة
+    # (أو محتارة بين إزاحتين، زي السطح: (400، 0) و(400، 24)) بتاخد إزاحة الدور لو أعمدتها بتأكدها
+    cons = {}
+    for tag, I in info.items():
+        if I["strong"]:
+            cons.setdefault(id(I["tab"]), collections.Counter())[(round(I["best"][0]), round(I["best"][1]))] += 1
+    for tag, I in info.items():
+        R, slab, tab, F, L = I["R"], I["slab"], I["tab"], I["F"], I["L"]
+        ops = unary_union([Polygon(o["poly"]).buffer(0) for o in R.get("openings", [])]) if R.get("openings") else Polygon()
+        x0, y0, x1, y1 = slab.bounds
+        c = cons.get(id(tab))
+        best, n = I["best"], I["n"]
+        if c:
+            cx, cy = c.most_common(1)[0][0]
+            near = [d for d, _ in I["votes"].most_common(40) if abs(d[0] - cx) <= 0.3 and abs(d[1] - cy) <= 0.3]
+            cb = max(near, key=I["score"]) if near else None
+            cn = I["score"](cb) if cb else 0
+            if cb and (not I["strong"] or (round(best[0]), round(best[1])) != (cx, cy)) and cn >= max(4, 0.25 * min(len(F), len(L))):
+                best, n = cb, cn
+            elif not I["strong"]:
+                best = None
+        elif not I["strong"]:
+            best = None
+        if best is None:
+            print(tag, "alignment too weak", I["n"], len(F), len(L), I["votes"].most_common(3))
+            R.setdefault("review", []).append(["loads", f"loading plan found but could not be aligned with this slab ({I['n']} of {len(F)} columns) - default loads used"])
             json.dump(R, open(f"{tag}_res_c.json", "w")); continue
+        dx, dy = best
         pats = {r["pattern"]: r for r in tab["rows"] if r["pattern"]}
         areas = []
         for h in hatches:
