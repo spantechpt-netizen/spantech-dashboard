@@ -69,6 +69,22 @@ for t in sys.argv[1:]:
                                                        - math.atan2(b["p2"][1] - b["p1"][1], b["p2"][0] - b["p1"][0]))) < 0.02
                      and LineString([k["p1"], k["p2"]]).distance(lb) <= max(k["w"], b["w"]) / 2
                      and LineString([k["p1"], k["p2"]]).buffer(max(k["w"], b["w"]) / 2, cap_style=2).intersection(lb).length >= 0.8 * Lb), None)
+        # جنب كمرة أطول موازية وبين الوشّين ≤ 10 سم وطولها كله تقريبًا جنبها (توأم): حتة من الكمرة التانية
+        # اتقرت لوحدها (CA2 0.7 م لازقة في B4 جنب سلم HDB) - الأطول بتفضل والتانية REVIEW
+        twin = None
+        if host is None and Lb > 0:
+            for k in keep:
+                if abs(math.sin(math.atan2(k["p2"][1] - k["p1"][1], k["p2"][0] - k["p1"][0])
+                                - math.atan2(b["p2"][1] - b["p1"][1], b["p2"][0] - b["p1"][0]))) >= 0.02:
+                    continue
+                lk = LineString([k["p1"], k["p2"]])
+                gap = lk.distance(lb) - (k["w"] + b["w"]) / 2
+                if -0.02 <= gap <= 0.1 and lk.buffer((k["w"] + b["w"]) / 2 + 0.12, cap_style=2).intersection(lb).length >= 0.8 * Lb:
+                    twin = k; break
+        if twin is not None:
+            R.setdefault("review", []).append(["beam label", f"{b.get('label')} ({Lb:.1f} m) lies against {twin.get('label')} with no gap near "
+                                               f"({b['p1'][0]:.1f}, {b['p1'][1]:.1f}) - kept {twin.get('label')}; check the drawing there"])
+            continue
         if host is not None:
             if host.get("label") != b.get("label"):
                 R.setdefault("review", []).append(["beam label", f"{b.get('label')} and {host.get('label')} are on the same beam line near "
