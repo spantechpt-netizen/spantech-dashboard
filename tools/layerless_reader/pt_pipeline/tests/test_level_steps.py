@@ -44,3 +44,14 @@ def test_no_levels_untouched():
     t = {"dir": "X", "profile": [{"pos": (0, 0), "depth": 150}, {"pos": (9, 0), "depth": 150}]}
     out, cuts, passes = A.split_tendons_at_level_steps([t], p, Job(), {"slabs": []})
     assert out == [t] and cuts == passes == 0
+
+
+def test_pieces_recorded_for_jacks():
+    p = A.TendonDesignParams(); p.slab_thickness = 300.0; p.per_direction_covers = True; p.top_cover_x = 50.0
+    site = {"slabs": [{"points": [(10, -5), (20, -5), (20, 5), (10, 5)], "is_drop": False,
+                       "thickness": 300.0, "elevation": -150.0}]}      # the level as read from a .cpt (TOC)
+    t = {"dir": "X", "profile": [{"pos": (0, 0), "depth": 150}, {"pos": (18, 0), "depth": 150}]}
+    out, cuts, _ = A.split_tendons_at_level_steps([t], p, Job(), site)
+    assert cuts == 1 and t["_level_pieces"] == out and all("_level_pieces" not in q for q in out)
+    again, cuts2, _ = A.split_tendons_at_level_steps(out, p, Job(), site)   # a second write does not cut twice
+    assert cuts2 == 0 and len(again) == 2

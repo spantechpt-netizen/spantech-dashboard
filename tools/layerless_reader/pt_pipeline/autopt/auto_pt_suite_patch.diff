@@ -264,7 +264,50 @@
  
      site = {
          "boundary": boundary,
-@@ -15458,6 +15627,132 @@
+@@ -13762,6 +13931,11 @@
+         low = name.lower()
+         if "elevation" in low and "thick" not in low:
+             return name
++    #  18.160: رام 2024 بيسمّي العمود TOC (top of concrete) - نفس اسم الخاصية في الـ API.
++    #  من غيره المنطقة المهبّطة كانت بتتقري على صفر.
++    for name in cols:
++        if name.lower() in ("toc", "topofconcrete", "top_of_concrete", "surfaceelevation"):
++            return name
+     return None
+ 
+ 
+@@ -13857,6 +14031,12 @@
+                     _by_pri[pr] = _by_pri.get(pr, 0.0) + abs(polygon_area(pts))
+             _base_pri = (max(_by_pri, key=lambda k: _by_pri[k])
+                          if _by_pri else None)
++        #  منسوب البلاطة الأساسية = منسوب أكبر منطقة بسُمكها
++        _base_elev = 0.0
++        _cand = [(abs(polygon_area(pts)), _elevs[i]) for i, (th, pts) in enumerate(areas)
++                 if i < len(_elevs) and len(pts) >= 3 and abs(th - base) <= 1.0]
++        if _cand:
++            _base_elev = max(_cand)[1]
+         for i, (th, pts) in enumerate(areas):
+             pr = _pri[i] if i < len(_pri) else None
+             #  الأولوية هي اللي بتقول "دي فوق دي" - والسُمك تأكيد
+@@ -13866,12 +14046,16 @@
+             #  في رام أصلاً فمش دروب مهما كان سُمكه.
+             _thicker = th > base + 1.0
+             _not_thinner = th >= base - 1.0
++            elev = _elevs[i] if i < len(_elevs) else 0.0
+             if _base_pri is not None and pr is not None:
+                 is_drop = ((pr > _base_pri and _not_thinner)
+                            or (pr == _base_pri and _thicker))
+             else:
+                 is_drop = _thicker
+-            elev = _elevs[i] if i < len(_elevs) else 0.0
++            #  18.160: منطقة بسُمك البلاطة ومنسوبها غير منسوب البلاطة = منطقة
++            #  منسوب (بلاطة مهبّطة/مرفوعة)، مش دروب - حتى لو أولويتها أعلى.
++            if is_drop and not _thicker and abs(elev - _base_elev) > 1.0:
++                is_drop = False
+             site["slabs"].append({"points": pts, "is_drop": is_drop,
+                                   "priority": pr, "thickness": th,
+                                   "elevation": elev,
+@@ -15458,6 +15642,145 @@
      return out
  
  
@@ -273,7 +316,10 @@
 +    out = []
 +    for s in (site or {}).get("slabs") or []:
 +        try:
-+            if s.get("is_drop") or s.get("surface_elevation_mm") is None:
++            se = s.get("surface_elevation_mm")
++            if se is None:
++                se = s.get("elevation")
++            if s.get("is_drop") or se is None:
 +                continue
 +            pts = s.get("points") or []
 +            if len(pts) < 3:
@@ -281,7 +327,7 @@
 +            a = abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
 +                        for i in range(len(pts)))) / 2.0
 +            th = float(s.get("thickness") or 0.0) or float(params.slab_thickness)
-+            out.append((pts, float(s["surface_elevation_mm"]), th, a))
++            out.append((pts, float(se), th, a))
 +        except Exception:
 +            continue
 +    out.sort(key=lambda r: r[3])
@@ -346,6 +392,7 @@
 +        #  عبور لازق في طرف الكابل (الطرف نفسه على حد المنطقة) مش عبور
 +        steps = [st for st in steps if dist(st[2], pr[0]["pos"]) > 2 * gap and dist(st[2], pr[-1]["pos"]) > 2 * gap]
 +        if not steps:
++            t.pop("_level_pieces", None)
 +            out.append(t)
 +            continue
 +        pieces, cur_pts = [], [dict(pr[0])]
@@ -373,6 +420,7 @@
 +                passes += 1
 +        cur_pts += [dict(q) for q in pr[k_done + 1:] if dist(q["pos"], steps[-1][2]) > 2 * gap]
 +        pieces.append(cur_pts)
++        made = []
 +        for pc in pieces:
 +            pc = _dedupe_profile_points(pc)
 +            length = sum(dist(a["pos"], b["pos"]) for a, b in zip(pc, pc[1:]))
@@ -380,9 +428,17 @@
 +                dropped += 1
 +                continue
 +            nt = dict(t)
++            nt.pop("_level_pieces", None)
 +            nt["profile"] = pc
 +            nt["length"] = length
-+            out.append(nt)
++            made.append(nt)
++        #  المتصل بيفضل كابل واحد؛ المقطوع بيسجّل قطعه على الأصل - اللي بيحط
++        #  الجاكات بياخد القطع حتى لو اتبعتله نسخة من القايمة قبل القطع
++        if len(made) != 1 or len(pieces) != 1:
++            t["_level_pieces"] = made
++        else:
++            t.pop("_level_pieces", None)
++        out.extend(made)
 +    if job and cuts:
 +        job.ok(f"{cuts} tendon(s) were cut at a level step: at the cover under the top of the lower slab the "
 +               f"tendon would sit below mid-depth of the higher slab, so each level gets its own tendons, "
@@ -397,7 +453,7 @@
  def order_along_route(tendons, p, job=None):
      """شبكة أمان: أي بروفايل عقده مش مرتّبة مع سير الكابل تترتّب.
  
-@@ -24088,6 +24383,35 @@
+@@ -24088,6 +24411,35 @@
      return None
  
  
@@ -433,7 +489,7 @@
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24523,29 @@
+@@ -24199,11 +24551,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -463,7 +519,7 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24573,21 @@
+@@ -24231,6 +24601,21 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -485,7 +541,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24785,11 @@
+@@ -24428,8 +24813,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -498,7 +554,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24797,19 @@
+@@ -24437,6 +24825,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -518,7 +574,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24817,20 @@
+@@ -24444,6 +24845,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -539,7 +595,7 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -35863,6 +36250,10 @@
+@@ -35863,6 +36278,10 @@
      enforce_plan_rules(tendons, params, job, site)
      enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
                            walls=_walls, shapes=_shapes)
@@ -550,7 +606,7 @@
  
      m = measure_design(site, tendons, lines, None, params)
      m["model"] = os.path.basename(dxf_path)
-@@ -37157,6 +37548,10 @@
+@@ -37157,6 +37576,10 @@
      enforce_plan_rules(tendons, params, job, site=site)
      enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
                            shapes=_shapes)
@@ -561,7 +617,7 @@
      _LAST_DRAWN["tendons"] = tendons                   # 17.27
      _LAST_DRAWN["params"] = params
      Point2D = session.api["Point2D"]
-@@ -37183,7 +37578,8 @@
+@@ -37183,7 +37606,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -571,7 +627,16 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -39908,9 +40304,18 @@
+@@ -37514,6 +37938,8 @@
+     add_jack exists on TendonLayer but its signature is not documented here, so
+     the call is probed once and the working form reported.
+     """
++    #  18.160: الكابل اللي اتقطع عند حد منسوب = قطعه هي اللي اترسمت
++    tendons = [q for t in tendons for q in (t.get("_level_pieces") if t.get("_level_pieces") is not None else [t])]
+     Point2D = session.api["Point2D"]
+     LineSegment2D = session.api["LineSegment2D"]
+     cad = session.model.cad_manager
+@@ -39908,9 +40334,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -592,7 +657,7 @@
      return False
  
  
-@@ -50315,6 +50720,24 @@
+@@ -50315,6 +50750,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -617,7 +682,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53394,652 @@
+@@ -52971,6 +53424,652 @@
      return rejected
  
  
@@ -1270,7 +1335,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57633,86 @@
+@@ -56564,6 +57663,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1357,7 +1422,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64767,8 @@
+@@ -63618,7 +64797,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1367,7 +1432,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +70013,9 @@
+@@ -68863,6 +70043,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1377,7 +1442,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +71056,14 @@
+@@ -69903,6 +71086,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1392,7 +1457,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +71111,14 @@
+@@ -69950,6 +71141,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1407,7 +1472,7 @@
  
          return outer
  
-@@ -70014,6 +71183,11 @@
+@@ -70014,6 +71213,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1419,7 +1484,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76167,340 @@
+@@ -74993,6 +76197,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  
