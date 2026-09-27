@@ -1264,7 +1264,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76033,301 @@
+@@ -74993,6 +76033,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  
@@ -1278,10 +1278,45 @@
 +    #  اللي تتحط في خانة الـ DXF. القواعد كلها في pt_pipeline/RULES.md.
 +    # ------------------------------------------------------------------
 +
++    #  **مكان أدوات القارئ بيتسأل مرة واحدة بس.** بيتحفظ في ملف صغير لوحده
++    #  (~/.auto_pt_drawing_reader.json) أول ما يتختار أو يتلاقي - مش بس في
++    #  إعدادات المشروع، اللي بتتحفظ وقت الرن أو القفل وبتختلف من مشروع لمشروع،
++    #  فالبرنامج كان ممكن يسأل تاني بعد قفلة مفاجئة أو فتح مشروع تاني.
++    READER_PREFS = os.path.join(os.path.expanduser("~"), ".auto_pt_drawing_reader.json")
++
++    def _reader_prefs(self):
++        try:
++            with open(self.READER_PREFS, encoding="utf-8") as f:
++                return json.load(f) or {}
++        except Exception:
++            return {}
++
++    def _remember_reader(self, key, value):
++        """يحفظ المسار حالًا (الملف الصغير + إعدادات البرنامج)."""
++        if not value:
++            return
++        try:
++            self.v[key].set(value)
++        except Exception:
++            pass
++        d = self._reader_prefs()
++        if d.get(key) != value:
++            d[key] = value
++            try:
++                with open(self.READER_PREFS, "w", encoding="utf-8") as f:
++                    json.dump(d, f, ensure_ascii=False, indent=1)
++            except Exception:
++                pass
++        try:
++            self.save_config(silent=True)
++        except Exception:
++            pass
++
 +    def _find_reader_dir(self):
 +        """الفولدر اللي فيه pt_pipeline/convert.py (tools/layerless_reader)."""
 +        here = os.path.dirname(os.path.abspath(sys.argv[0] or __file__))
 +        cands = [(self.v["drawing_reader_dir"].get() or "").strip(),
++                 (self._reader_prefs().get("drawing_reader_dir") or "").strip(),
 +                 os.environ.get("AUTOPT_DRAWING_READER", ""),
 +                 here, os.path.join(here, "layerless_reader"),
 +                 os.path.join(here, "tools", "layerless_reader"),
@@ -1299,6 +1334,7 @@
 +        """LibreDWG dwgread - لازم بس لملفات DWG."""
 +        names = ("dwgread.exe", "dwgread")
 +        cands = [(self.v["dwgread_path"].get() or "").strip(),
++                 (self._reader_prefs().get("dwgread_path") or "").strip(),
 +                 os.environ.get("LIBREDWG_DWGREAD", ""),
 +                 shutil.which("dwgread") or ""]
 +        if reader_dir:
@@ -1351,12 +1387,15 @@
 +            if p:
 +                self.v["drawing_reader_dir"].set(p)
 +                rdir = self._find_reader_dir()
++                if rdir:
++                    self.log(f"Drawing reader folder remembered: {rdir} - it will "
++                             f"not be asked again.", "ok")
 +            if not rdir:
 +                messagebox.showerror(
 +                    "Drawing reader", "That folder has no pt_pipeline\\convert.py.",
 +                    parent=self.root)
 +                return
-+        self.v["drawing_reader_dir"].set(rdir)
++        self._remember_reader("drawing_reader_dir", rdir)
 +        dwgread = None
 +        if src.lower().endswith(".dwg"):
 +            dwgread = self._find_dwgread(rdir)
@@ -1371,10 +1410,10 @@
 +                        title="LibreDWG dwgread.exe", parent=self.root,
 +                        filetypes=[("dwgread", "dwgread*"), ("All files", "*.*")])
 +                    if p:
-+                        self.v["dwgread_path"].set(p)
 +                        dwgread = p
 +                if not dwgread:
 +                    return
++            self._remember_reader("dwgread_path", dwgread)
 +        py = self._reader_python()
 +        if not py:
 +            messagebox.showerror(

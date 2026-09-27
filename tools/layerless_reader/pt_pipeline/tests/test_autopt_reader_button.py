@@ -48,7 +48,9 @@ def _app(monkeypatch, out):
     app.root = types.SimpleNamespace(after=lambda t, f: None)
     app.nav = types.SimpleNamespace(select=lambda *a: None)
     app._finish = lambda: None
-    for n in ("_find_reader_dir", "_find_dwgread", "_drawing_pipeline"):
+    app.READER_PREFS = os.path.join(out + "_prefs.json")
+    app.save_config = lambda silent=False: None
+    for n in ("_find_reader_dir", "_find_dwgread", "_drawing_pipeline", "_reader_prefs", "_remember_reader"):
         setattr(app, n, getattr(A.AutoPTApp, n).__get__(app))
     app._drawing_zone_info = A.AutoPTApp._drawing_zone_info
     app._reader_python = A.AutoPTApp._reader_python
@@ -80,3 +82,16 @@ def test_button_stop_and_bad_file(tmp_path, monkeypatch):
     app._drawing_pipeline(str(bad), str(tmp_path / "b"), ROOT, None, app._reader_python(), job)
     assert any("drawing reader stopped" in t for k, t in job.lines if k == "error")
     assert not app.v["dxf"].get()
+
+
+def test_reader_folder_is_asked_once(tmp_path, monkeypatch):
+    """المكان بيتحفظ في ملف لوحده أول ما يتعرف: نسخة تانية من البرنامج (أو مشروع تاني) بتلاقيه من غير ما تسأل."""
+    monkeypatch.delenv("AUTOPT_DRAWING_READER", raising=False)
+    monkeypatch.setattr(A.sys, "argv", [str(tmp_path / "Auto_PT_Suite.py")])
+    out = str(tmp_path / "x")
+    app = _app(monkeypatch, out); monkeypatch.delenv("AUTOPT_DRAWING_READER", raising=False)
+    assert app._find_reader_dir() is None                 # أول مرة: مش لاقيه -> البرنامج بيسأل
+    app._remember_reader("drawing_reader_dir", ROOT)       # المستخدم اختار الفولدر
+    app2 = _app(monkeypatch, out); monkeypatch.delenv("AUTOPT_DRAWING_READER", raising=False)
+    assert app2.v["drawing_reader_dir"].get() == ""        # إعدادات مشروع تاني فاضية
+    assert app2._find_reader_dir() == ROOT                 # ... ومع ذلك مابيسألش

@@ -43,7 +43,8 @@ patch Auto_PT_Suite_v397_CAD_Reader_AI.py < auto_pt_suite_patch.diff
    - بيفتح شاشة فيها الزونات بأعدادها وصورها، واللي تختاره بيتحط في خانة الـ DXF.
 
    الإعدادات (في كارت Files):
-   - "Drawing reader folder": الفولدر اللي فيه `pt_pipeline`. لو مش لاقيه جنب البرنامج بيسألك مرة واحدة ويفتكره.
+   - "Drawing reader folder": الفولدر اللي فيه `pt_pipeline`. لو مش لاقيه جنب البرنامج، بيسألك **مرة واحدة بس**.
+     المكان بيتحفظ حالًا في `~/.auto_pt_drawing_reader.json` (غير إعدادات المشروع)، فمابيتسألش تاني حتى لو فتحت مشروع تاني أو البرنامج اتقفل فجأة. نفس الكلام لـ `dwgread.exe`.
    - "LibreDWG dwgread.exe": لملفات DWG بس. نسخة ويندوز (LibreDWG 0.13.3، رخصة GPLv3) جاية جوه
      `drawing_reader_tools.zip` في فولدر `libredwg\`، والبرنامج بيلاقيها لوحده - مش محتاج تنزّل حاجة.
 
