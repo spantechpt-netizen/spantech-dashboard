@@ -9,6 +9,19 @@ tag = sys.argv[1]
 R = json.load(open(f"{tag}_res.json")); g = json.load(open(f"{tag}_geo.json"))["segs"]
 _, tx, hs = pickle.load(open("cache.pkl", "rb"))
 L = [s for s in g if math.dist(*s) >= 3.0]
+# اتجاه محاور الرسمة (الأطوال الأكتر، mod 90)
+_h = [0.0] * 90
+for s_ in g:
+    _h[int(round(math.degrees(math.atan2(s_[1][1] - s_[0][1], s_[1][0] - s_[0][0])))) % 90] += math.dist(*s_)
+AX = max(range(90), key=lambda k: _h[k])
+
+
+def on_axis(s_):
+    d = (math.degrees(math.atan2(s_[1][1] - s_[0][1], s_[1][0] - s_[0][0])) - AX) % 90
+    return min(d, 90 - d) <= 5
+
+
+ALL = unary_union([LineString(s) for s in g if math.dist(*s) > 1e-6]).buffer(0.15)
 voids = []
 for i, a in enumerate(L):
     la = LineString(a)
@@ -22,8 +35,12 @@ for i, a in enumerate(L):
         if min(ang, 180 - ang) < 8: continue
         q = MultiPoint([a[0], a[1], b[0], b[1]]).convex_hull
         if q.area < 6.0 or abs(la.length - lb.length) > 0.15 * max(la.length, lb.length): continue
-        # X = قطرين المستطيل: أطرافهم الأربعة أركان مستطيل. "+" (خط فاصل عمودي على حيطة) بيدّي معيّن نص المستطيل
-        if q.area < 0.85 * q.minimum_rotated_rectangle.area: continue
+        # X = قطرين مستطيل (أطرافهم أركانه) أو جوه صندوق مرسوم. "+" (خط فاصل عمودي على حيطة):
+        # أطرافه معيّن مش مستطيل، وحدوده مش مرسومة -> مش فراغ
+        # (خطين ماشيين مع محاور الرسمة = "+" حتى لو المعيّن مربع)
+        edge = q.exterior
+        plus = q.area < 0.95 * q.minimum_rotated_rectangle.area or (on_axis(a) and on_axis(b))
+        if plus and edge.intersection(ALL).length < 0.6 * edge.length: continue
         voids.append(q)
 # مساحة متهاشرة عليها STEEL/BRIDGE
 steel = [Point(p) for t, p, h in tx if re.search(r"STEEL|BRIDGE", t, re.I)]
