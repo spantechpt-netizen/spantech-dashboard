@@ -474,7 +474,32 @@ def finish(work, out, st, start=None):
     zones, sheet_of, wins, wz, report = st["zones"], st["sheet_of"], st["wins"], st["wz"], st["report"]
     pour = st.get("pour")
     k0 = FINISH_STEPS.index(start) if start else 0
-    run_ = lambda name: FINISH_STEPS.index(name) >= k0
+    # خطوات التشطيب بتعدّل _res_c/_members_c مكانها، فإعادة خطوة على ناتجها بتطبّقها مرتين (HDB/رؤية: الكمرة اللي
+    # اتشالت فضلت متشالة بعد تعديل القاعدة). قبل كل خطوة نسخة في work/snap/<step>، و--resume-from بيرجّعها الأول.
+    snap_root = os.path.join(work, "snap")
+
+    def _snap_files():
+        return [f"{q}{suf}" for q in zones for suf in ("_res_c.json", "_members_c.json")
+                if os.path.exists(os.path.join(work, f"{q}{suf}"))]
+
+    if start and k0 > 0:
+        d = os.path.join(snap_root, start)
+        if os.path.isdir(d):
+            for f in os.listdir(d):
+                shutil.copy2(os.path.join(d, f), os.path.join(work, f))
+            log(f"resume from {start}: zone files restored from the copy taken before that step")
+        else:
+            log(f"WARNING: no copy from before step {start} (work folder from an older version) - the steps "
+                f"run on files the earlier run already changed; for a clean result run the whole conversion")
+
+    def run_(name):
+        if FINISH_STEPS.index(name) < k0:
+            return False
+        d = os.path.join(snap_root, name)
+        os.makedirs(d, exist_ok=True)
+        for f in _snap_files():
+            shutil.copy2(os.path.join(work, f), os.path.join(d, f))
+        return True
     _, H = pickle.load(open(os.path.join(work, "hatch.pkl"), "rb"))
     # 9) السلم والكور والكمرة بعرضين وحد البلاطة والفحص
     if run_("stairs_members"): step("stairs_members.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
@@ -491,37 +516,39 @@ def finish(work, out, st, start=None):
         o = step("loads_plan.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
         report["steps"]["loads"] = [l for l in o.splitlines() if l.strip()][-len(zones) - 2:]
     # بوابة: أعمدة الشيت اللي برّه كل الزونات (مبنى ضاع، جزء اتقص) مابتضيعش في صمت - بتطلع REVIEW
-    try:
-        from shapely.geometry import Polygon as _P, Point as _Pt
-        pts = []
-        for rs in H.values():
-            for r in rs:
-                if len(r) < 3:
+    if run_("column_gate"):
+        try:
+            from shapely.geometry import Polygon as _P, Point as _Pt
+            pts = []
+            for rs in H.values():
+                for r in rs:
+                    if len(r) < 3:
+                        continue
+                    g = _P(r).buffer(0)
+                    if 0.04 <= g.area <= 3.0:
+                        b = g.minimum_rotated_rectangle.exterior.coords
+                        sides = sorted(math.dist(b[i], b[i + 1]) for i in range(2))
+                        if sides[0] >= 0.12 and sides[1] <= 2.5:
+                            pts.append((g.centroid.x, g.centroid.y))
+            pts = list({(round(x, 2), round(y, 2)) for x, y in pts})
+            for sh in sorted(set(sheet_of.values())):
+                w = wins.get(sh)
+                zs = [q for q in zones if sheet_of.get(q) == sh]
+                if not w or not zs:
                     continue
-                g = _P(r).buffer(0)
-                if 0.04 <= g.area <= 3.0:
-                    b = g.minimum_rotated_rectangle.exterior.coords
-                    sides = sorted(math.dist(b[i], b[i + 1]) for i in range(2))
-                    if sides[0] >= 0.12 and sides[1] <= 2.5:
-                        pts.append((g.centroid.x, g.centroid.y))
-        pts = list({(round(x, 2), round(y, 2)) for x, y in pts})
-        for sh in sorted(set(sheet_of.values())):
-            w = wins.get(sh)
-            zs = [q for q in zones if sheet_of.get(q) == sh]
-            if not w or not zs:
-                continue
-            polys = [_P(json.load(open(os.path.join(work, f"{q}_res_c.json")))["slabs"][0]["outline"]).buffer(0.3) for q in zs]
-            out_ = [p for p in pts if w[0] <= p[0] <= w[2] and w[1] <= p[1] <= w[3] and not any(g.contains(_Pt(p)) for g in polys)]
-            if out_:
-                msg = (f"{len(out_)} column(s) inside sheet {sh} are outside every zone (e.g. at "
-                       f"{', '.join(f'({x:.1f}, {y:.1f})' for x, y in out_[:3])}) - a building or part of the slab may be missing")
-                log("REVIEW: " + msg)
-                report["review"].append([sh, msg])
-                R0 = json.load(open(os.path.join(work, f"{zs[0]}_res_c.json")))
-                R0.setdefault("review", []).append(["columns outside zones", msg])
-                json.dump(R0, open(os.path.join(work, f"{zs[0]}_res_c.json"), "w"))
-    except Exception as e:
-        log(f"column coverage check skipped: {e}")
+                polys = [_P(json.load(open(os.path.join(work, f"{q}_res_c.json")))["slabs"][0]["outline"]).buffer(0.3) for q in zs]
+                out_ = [p for p in pts if w[0] <= p[0] <= w[2] and w[1] <= p[1] <= w[3] and not any(g.contains(_Pt(p)) for g in polys)]
+                if out_:
+                    msg = (f"{len(out_)} column(s) inside sheet {sh} are outside every zone (e.g. at "
+                           f"{', '.join(f'({x:.1f}, {y:.1f})' for x, y in out_[:3])}) - a building or part of the slab may be missing")
+                    log("REVIEW: " + msg)
+                    report["review"].append([sh, msg])
+                    R0 = json.load(open(os.path.join(work, f"{zs[0]}_res_c.json")))
+                    R0.setdefault("review", []).append(["columns outside zones", msg])
+                    json.dump(R0, open(os.path.join(work, f"{zs[0]}_res_c.json"), "w"))
+        except Exception as e:
+            log(f"column coverage check skipped: {e}")
+    run_("zone_check"); run_("export")          # (نسخة قبلهم برضه، عشان --resume-from zone_check/export)
     chk = step("zone_check.py", *zones, cwd=work, check=False)
     ok = "CHECK OK" in chk
     report["zone_check"] = [l for l in chk.splitlines() if l.strip()]
