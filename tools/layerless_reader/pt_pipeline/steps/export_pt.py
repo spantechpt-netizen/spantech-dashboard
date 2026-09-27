@@ -57,6 +57,26 @@ for tag in TAGS:
     drops = [(Polygon(d["poly"]), d) for d in res.get("drops", [])]
     # منطقة سُمك بنفس سُمك البلاطة (السُمك النهائي اتحدد بعد ما اتعملت) مالهاش معنى
     tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", []) if z.get("thickness_mm") != t_slab]
+    # T= جوه فتحة سلم/كور = بلاطة السلم نفسه (T=250 جنب السلالم في HDB) - السلم فتحة في بلاطة الـ PT، فمابيتكتبش
+    # و T= أرفع من البلاطة لازق في فتحة السلم (≤ 0.5 م، عرض كمرة) من برّه = بسطة السلم اللي الفتحة ماغطّتهاش (HDB B7 المعكوس):
+    # بتتضم للفتحة
+    _sto = [o for o in res.get("openings", []) if o.get("kind") in ("stair", "core")]
+    _keep = []
+    for g, z in tz:
+        if g.area <= 0:
+            continue
+        if sum(g.intersection(Polygon(o["poly"]).buffer(0)).area for o in _sto) >= 0.9 * g.area:
+            continue
+        # (بسطة بس: ≤ 20 م² وجنب سلم - مش منطقة أرفع كبيرة جنب كور، البوديوم THK 200 543 م²)
+        near = [o for o in _sto if o.get("kind") == "stair" and Polygon(o["poly"]).buffer(0).distance(g) <= 0.5]
+        if near and g.area <= 20.0 and t_slab and z.get("thickness_mm") and z["thickness_mm"] < t_slab:
+            o = min(near, key=lambda o: Polygon(o["poly"]).buffer(0).distance(g))
+            u = unary_union([Polygon(o["poly"]).buffer(0), g.buffer(0.5, join_style=2)]).buffer(-0.5, join_style=2).intersection(slab)
+            u = max(getattr(u, "geoms", [u]), key=lambda q: q.area)
+            o["poly"] = [tuple(c) for c in u.exterior.coords][:-1]
+            continue
+        _keep.append((g, z))
+    tz = _keep
     # منطقة المنسوب ومنطقة السُمك بنفس الأولوية (2): لو اتداخلوا RAM مايعرفش مين يغلب.
     # فمنطقة المنسوب بتتكتب من غير أجزاء السُمك، وكل جزء من منطقة السُمك بياخد SE المنطقة اللي هو فيها.
     def _no_holes(g):
