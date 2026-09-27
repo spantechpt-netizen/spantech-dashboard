@@ -252,6 +252,7 @@ for tag in TAGS:
         msp.add_lwpolyline([T(p) for p in LR._rect_pts(b["p1"], b["p2"], b["w"])], close=True, dxfattribs={"layer": "PT-Clean-Beams"})
         mx = ((b["p1"][0] + b["p2"][0]) / 2, (b["p1"][1] + b["p2"][1]) / 2)
         mark = b["mark"].replace("?", "X")
+        if b.get("width_mismatch"): rows.append([tag, "REVIEW", "beam width", b["mark"], "", "", f"{b.get('label','')} drawn {b['w']*1000:.0f} wide, label says {b.get('label_w', b['w'])*1000:.0f} - drawn width used, depth from the label"])
         if b.get("depth_unknown") and not b.get("d"): rows.append([tag, "REVIEW", "beam depth", b["mark"], "", "", f"{b['mark']} width {b['w']*1000:.0f} from the drawing, depth not written - the program's default beam depth is used"])
         se = zone_se(Point(mx))
         extra = ""

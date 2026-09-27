@@ -481,8 +481,11 @@ def run(tag, W, legmap):
         sc_best,p1,p2,_spb=max(near_,key=lambda v:(nsup(v[1],v[2]),-v[0]))
         if os.environ.get("DBG_LBL") and abs(lb["at"][0]-float(os.environ["DBG_LBL"].split(",")[0]))<1.5 and abs(lb["at"][1]-float(os.environ["DBG_LBL"].split(",")[1]))<1.5:
             print("DBG",lb["text"],[(round(v[0],2),[round(q,2) for q in (*v[1],*v[2])],nsup(v[1],v[2])) for v in valid[:6]], "cands",[(round(c_[0],2),round(c_[1])) for c_ in cands[:6]])
-        beams.append({"mark":lb["mark"],"w":round(_spb,3) if _unk else W_,"d":lb["dpt"],"p1":p1,"p2":p2,"label":lb["text"],"label_at":list(lb["at"]),"label_rot":lb["rot"],**({"depth_typo":True} if lb.get("depth_typo") else {}),
-                      **({"width_mismatch":True} if sc_best>=5 else {}),**({"depth_unknown":True,"width_measured":True} if _unk else {})})
+        # مرسومة بعرض غير المكتوب (15–30%): العرض من الرسمة (مكانها الحقيقي - عرض التسمية حوالين نفس المحور كان
+        # بيعدّي الفاصل في الزون اللي جنبها: B10(500X1200) مرسومة 400 على فاصل HDB)، والعمق من التسمية + REVIEW
+        _mis=sc_best>=5 and not _unk
+        beams.append({"mark":lb["mark"],"w":round(_spb,3) if (_unk or _mis) else W_,"d":lb["dpt"],"p1":p1,"p2":p2,"label":lb["text"],"label_at":list(lb["at"]),"label_rot":lb["rot"],**({"depth_typo":True} if lb.get("depth_typo") else {}),
+                      **({"width_mismatch":True,"width_measured":True,"label_w":W_} if _mis else {}),**({"depth_unknown":True,"width_measured":True} if _unk else {})})
     # ---- كمرة مرسومة على محور بس (من غير وشين): التسمية موازية لخط محور وقريبة منه ----
     # الكمرة على المحور ده من أقرب ركيزة على ناحية لأقرب ركيزة على الناحية التانية
     _sup=[Polygon(c["rect"]["corners"]) for c in cols]+[LR._wall_poly(w) for w in walls]
