@@ -344,8 +344,10 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     json.dump(wins, open(os.path.join(work, "wins.json"), "w"))
     # 4) البلاطة والفتحات لكل شيت
     tags = []; sheet_of = {}
-    # شبابيك محسوبة من الرسم نفسه (صفوف الأقسام والمباني المنفصلة) مابتكبرش
-    fixed = set(wins) if (not sheets_json and getattr(SH, "LAST_SOURCE", None) == "section") else set()
+    # شبابيك المباني المنفصلة (-B1..) محسوبة من الحتة نفسها فمابتكبرش. صفوف الأقسام بتكبر عادي: الأرضي في
+    # HDB سقف واحد حده الخطوط الخارجية للموقع كله (المستخدم)، وده برّه عرض الرسم الصغير بنص متر.
+    fixed = set()
+    section = not sheets_json and getattr(SH, "LAST_SOURCE", None) == "section"
     # إطار فيه كذا مبنى منفصل (أبراج جنب بعض): كل مبنى شيت لوحده (-B1, -B2... من فوق لتحت، شمال ليمين)
     for t, w in list(wins.items()):
         extract(work, t, w, wins, grow=t not in fixed)
@@ -360,9 +362,9 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     # دور فضل سقف واحد (أرضي/بدروم) ودور تاني في نفس القسم اتقسم أبراج: الأبراج مؤشر بس. زونات الأرضي
     # والبدروم بتتحدد من فواصل التمدد (joints.py) - الفاصل ممكن يبقى جوه برج أو بيلم كذا برج، وأعمدة
     # الأرضي أكتر من أعمدة البرج (موقوفة/مكملة) - وأحيانًا السقف كله زون واحدة. مافيش تقسيم بالأبراج.
-    if fixed:
+    if section:
         split_rows = {k.rsplit("-B", 1)[0] for k in wins if re.search(r"-B\d+$", k)}
-        for t in [k for k in wins if k in fixed and not re.search(r"-B\d+$", k)]:
+        for t in [k for k in wins if not re.search(r"-B\d+$", k)]:
             if split_rows:
                 n = max(sum(1 for k in wins if k.startswith(r + "-B")) for r in split_rows)
                 log(f"sheet {t}: one slab (the floors above have {n} separate buildings) - zones only at expansion joints")
