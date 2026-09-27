@@ -87,9 +87,28 @@ for tag in sys.argv[1:]:
     R.pop("thickness_review",None)
     thin=[v for v,_ in thick if st and v<st]
     if thin: R["thickness_review"]=f"notes T={sorted(set(thin))} thinner than slab {st} - ignored"
+    # إطار الدروب المرسوم (مستطيل مقفول) بكامل أبعاده، حتى لو كمرة راكبة عليه أو قاطعاه للآخر: هو الدروب.
+    # (HDB الأرضي: 224 من 252 دروب كانوا بيطلعوا أصغر من المرسوم - مقصوصين عند خط الكمرة)
+    import layerless_reader as _LR0
+    _SUP=[Polygon(c["rect"]["corners"]) for c in M["cols"]]+[_LR0._wall_poly(w) for w in M["walls"]]
+    _R=[]
+    for e in ENT:
+        if e.dxftype()!="LWPOLYLINE" or not e.closed: continue
+        try: q=Polygon([(a[0],a[1]) for a in e.get_points()])
+        except Exception: continue
+        if not q.is_valid or not (1.0<q.area<=64) or q.area<0.95*q.minimum_rotated_rectangle.area: continue
+        if not (win[0]-1<q.centroid.x<win[2]+1 and win[1]-1<q.centroid.y<win[3]+1): continue
+        _R.append(q)
     drops=[]
     for v,p in thick:
         if st is None or v<=st: continue
+        fr=[q for q in _R if q.buffer(0.05).contains(p)]
+        # (عمود/حيطة حقيقية جواه، أو مقاس دروب ≤ 16 م² - مش غرفة كبيرة مكتوب فيها T=)
+        fr=[q for q in fr if q.area<=16.0 or any(q.intersects(c) for c in _SUP)]
+        if fr:
+            f=min(fr,key=lambda q:q.area)
+            if not any(f.equals(d["poly_g"]) for d in drops): drops.append({"poly_g":f,"t":v})
+            continue
         # العمود بيعمل "فتحة" في الوش، فنقارن بالحد الخارجي للوش
         # بالحد الخارجي: إطار الملاحظة نفسها (مستطيل صغير حوالين "T=550") بيعمل خرم في وش الدروب، والنقطة بتقع فيه
         cand=[Polygon(f.exterior) for f in faces if Polygon(f.exterior).buffer(0.05).contains(p)]

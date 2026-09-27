@@ -97,5 +97,78 @@ for tag in sys.argv[1:]:
             yc = (y1 + y2) / 2; b["p1"], b["p2"] = [x1, yc], [x2, yc]; n_str += 1
         elif 0 < 90 - ang < lim and (merged or abs(dx) <= 0.10):
             xc = (x1 + x2) / 2; b["p1"], b["p2"] = [xc, y1], [xc, y2]; n_str += 1
+    # كمرتين على نفس الخط بعرضين (B4 200 + B10 300): وش من ناحية لازم يبقى على خط واحد. لو الفرق بين وشّين
+    # على نفس الناحية ≤ 3 سم (دقة رسم) الكمرة الأضيق بتتزق عليه - غير كده حد المنطقة/الفتحة اللي جنبهم يا
+    # يبقى على وش ويسيب شريحة 2.5 سم جنب التاني، يا يتعرّج (HDB الأرضي جنب الأكوار: 27 حد)
+    n_flush = 0
+    moved_ = set()
+    for i, a in enumerate(beams):
+        for j in range(i + 1, len(beams)):
+            b = beams[j]
+            if i in moved_ and j in moved_:
+                continue
+            (ax1, ay1), (ax2, ay2) = a["p1"], a["p2"]
+            La = math.hypot(ax2 - ax1, ay2 - ay1)
+            if La < 1e-6:
+                continue
+            u = ((ax2 - ax1) / La, (ay2 - ay1) / La); nrm = (-u[1], u[0])
+            (bx1, by1), (bx2, by2) = b["p1"], b["p2"]
+            Lb = math.hypot(bx2 - bx1, by2 - by1)
+            if Lb < 1e-6 or abs(u[0] * (by2 - by1) / Lb - u[1] * (bx2 - bx1) / Lb) > 0.01:
+                continue
+            d = ((bx1 - ax1) * nrm[0] + (by1 - ay1) * nrm[1] + (bx2 - ax1) * nrm[0] + (by2 - ay1) * nrm[1]) / 2
+            if abs(d) > (a["w"] + b["w"]) / 2:
+                continue
+            ta = sorted([0.0, La]); tb = sorted([(bx1 - ax1) * u[0] + (by1 - ay1) * u[1], (bx2 - ax1) * u[0] + (by2 - ay1) * u[1]])
+            if min(ta[1], tb[1]) - max(ta[0], tb[0]) < -1.0:        # مش على نفس الخط ورا بعض (فجوة > 1 م)
+                continue
+            best = None
+            for sgn in (1, -1):
+                dl = (d + sgn * b["w"] / 2) - sgn * a["w"] / 2
+                if 0.002 < abs(dl) <= 0.03 and (best is None or abs(dl) < abs(best)):
+                    best = dl
+            if best is None:
+                continue
+            # الأضيق بيتحرك (ولو نفس العرض: الأقصر)
+            if (b["w"], Lb) <= (a["w"], La) and j not in moved_:
+                mv, k, sh = b, j, -best
+            elif i not in moved_:
+                mv, k, sh = a, i, best
+            else:
+                continue
+            mv["p1"] = [mv["p1"][0] + nrm[0] * sh, mv["p1"][1] + nrm[1] * sh]
+            mv["p2"] = [mv["p2"][0] + nrm[0] * sh, mv["p2"][1] + nrm[1] * sh]
+            moved_.add(k); n_flush += 1
+    # ونفس الكلام كمرة جنب حيطة على نفس الخط (وش الحيطة ثابت، الكمرة بتتزق ≤ 3 سم) - HDB: حيطة الكور على 70.40
+    # ووش B4 على 70.375، وحد منطقة المنسوب مابيعرفش يبقى على الاتنين
+    for k, b in enumerate(beams):
+        if k in moved_:
+            continue
+        (bx1, by1), (bx2, by2) = b["p1"], b["p2"]
+        Lb = math.hypot(bx2 - bx1, by2 - by1)
+        if Lb < 1e-6:
+            continue
+        u = ((bx2 - bx1) / Lb, (by2 - by1) / Lb); nrm = (-u[1], u[0])
+        best = None
+        for w in M.get("walls", []):
+            (wx1, wy1), (wx2, wy2) = w["p1"], w["p2"]
+            Lw = math.hypot(wx2 - wx1, wy2 - wy1)
+            if Lw < 0.3 or abs(u[0] * (wy2 - wy1) / Lw - u[1] * (wx2 - wx1) / Lw) > 0.01:
+                continue
+            d = ((wx1 - bx1) * nrm[0] + (wy1 - by1) * nrm[1] + (wx2 - bx1) * nrm[0] + (wy2 - by1) * nrm[1]) / 2
+            if abs(d) > (b["w"] + w["t"]) / 2 + 0.03:
+                continue
+            tw = sorted([(wx1 - bx1) * u[0] + (wy1 - by1) * u[1], (wx2 - bx1) * u[0] + (wy2 - by1) * u[1]])
+            if min(Lb, tw[1]) - max(0.0, tw[0]) < -1.0:
+                continue
+            for sgn in (1, -1):
+                for wf in (d + w["t"] / 2, d - w["t"] / 2):        # أي وش في الحيطة قريب من وش الكمرة
+                    dl = wf - sgn * b["w"] / 2
+                    if 0.002 < abs(dl) <= 0.03 and (best is None or abs(dl) < abs(best)):
+                        best = dl
+        if best is not None:
+            b["p1"] = [bx1 + nrm[0] * best, by1 + nrm[1] * best]; b["p2"] = [bx2 + nrm[0] * best, by2 + nrm[1] * best]
+            moved_.add(k); n_flush += 1
     json.dump(M, open(f"{tag}_members_c.json", "w"))
-    print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined), {n_str} straightened onto the grid axis")
+    print(f"{tag}: beams {n0} -> {len(beams)} (collinear pieces of the same beam joined), {n_str} straightened onto the grid axis, "
+          f"{n_flush} made flush with the beam next to them on the same line")

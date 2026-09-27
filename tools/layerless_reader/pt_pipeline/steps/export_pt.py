@@ -106,36 +106,13 @@ for tag in TAGS:
                 rest = rest.difference(zp.buffer(0))
             tt += [(g, dict(t, se_fixed=0)) for g in getattr(rest, "geoms", [rest]) if g.geom_type == "Polygon" and g.area >= 0.5]
         zones, tz = zz, tt
-    # منسوب الدروب من المناطق الأصلية (قبل ما الدروبات تتشال منها)
+    # منسوب الدروب والكمرات = منسوب المنطقة اللي هو فيها (المنسوب المكتوب على السقف بيشمل الدروبات والكمرات اللي
+    # جوه منطقته). الدروب بيتكتب بكامل أبعاده فوق منطقة المنسوب (سُمكه مختلف، وأولويته أعلى: 3 فوق 2)
     zones_se = list(zones)
-    # الدروب مابيتكتبش فوق منطقة منسوب/سُمك: المنطقة بتتكتب من غيره (مافيش مضلعين فوق بعض على نفس الليّر).
-    # الحتة اللي فضلت رفيعة (< 0.25 م) أو صغيرة (< 0.5 م²) بعد الشيل = حرف دروب قريب من حرف المنطقة:
-    # بتتضم للدروب اللازق فيها (نفس المنسوب)، مش حتة بلاطة لوحدها في الشبكة
-    if drops and (zones or tz):
-        DR = unary_union([p.buffer(0) for p, _ in drops])
-        dpolys = [p.buffer(0) for p, _ in drops]
-
-        def _thin(g):
-            return g.area < 0.5 or g.area / max(g.length / 2, 1e-9) < 0.25
-
-        def _cut(items):
-            out = []
-            for zp, z in items:
-                q = zp.buffer(0).difference(DR)
-                for g in getattr(q, "geoms", [q]):
-                    if g.geom_type != "Polygon" or g.area < 1e-4:
-                        continue
-                    if _thin(g):
-                        k = min(range(len(dpolys)), key=lambda i: dpolys[i].distance(g))
-                        if dpolys[k].distance(g) < 0.02:
-                            u = unary_union([dpolys[k], g.buffer(0.001)])
-                            dpolys[k] = max(getattr(u, "geoms", [u]), key=lambda x: x.area)
-                        continue
-                    out += [(h, z) for h in _no_holes(g) if h.area >= 0.5]
-            return out
-        zones, tz = _cut(zones), _cut(tz)
-        drops = [(Polygon(dpolys[i].exterior.coords), dict(d, poly=[tuple(c) for c in dpolys[i].exterior.coords][:-1]))
-                 for i, (_, d) in enumerate(drops)]
+    # منطقة بنفس منسوب البلاطة الأساسية ونفس سُمكها = هي البلاطة نفسها: مابتترسمش (مافيش بلاطتين فوق بعض بنفس
+    # المنسوب والسُمك)
+    zones = [(zp, z) for zp, z in zones if not (int(z.get("se_mm") or 0) == 0 and
+                                                (z.get("t_unknown") or z.get("thickness_mm", t_slab) == t_slab))]
     ops = [Polygon(o["poly"]) for o in res["openings"]]
     # شرايح الصب (pour strips): بلاطة بنفس سُمك ومنسوب اللي ماشية فيه، أولوية أعلى، Fx/Fy مفكوكين
     strips = []

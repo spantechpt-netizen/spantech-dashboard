@@ -268,7 +268,21 @@ def main(tags):
                 o["poly"] = [list(q) for q in list(g.exterior.coords)[:-1]]; n_op += moved
             fixed.append(ring(o["poly"]))
         stats["openings"] = n_op
-        for key in ("level_zones", "thick_zones", "drops"):
+        # الدروب بكامل أبعاده المرسومة (إطار مستطيل): بيتلزق بس على وش كمرة/حيطة ≤ 10 سم (الضلع بيتنقل موازي،
+        # فيفضل مستطيل)، ومابيتلزقش على منطقة تانية - هو مرجع ثابت والمناطق بتتلزق عليه
+        n_d = 0
+        for it in R.get("drops") or []:
+            pts = ring(it.get("poly") or [])
+            if len(pts) < 3:
+                continue
+            new, m = snap_edges(split_at_faces(pts, bw_e, MTOL), bw_e, MTOL)
+            g = Polygon(new).buffer(0) if len(new) >= 3 else None
+            old = Polygon(pts).buffer(0)
+            if m and g is not None and g.geom_type == "Polygon" and abs(g.area - old.area) <= 0.15 * old.area:
+                it["poly"] = [list(q) for q in list(g.simplify(0.001).exterior.coords)[:-1]]; n_d += 1
+            fixed.append(ring(it["poly"]))
+        stats["drops"] = n_d
+        for key in ("level_zones", "thick_zones"):
             items = R.get(key) or []
             n_moved = n_items = 0
             for it in items:
