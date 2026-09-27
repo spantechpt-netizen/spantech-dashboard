@@ -49,7 +49,7 @@ for tag in TAGS:
     T = lambda p, ox=ox, oy=oy: ((p[0] - ox) * 1000, (p[1] - oy) * 1000)
     doc = ezdxf.new("R2010"); doc.header["$INSUNITS"] = 4; msp = doc.modelspace()
     for n, c in {"PT-Clean-Boundary": 7, "PT-Clean-Openings": 2, "PT-Clean-Columns": 1, "PT-Clean-Walls": 3, "PT-Clean-Beams": 5,
-                 "PT-Clean-Columns-Above": 6, "PT-Clean-Walls-Above": 6, "PT-Clean-Drops": 4}.items():
+                 "PT-Clean-Columns-Above": 6, "PT-Clean-Walls-Above": 6, "PT-Clean-Drops": 4, "PT-Clean-Loads": 30}.items():
         doc.layers.add(n, color=c)
     slab = Polygon(res["slabs"][0]["outline"])
     t_slab = res.get("slab_thickness_mm"); main = res.get("main_level_m")
@@ -113,6 +113,19 @@ for tag in TAGS:
         msp.add_lwpolyline([T(p) for p in o["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Openings"})
         if o.get("kind") == "ramp":
             rows.append([tag, "opening", "ramp", "", "", round(Polygon(o["poly"]).area, 2), "car ramp = opening (office rule)"])
+    # أحمال مسقط الأحمال: كل منطقة بـ SIDL وLL بتوعها (البرنامج المستقل بيحطها في RAM زي ما هي)
+    la = res.get("load_areas") or []
+    for a in la:
+        ap = Polygon(a["poly"])
+        msp.add_lwpolyline([T(p) for p in a["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Loads"})
+        c = interior_point(ap, Polygon())
+        msp.add_text(f"LOAD SDL={a['sdl']:g} LL={a['ll']:g} {a['usage']}", dxfattribs={"layer": "PT-Clean-Loads", "height": 250, "insert": T((c.x, c.y))})
+    if la:
+        by = {}
+        for a in la:
+            k = (a["usage"], a["sdl"], a["ll"]); by[k] = by.get(k, 0) + Polygon(a["poly"]).area
+        for (u, sd, ll), ar in sorted(by.items()):
+            rows.append([tag, "load area", u, sd, ll, round(ar, 1), f"SIDL {sd:g} + LL {ll:g} kN/m2 from the loading plan"])
     for zp, z in zones:
         msp.add_lwpolyline([T(p) for p in list(zp.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
         # النص لازم يقع في المنطقة نفسها مش جوه دروب جواها: البرنامج بيدّي النص لأصغر منطقة فيها النقطة

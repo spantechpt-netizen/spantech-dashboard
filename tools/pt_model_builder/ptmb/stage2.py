@@ -10,7 +10,7 @@
 import datetime
 import os
 
-from . import settings as SET
+from . import preflight, settings as SET
 
 
 def core():
@@ -20,6 +20,66 @@ def core():
         raise RuntimeError("ram_core.py is missing - run build_core.py on the Auto PT Suite file once "
                            "(it comes ready inside the delivered zip).") from e
     return ram_core
+
+
+def _pieces(g):
+    """مضلعات من غير خروم (RAM بياخد الحد الخارجي بس)."""
+    from shapely.geometry import LineString
+    from shapely.ops import split
+    out = []
+    for p in getattr(g, "geoms", [g]):
+        if p.geom_type != "Polygon" or p.area < 0.5:
+            continue
+        if not p.interiors:
+            out.append(p); continue
+        cx = p.interiors[0].centroid.x
+        for q in split(p, LineString([(cx, p.bounds[1] - 1), (cx, p.bounds[3] + 1)])).geoms:
+            out += _pieces(q)
+    return out
+
+
+def write_load_areas(C, session, site, params, job, areas):
+    """
+    أحمال مسقط الأحمال: كل منطقة بـ SIDL وLL بتوعها على طبقة الحمل المناسبة في RAM (نفس اختيار
+    Auto PT Suite للطبقات والإشارة). الجزء من البلاطة اللي برّه كل المناطق بياخد الافتراضي (لو الأحمال متعلّمة).
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    P2, Poly2 = session.api["Point2D"], session.api["Polygon2D"]
+    sign = C.down_sign(session, job)
+    todo = [(Polygon(a["poly"]).buffer(0), a["sdl"], a["ll"], a["usage"]) for a in areas]
+    covered = unary_union([g for g, *_ in todo])
+    if params.write_area_loads and site.get("boundary"):
+        rest = Polygon(site["boundary"]).buffer(0).difference(covered)
+        for g in _pieces(rest):
+            todo.append((g, float(params.sdl), float(params.live_load), "default (outside the loading plan)"))
+    n = {"sdl": 0, "live": 0}
+    for key, causes, what, idx in (("sdl", C.DEAD_CAUSE_NAMES, "Superimposed dead load", 0),
+                                   ("live", C.LIVE_CAUSE_NAMES, "Live load", 1)):
+        layer = C.pick_loading_layer(session, causes, job, what)
+        if layer is None:
+            continue
+        for g, sd, ll, use in todo:
+            v = (sd, ll)[idx]
+            if v <= 0:
+                continue
+            for piece in _pieces(g):
+                try:
+                    elem = layer.add_area_load(Poly2([P2(x, y) for x, y in list(piece.exterior.coords)[:-1]]))
+                except Exception as e:
+                    job.error(f"{what} ({use}): could not add the area load: {e}"); continue
+                first = [None]
+                if elem is not None and C._set_area_load(elem, v, job, first, sign):
+                    n[key] += 1
+                else:
+                    job.error(f"{what} ({use}): the value {v:g} was rejected ({first[0] or 'no reason given'}).")
+    by = {}
+    for g, sd, ll, use in todo:
+        k = (use, sd, ll); by[k] = by.get(k, 0.0) + g.area
+    job.ok(f"Loads from the loading plan: {n['sdl']} SIDL and {n['live']} LL area load(s):")
+    for (use, sd, ll), ar in by.items():
+        job.info(f"    {use}: SIDL {sd:g} + LL {ll:g} kN/m² over {ar:.0f} m²")
+    return n
 
 
 def build_zone(dxf, data, job, out_dir, session_cls=None):
@@ -52,10 +112,13 @@ def build_zone(dxf, data, job, out_dir, session_cls=None):
     with Session(job, api_path=data.get("api_path") or None) as s:
         s.open(template)
         C.build_structure_in_ram(s, site, params, job)
-        if params.write_area_loads:
+        areas = preflight.inspect_zone(dxf).get("load_areas") or []
+        if areas:
+            write_load_areas(C, s, site, params, job, areas)
+        elif params.write_area_loads:
             C.write_area_loads_to_ram(s, site, params, job)
-            if site.get("line_loads"):
-                C.write_adm_line_loads_to_ram(s, site, params, job)
+        if params.write_area_loads and site.get("line_loads"):
+            C.write_adm_line_loads_to_ram(s, site, params, job)
         if params.write_wall_loads:
             C.write_wall_loads_to_ram(s, site, params, job)
         if params.write_edge_load and float(params.edge_line_load or 0) > 0:

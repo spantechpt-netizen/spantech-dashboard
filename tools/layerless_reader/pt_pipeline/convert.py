@@ -465,7 +465,7 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
 
 
 FINISH_STEPS = ["stairs_members", "core", "beam_steps", "edge_fit", "beam_merge", "beam_split", "edge_fit2",
-                "region_snap", "column_gate", "zone_check", "export"]
+                "region_snap", "loads", "column_gate", "zone_check", "export"]
 
 
 def finish(work, out, st, start=None):
@@ -485,6 +485,10 @@ def finish(work, out, st, start=None):
     # الكمرة الملمومة اتعدلت على المحور (بسنتيمترات): الحد لازم يتظبط على وشها تاني
     if run_("edge_fit2"): step("edge_fit.py", *zones, cwd=work)
     if run_("region_snap"): step("region_snap.py", *zones, cwd=work)
+    # أحمال كل منطقة من مسقط الأحمال (LOADING PLANS) لو موجود - على حد البلاطة النهائي
+    if run_("loads"):
+        o = step("loads_plan.py", *zones, env={"DXF": "m.dxf"}, cwd=work, check=False)
+        report["steps"]["loads"] = [l for l in o.splitlines() if l.strip()][-len(zones) - 2:]
     # بوابة: أعمدة الشيت اللي برّه كل الزونات (مبنى ضاع، جزء اتقص) مابتضيعش في صمت - بتطلع REVIEW
     try:
         from shapely.geometry import Polygon as _P, Point as _Pt

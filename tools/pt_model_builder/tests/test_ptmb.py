@@ -136,3 +136,56 @@ def test_stage2_builds_levels_and_thickness(tmp_path, core):
     assert sorted(round(e.thickness) for e in slabs) == [220, 220, 450], [(e.thickness, e.toc) for e in slabs]
     assert sorted(round(e.toc) for e in slabs) == [-100, 0, 0]
     assert len([e for e in items if "column" in e.kind]) == 9
+
+
+class LoadLayer:
+    def __init__(self, cause):
+        self.name = cause; self.loading_type = types.SimpleNamespace(cause=types.SimpleNamespace(name=cause))
+        self.area_loads = []
+
+    def add_area_load(self, poly):
+        e = types.SimpleNamespace(poly=poly, Fz0=0.0, Fz1=0.0, Fz2=0.0); self.area_loads.append(e); return e
+
+
+class FakeLoadSession(FakeSession):
+    def __init__(self, job, api_path=None):
+        super().__init__(job, api_path)
+        self.dead, self.live = LoadLayer("OTHER_DEAD"), LoadLayer("LIVE_REDUCIBLE")
+        self.model.cad_manager.force_loading_layers = [self.dead, self.live]
+
+
+def test_stage2_loads_from_loading_plan(tmp_path, core, monkeypatch):
+    """منطقتين من مسقط الأحمال (محلات 5.5/5 وسكني 6.5/2) + الباقي بالافتراضي 2/2: كل منطقة بأحمالها في RAM."""
+    import ezdxf
+    doc = ezdxf.new("R2010"); doc.header["$INSUNITS"] = 4; m = doc.modelspace()
+
+    def rect(x0, y0, x1, y1, lay):
+        m.add_lwpolyline([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True, dxfattribs={"layer": lay})
+    rect(0, 0, 12000, 12000, "PT-Clean-Boundary")
+    m.add_text("t=220", dxfattribs={"layer": "PT-Clean-Boundary", "insert": (6000, 9000), "height": 300})
+    rect(0, 0, 6000, 12000, "PT-Clean-Loads")
+    m.add_text("LOAD SDL=5.5 LL=5 SHOPS", dxfattribs={"layer": "PT-Clean-Loads", "insert": (1000, 6000), "height": 250})
+    rect(6000, 0, 12000, 8000, "PT-Clean-Loads")
+    m.add_text("LOAD SDL=6.5 LL=2 Residential", dxfattribs={"layer": "PT-Clean-Loads", "insert": (7000, 4000), "height": 250})
+    for x in (200, 5800, 11600):
+        for y in (200, 5800, 11600):
+            rect(x - 200, y - 200, x + 200, y + 200, "PT-Clean-Columns")
+    p = str(tmp_path / "L1_slab_clean.dxf"); doc.saveas(p)
+    tpl = str(tmp_path / "template.cpt"); open(tpl, "w").write("x")
+    z = preflight.inspect_zone(p)
+    assert sorted((a["usage"], a["sdl"], a["ll"]) for a in z["load_areas"]) == [("Residential", 6.5, 2.0), ("SHOPS", 5.5, 5.0)]
+    txt = "\n".join(preflight.summary([z], _data()))
+    assert "LOADING PLAN" in txt and "SHOPS: SIDL 5.5 + LL 5" in txt
+
+    from ptmb import stage2
+    monkeypatch.setattr(stage2, "core", lambda: core)
+    monkeypatch.setattr(core, "down_sign", lambda s, j: -1.0)
+    data = _data(template_cpt=tpl, write_design_strips=False)          # write_area_loads = True (الافتراضي 2/2 للباقي)
+    log = []
+    job = core.Job(log_cb=lambda msg, level="info": log.append((level, msg)))
+    done, failed = stage2.run([p], data, job, str(tmp_path / "RAM"), session_cls=FakeLoadSession)
+    assert done and not failed, log[-20:]
+    S_ = FakeSession.last
+    dead = sorted(round(-e.Fz0, 2) for e in S_.dead.area_loads)
+    live = sorted(round(-e.Fz0, 2) for e in S_.live.area_loads)
+    assert dead == [2.0, 5.5, 6.5] and live == [2.0, 2.0, 5.0], (dead, live)

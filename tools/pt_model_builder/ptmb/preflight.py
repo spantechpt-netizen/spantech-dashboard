@@ -13,6 +13,7 @@ import re
 import ezdxf
 
 T_RE = re.compile(r"\bt\s*=\s*(\d{2,4})", re.I)
+LOAD_RE = re.compile(r"LOAD\s+SDL\s*=\s*([\d.]+)\s+LL\s*=\s*([\d.]+)\s*(.*)", re.I)
 SE_RE = re.compile(r"\bSE\s*=\s*([+\-]?\d+)", re.I)
 BEAM_RE = re.compile(r"\((\d{2,4})\s*[xX]\s*(\d{2,4}|\?)\)")
 
@@ -21,7 +22,8 @@ def inspect_zone(path):
     msp = ezdxf.readfile(path).modelspace()
     z = {"zone": os.path.basename(path).replace("_slab_clean.dxf", ""), "slab_t": None,
          "drops": 0, "drops_no_t": 0, "zones_t": 0, "levels": [], "beams": 0, "beams_no_d": 0,
-         "columns": 0, "walls": 0, "openings": 0, "pour_strips": 0}
+         "columns": 0, "walls": 0, "openings": 0, "pour_strips": 0, "load_areas": []}
+    lpolys, ltexts = [], []
     for e in msp:
         lay = e.dxf.layer
         if e.dxftype() == "LWPOLYLINE":
@@ -31,6 +33,8 @@ def inspect_zone(path):
                 z["walls"] += 1
             elif lay == "PT-Clean-Openings":
                 z["openings"] += 1
+            elif lay == "PT-Clean-Loads":
+                lpolys.append([(p[0] / 1000.0, p[1] / 1000.0) for p in e.get_points()])
             continue
         if e.dxftype() not in ("TEXT", "MTEXT"):
             continue
@@ -52,11 +56,23 @@ def inspect_zone(path):
                 z["zones_t"] += 1
             elif up.startswith("POUR"):
                 z["pour_strips"] += 1
+        elif lay == "PT-Clean-Loads":
+            m = LOAD_RE.search(t)
+            if m:
+                ltexts.append(((e.dxf.insert.x / 1000.0, e.dxf.insert.y / 1000.0), float(m.group(1)), float(m.group(2)), m.group(3).strip()))
         elif lay == "PT-Clean-Beams":
             m = BEAM_RE.search(t)
             if m:
                 z["beams"] += 1
                 z["beams_no_d"] += 1 if m.group(2) == "?" else 0
+    # كل مضلع حمل بياخد النص اللي جواه (مسقط الأحمال)
+    if lpolys:
+        from shapely.geometry import Polygon, Point
+        for pts in lpolys:
+            g = Polygon(pts).buffer(0)
+            t = next((q for q in ltexts if g.buffer(0.01).contains(Point(q[0]))), None)
+            if t is not None and g.area > 0:
+                z["load_areas"].append({"poly": pts, "sdl": t[1], "ll": t[2], "usage": t[3], "area": g.area})
     return z
 
 
@@ -98,6 +114,18 @@ def summary(zones, data, stage2=True):
     if stage2:
         L.append("")
         L.append("LOADS")
+        la = [a for z in zones for a in z.get("load_areas", [])]
+        if la:
+            by = {}
+            for a in la:
+                k = (a["usage"], a["sdl"], a["ll"]); by[k] = by.get(k, 0.0) + a["area"]
+            L.append("  From the drawing's LOADING PLAN (each area with its own loads):")
+            for (u, sd, ll), ar in sorted(by.items(), key=lambda q: -q[1]):
+                L.append(f"    {u}: SIDL {sd:g} + LL {ll:g} kN/m²  ({ar:.0f} m²)")
+            nz = [z["zone"] for z in zones if not z.get("load_areas")]
+            if nz:
+                L.append(f"  ⚠ {len(nz)} zone(s) not covered by the loading plan -> defaults below")
+            L.append("  Any part of a slab outside the loading-plan areas takes the defaults:")
         if data.get("write_area_loads"):
             L.append(f"  SDL {float(data['sdl']):.2f} kN/m²  ·  Live load {float(data['live_load']):.2f} kN/m² (on the slab area)")
         else:
