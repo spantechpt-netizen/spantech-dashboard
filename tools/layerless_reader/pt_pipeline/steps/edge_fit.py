@@ -31,6 +31,27 @@ for t in sys.argv[1:]:
         other = max([_ZG[i].intersection(g).area for i in _ZTREE.query(g) if _ZT[i] != t] + [0])
         return mine > 0.01 * g.area and mine >= other
     n0 = (len(M["cols"]), len(M["walls"]), len(M["beams"]))
+    # كمرة الزون داخلة في بلاطة زون تانية ≤ 10 سم (توأم الفاصل اتشد على آكس عموده وخد عرض التسمية: B10/CA2
+    # 500 مرسومة 400 على فاصل HDB): بتترجع لحد ما وشها يقف على حد الزون التانية - الزونات مابتتداخلش
+    for b in M["beams"]:
+        g = LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]})
+        oth = [_ZG[i] for i in _ZTREE.query(g) if _ZT[i] != t]
+        if not oth: continue
+        ov = unary_union([o.intersection(g) for o in oth])
+        if ov.is_empty or ov.area < 1e-4 or ov.area > 0.5 * g.area: continue
+        L = math.dist(b["p1"], b["p2"])
+        if L < 1e-6: continue
+        u = ((b["p2"][0] - b["p1"][0]) / L, (b["p2"][1] - b["p1"][1]) / L); n = (-u[1], u[0])
+        c = ov.centroid; m = ((b["p1"][0] + b["p2"][0]) / 2, (b["p1"][1] + b["p2"][1]) / 2)
+        side = 1 if (c.x - m[0]) * n[0] + (c.y - m[1]) * n[1] > 0 else -1
+        # عمق الجزء الداخل = نص العرض - أقرب نقطة فيه للمحور (ناحية الزون التانية)
+        pts_ = [q for gg in getattr(ov, "geoms", [ov]) if gg.geom_type == "Polygon" for q in gg.exterior.coords]
+        if not pts_: continue
+        near_ = min(side * ((q[0] - m[0]) * n[0] + (q[1] - m[1]) * n[1]) for q in pts_)
+        dep = b["w"] / 2 - near_
+        if 0.001 < dep <= 0.10:
+            sh = -side * dep
+            b["p1"] = [b["p1"][0] + n[0] * sh, b["p1"][1] + n[1] * sh]; b["p2"] = [b["p2"][0] + n[0] * sh, b["p2"][1] + n[1] * sh]
     M["cols"] = [c for c in M["cols"] if own(Polygon(c["rect"]["corners"]).buffer(0))]
     M["walls"] = [w for w in M["walls"] if own(LR._wall_poly(w))]
     def own_beam(b):
