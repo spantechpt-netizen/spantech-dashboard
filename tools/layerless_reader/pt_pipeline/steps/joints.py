@@ -59,7 +59,8 @@ for ux, uy, off, t0, t1 in runs:
 cands.sort(key=lambda c: -c[0]); joints = []
 for c in cands:
     if any(abs(math.degrees(math.atan2(c[2], c[1]) - math.atan2(j[2], j[1]))) % 180 < 1 and abs(c[3] - j[3]) <= 0.4 and
-           min(c[5], j[5]) - max(c[4], j[4]) > 0 for j in joints): continue
+           min(c[5], j[5]) - max(c[4], j[4]) > 0.5 * min(c[5] - c[4], j[5] - j[4]) for j in joints): continue
+    # (تداخل صغير عند الطرف = فاصلين على نفس الخط ورا بعض - HDB الأرضي: شرق 152 م وغرب 150 م متداخلين 3 م)
     joints.append(c)
 # الفراغات الكبيرة (X / فناء / منحدر / كور) بتتشال الأول: الفاصل بيقف عندها
 voids = unary_union([Polygon(o["poly"]).buffer(0) for o in R["openings"] if Polygon(o["poly"]).area >= 6]) if R["openings"] else Polygon()
