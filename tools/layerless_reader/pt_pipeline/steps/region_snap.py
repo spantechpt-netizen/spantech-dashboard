@@ -81,6 +81,40 @@ def snap_pts(pts, ref_edges, ref_vertices, tol=None):
     return new, moved
 
 
+def split_at_faces(pts, faces, tol):
+    """ضلع منطقة ماشي جنب أكتر من وش موازي (كمرتين على نفس الخط بعرضين، وشهم متزحزح 2.5 سم):
+    بيتقسم عند إسقاط أطراف كل وش عليه، عشان كل حتة تتلزق على الوش اللي جنبها (نتوء قصير بدل شريحة طويلة)."""
+    import math
+    out = []
+    n = len(pts)
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        out.append(a)
+        L = math.dist(a, b)
+        if L < 1.0:
+            continue
+        u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+        ts = []
+        for c, d in faces:
+            M_ = math.dist(c, d)
+            if M_ < 0.3:
+                continue
+            v = ((d[0] - c[0]) / M_, (d[1] - c[1]) / M_)
+            if abs(u[0] * v[1] - u[1] * v[0]) > math.sin(math.radians(1.0)):
+                continue
+            if max(abs((q[0] - a[0]) * u[1] - (q[1] - a[1]) * u[0]) for q in (c, d)) > tol:
+                continue
+            for q in (c, d):
+                t = (q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1]
+                if 0.3 < t < L - 0.3:
+                    ts.append(t)
+        for t in sorted(set(round(t, 3) for t in ts)):
+            q = (a[0] + u[0] * t, a[1] + u[1] * t)
+            if math.dist(out[-1], q) > 0.3 and math.dist(q, b) > 0.3:
+                out.append(q)
+    return out
+
+
 def snap_edges(pts, faces, tol):
     """
     ضلع موازي لوش عنصر (< 1°)، على بعد ≤ tol، وماشي جنبه ≥ 0.5 م (أو نص طوله): الضلع كله بيتنقل
@@ -207,6 +241,7 @@ def main(tags):
         BW = unary_union([LineString(e) for e in bw_e]) if bw_e else None
 
         def snap_members(pts):
+            pts = split_at_faces(pts, bw_e, MTOL)
             pts, n0 = snap_edges(pts, bw_e, MTOL)
             pts, n1 = snap_edges(pts, col_e, MTOL) if not n0 else (pts, 0)
             out, n = [], n0 + n1
