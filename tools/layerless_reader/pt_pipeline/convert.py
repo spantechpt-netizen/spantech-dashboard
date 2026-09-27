@@ -435,16 +435,34 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
         if all(v is not None for v in lv.values()):
             order = sorted(zones, key=lambda t: lv[t])
             report["steps"]["floor_typing"] = step("xtype.py", *order, cwd=work).splitlines()
+    # نقطة استئناف: الحالة قبل خطوات التشطيب بتتحفظ، و--resume-from بيكمّل منها (شيت 100+ زون بياخد ساعات)
+    st = {"zones": zones, "sheet_of": sheet_of, "wins": {k: list(v) for k, v in wins.items()}, "wz": wz,
+          "report": report, "pour": bool(pour)}
+    json.dump(st, open(os.path.join(work, "state.json"), "w"), default=str)
+    return finish(work, out, st)
+
+
+FINISH_STEPS = ["stairs_members", "core", "beam_steps", "edge_fit", "beam_merge", "beam_split", "edge_fit2",
+                "region_snap", "column_gate", "zone_check", "export"]
+
+
+def finish(work, out, st, start=None):
+    """خطوات التشطيب (السلم، الكور، الكمرات، الحد، التلزيق، البوابات، التصدير). start = اسم خطوة من FINISH_STEPS."""
+    zones, sheet_of, wins, wz, report = st["zones"], st["sheet_of"], st["wins"], st["wz"], st["report"]
+    pour = st.get("pour")
+    k0 = FINISH_STEPS.index(start) if start else 0
+    run_ = lambda name: FINISH_STEPS.index(name) >= k0
+    _, H = pickle.load(open(os.path.join(work, "hatch.pkl"), "rb"))
     # 9) السلم والكور والكمرة بعرضين وحد البلاطة والفحص
-    step("stairs_members.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
-    step("core.py", *zones, env={"EXCL": "STEEL", "RES_SUFFIX": "_c"}, cwd=work)
-    step("beam_steps.py", *zones, cwd=work)
-    step("edge_fit.py", *zones, cwd=work)
-    step("beam_merge.py", *zones, cwd=work)
-    step("beam_split.py", *zones, cwd=work)
+    if run_("stairs_members"): step("stairs_members.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
+    if run_("core"): step("core.py", *zones, env={"EXCL": "STEEL", "RES_SUFFIX": "_c"}, cwd=work)
+    if run_("beam_steps"): step("beam_steps.py", *zones, cwd=work)
+    if run_("edge_fit"): step("edge_fit.py", *zones, cwd=work)
+    if run_("beam_merge"): step("beam_merge.py", *zones, cwd=work)
+    if run_("beam_split"): step("beam_split.py", *zones, cwd=work)
     # الكمرة الملمومة اتعدلت على المحور (بسنتيمترات): الحد لازم يتظبط على وشها تاني
-    step("edge_fit.py", *zones, cwd=work)
-    step("region_snap.py", *zones, cwd=work)
+    if run_("edge_fit2"): step("edge_fit.py", *zones, cwd=work)
+    if run_("region_snap"): step("region_snap.py", *zones, cwd=work)
     # بوابة: أعمدة الشيت اللي برّه كل الزونات (مبنى ضاع، جزء اتقص) مابتضيعش في صمت - بتطلع REVIEW
     try:
         from shapely.geometry import Polygon as _P, Point as _Pt
@@ -489,7 +507,6 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     draw(out, zones, report["input"])
     report["zones"] = zones; report["ok"] = ok
     json.dump(report, open(os.path.join(out, "report.json"), "w"), indent=1, ensure_ascii=False, default=str)
-    if not keep_work: pass
     log("DONE", "CHECK OK" if ok else "CHECK FAILED - see report.json")
     return ok
 
@@ -501,8 +518,15 @@ def main(argv=None):
     ap.add_argument("--keep-work", action="store_true")
     ap.add_argument("--drop-thickness", type=float, default=None,
                     help="mm - for drop panels drawn with no thickness written (a written thickness always wins)")
+    ap.add_argument("--resume-from", choices=FINISH_STEPS,
+                    help="continue an earlier run (same -o, --keep-work) from this finishing step")
     a = ap.parse_args(argv)
-    ok = run(a.input, a.out, a.sheets, a.keep_work, a.drop_thickness)
+    if a.resume_from:
+        work = os.path.join(os.path.abspath(a.out), "work")
+        st = json.load(open(os.path.join(work, "state.json")))
+        ok = finish(work, os.path.abspath(a.out), st, a.resume_from)
+    else:
+        ok = run(a.input, a.out, a.sheets, a.keep_work, a.drop_thickness)
     sys.exit(0 if ok else 2)
 
 

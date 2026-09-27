@@ -88,6 +88,7 @@
 | `{tag}_res_c.json` | نسخة من res بتتعدّل | زيادة: `thickness_mm`، `main_level_m`، `level_zones[{poly, level_m, se_mm}]`، `thick_zones`، `drops[{poly, t, t_given, t_unknown}]`، `review[[نوع, وصف]]`. |
 | `pourstrips.json` | `pourstrips.py` | حلقات شرايح الصب بالمتر. |
 | `{tag}_res_c.json` (بعد `region_snap`) | `region_snap.py` | نفس الحقول، والحدود فوق بعض بالظبط |
+| `state.json` | `run` | الزونات والشيتات والشبابيك والتقرير قبل خطوات التشطيب - `--resume-from STEP` بيكمّل منها |
 | `wins_export.json` | `run` | أصل كل زون وقت التصدير (أصل الشيت عشان الأدوار تركب فوق بعض). |
 
 **الناتج النهائي** في `OUT/`:
