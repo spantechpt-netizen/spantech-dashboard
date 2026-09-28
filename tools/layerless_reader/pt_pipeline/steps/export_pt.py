@@ -55,6 +55,18 @@ for tag in TAGS:
     t_slab = res.get("slab_thickness_mm"); main = res.get("main_level_m")
     zones = [(Polygon(z["poly"]), z) for z in res.get("level_zones", [])]
     drops = [(Polygon(d["poly"]), d) for d in res.get("drops", [])]
+    # دروب في "سنّة" على حد منطقة المنسوب (المنطقة اتقفلت من خطوط الرسمة حوالين الدروب - HDB Z10) = جوه المنطقة:
+    # المنسوب المكتوب بيشمل الدروب اللي في منطقته، فالمنطقة بتتقفل عليه وياخد منسوبها.
+    # السنّة: الدروب ≥ 90% جوه قفل المنطقة (3 م) وماشي على حدها ≥ 40% من محيطه (مش دروب جنبها من برّه).
+    for i, (zp, z) in enumerate(zones):
+        zp = zp.buffer(0); cl = zp.buffer(3.0, join_style=2).buffer(-3.0, join_style=2)
+        add = [dp.buffer(0) for dp, _ in drops if dp.area > 0 and dp.intersection(zp).area < 0.9 * dp.area and
+               dp.intersection(cl).area >= 0.9 * dp.area and dp.boundary.intersection(zp.buffer(0.01)).length >= 0.4 * dp.length]
+        if add:
+            u = unary_union([zp] + [a.buffer(0.001, join_style=2) for a in add]).buffer(-0.001, join_style=2).intersection(slab)
+            u = max(getattr(u, "geoms", [u]), key=lambda q: q.area)
+            if u.geom_type == "Polygon" and not u.interiors:
+                zones[i] = (u, dict(z, poly=[tuple(c) for c in u.exterior.coords][:-1]))
     # منطقة سُمك بنفس سُمك البلاطة (السُمك النهائي اتحدد بعد ما اتعملت) مالهاش معنى
     tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", []) if z.get("thickness_mm") != t_slab]
     # T= جوه فتحة سلم/كور = بلاطة السلم نفسه (T=250 جنب السلالم في HDB) - السلم فتحة في بلاطة الـ PT، فمابيتكتبش
@@ -179,6 +191,11 @@ for tag in TAGS:
     for dp, d in drops:
         msp.add_lwpolyline([T(p) for p in d["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Drops"})
         c = dp.representative_point(); se = zone_se(c)
+        if not se:
+            # دروب على الخط بين منطقتين بنفس المنسوب (كل واحدة فيها أقل من نصه) = جوه المنسوب ده
+            for v in {z["se_mm"] for _, z in zones_se if z["se_mm"]}:
+                if dp.buffer(0).intersection(unary_union([zp.buffer(0) for zp, z in zones_se if z["se_mm"] == v])).area >= 0.9 * dp.area:
+                    se = v; break
         # سُمك مش مكتوب: "DROP" من غير t= والبرنامج بياخد سُمك الدروب الافتراضي من صفحة Project
         txt = ("DROP" if d.get("thickness_mm") is None else f"DROP t={d['thickness_mm']}") + \
             (f" SE={se:+d}" if se else "") + (f" P={P_D}" if P_D else "")

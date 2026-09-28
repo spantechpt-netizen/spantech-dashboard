@@ -65,11 +65,18 @@ def load():
     return data
 
 
-def save(data):
+def save(data, path=None):
     try:
-        json.dump({k: data.get(k, v) for k, v in DEFAULTS.items()}, open(PATH, "w", encoding="utf-8"), indent=1)
+        json.dump({k: data.get(k, v) for k, v in DEFAULTS.items()}, open(path or PATH, "w", encoding="utf-8"), indent=1)
     except Exception:
         pass
+
+
+def load_from(path):
+    """ملف إعدادات محفوظ (Load settings في الشاشة)."""
+    data = dict(DEFAULTS)
+    data.update({k: v for k, v in json.load(open(path, encoding="utf-8")).items() if k in DEFAULTS})
+    return data
 
 
 def params(data, core):

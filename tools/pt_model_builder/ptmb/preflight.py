@@ -111,10 +111,12 @@ def summary(zones, data, stage2=True):
     flat = [z["zone"] for z in zones if not z["levels"]]
     if flat:
         L.append(f"  {len(flat)} zone(s) with no level difference in the drawing -> the whole slab at one level")
-    if stage2:
-        L.append("")
-        L.append("LOADS")
-        la = [a for z in zones for a in z.get("load_areas", [])]
+    L.append("")
+    L.append("LOADS")
+    la = [a for z in zones for a in z.get("load_areas", [])]
+    if not la:
+        L.append("  No loading plan in the drawing" + (" -> the defaults below on the whole slab" if stage2 else ""))
+    if la or stage2:
         if la:
             by = {}
             for a in la:
@@ -125,7 +127,9 @@ def summary(zones, data, stage2=True):
             nz = [z["zone"] for z in zones if not z.get("load_areas")]
             if nz:
                 L.append(f"  ⚠ {len(nz)} zone(s) not covered by the loading plan -> defaults below")
-            L.append("  Any part of a slab outside the loading-plan areas takes the defaults:")
+            if stage2:
+                L.append("  Any part of a slab outside the loading-plan areas takes the defaults:")
+    if stage2:
         if data.get("write_area_loads"):
             L.append(f"  SDL {float(data['sdl']):.2f} kN/m²  ·  Live load {float(data['live_load']):.2f} kN/m² (on the slab area)")
         else:

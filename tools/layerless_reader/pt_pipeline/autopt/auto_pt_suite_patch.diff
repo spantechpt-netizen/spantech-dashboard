@@ -1,6 +1,17 @@
 --- Auto_PT_Suite_v397_CAD_Reader_AI.py
 +++ Auto_PT_Suite_v397_CAD_Reader_AI.py
-@@ -2725,6 +2725,16 @@
+@@ -2315,6 +2315,10 @@
+     for name, rec in sorted(counts.items(), key=lambda kv: -kv[1]["count"]):
+         if _ZONE_LAYER_RE.match((name or "").strip()):
+             role, conf = "ignore", 1.0
++        elif (name or "").strip().upper() in ("PT-CLEAN-LOADS", "PT-CLEAN-NOTES"):
++            #  مسقط الأحمال والملاحظات مش أشكال إنشائية: لو اتقرت "auto" مضلعات الأحمال
++            #  بتبقى بلاطات، ونص المنسوب (LEVEL SE=) بيروح لمضلع الحمل مش لمنطقة المنسوب.
++            role, conf = "ignore", 1.0
+         else:
+             role, conf = guess_role(name)
+             if conf < 0.5:
+@@ -2725,6 +2729,16 @@
  #  منطقة مرجعية) واقع غلط على نفس الليّر - بتتشال بدل ما تتحسب حائط
  #  بعرض متر أو اتنين وتكسر الموديل.
  MAX_LINEAR_MEMBER_MM = 1800.0
@@ -17,7 +28,7 @@
  
  
  def clean_mtext(raw):
-@@ -3371,17 +3381,31 @@
+@@ -3371,17 +3385,31 @@
                  best, best_d = b, d
          return best, best_d
  
@@ -57,7 +68,7 @@
              beams.append(w)
              moved += 1
          else:
-@@ -3406,6 +3430,18 @@
+@@ -3406,6 +3434,18 @@
          m_mark = re.match(r"^[A-Za-z0-9\-\.]+", txt)
          if m_mark:
              best["mark"] = m_mark.group(0)
@@ -76,7 +87,7 @@
  
      measured = [b for b in beams if b.get("measured")]
      mismatches = []
-@@ -3452,6 +3488,58 @@
+@@ -3452,6 +3492,58 @@
  LEVEL_NUMBER_RE = re.compile(r"^[+\-]?\s*\d+(?:\.\d{1,3})?$")
  
  
@@ -135,7 +146,7 @@
  def read_slab_notes(doc, scale, job=None, pair_radius_m=2.0):
      """
      ملاحظات سمك البلاطة ومناسيبها المكتوبة صراحة في الرسمة - مش من
-@@ -3522,6 +3610,46 @@
+@@ -3522,6 +3614,46 @@
      return {"thickness_mm": thickness, "elevation_m": elevations}
  
  
@@ -182,7 +193,7 @@
  def parse_dxf(dxf_path, layer_roles, unit_label, job, flat_tol=0.05):
      """
      القراءة الكاملة. layer_roles: dict {layer_name: role}.
-@@ -3617,7 +3745,9 @@
+@@ -3617,7 +3749,9 @@
                  elif role in ("wall", "beam"):
                      rect = min_area_rect(clean_polygon(pts))
                      width_mm = rect["short"] * 1000.0 if rect else 0.0
@@ -193,7 +204,7 @@
                          half = rect["long"] / 2.0
                          a = math.radians(rect["angle_deg"])
                          cx, cy = rect["center"]
-@@ -3626,7 +3756,7 @@
+@@ -3626,7 +3760,7 @@
                              "p2": (cx + half * math.cos(a), cy + half * math.sin(a)),
                              "width": max(width_mm, 100.0),
                              "measured": True})
@@ -202,7 +213,7 @@
                          job.warn(f"A shape on the {role} layer '{layer}' measured "
                                   f"{width_mm:.0f} mm wide - too wide for a real "
                                   f"{role}, so it was left out instead of becoming "
-@@ -3773,7 +3903,7 @@
+@@ -3773,7 +3907,7 @@
                          if role == "arch_wall":
                              arch_walls.append({"p1": c1, "p2": c2,
                                                 "width": thk})
@@ -211,7 +222,7 @@
                              target.append({"p1": c1, "p2": c2,
                                             "width": max(thk, 100.0),
                                             "measured": True})
-@@ -3953,6 +4083,44 @@
+@@ -3953,6 +4087,44 @@
                       "guessed to be drop panels; a slab standing on its own is a "
                       "separate piece. Use an explicit drop layer to be sure.")
  
@@ -256,7 +267,7 @@
      boundary = ranked[0]["points"] if ranked else None
      drops = [s["points"] for s in slabs if s["is_drop"]]
  
-@@ -4021,6 +4189,7 @@
+@@ -4021,6 +4193,7 @@
  
      if walls or beams:
          apply_beam_mark_labels(doc, walls, beams, scale, job)
@@ -264,7 +275,7 @@
  
      site = {
          "boundary": boundary,
-@@ -13762,6 +13931,11 @@
+@@ -13762,6 +13935,11 @@
          low = name.lower()
          if "elevation" in low and "thick" not in low:
              return name
@@ -276,7 +287,7 @@
      return None
  
  
-@@ -13857,6 +14031,12 @@
+@@ -13857,6 +14035,12 @@
                      _by_pri[pr] = _by_pri.get(pr, 0.0) + abs(polygon_area(pts))
              _base_pri = (max(_by_pri, key=lambda k: _by_pri[k])
                           if _by_pri else None)
@@ -289,7 +300,7 @@
          for i, (th, pts) in enumerate(areas):
              pr = _pri[i] if i < len(_pri) else None
              #  الأولوية هي اللي بتقول "دي فوق دي" - والسُمك تأكيد
-@@ -13866,12 +14046,16 @@
+@@ -13866,12 +14050,16 @@
              #  في رام أصلاً فمش دروب مهما كان سُمكه.
              _thicker = th > base + 1.0
              _not_thinner = th >= base - 1.0
@@ -307,7 +318,7 @@
              site["slabs"].append({"points": pts, "is_drop": is_drop,
                                    "priority": pr, "thickness": th,
                                    "elevation": elev,
-@@ -15458,6 +15642,145 @@
+@@ -15458,6 +15646,145 @@
      return out
  
  
@@ -453,7 +464,7 @@
  def order_along_route(tendons, p, job=None):
      """شبكة أمان: أي بروفايل عقده مش مرتّبة مع سير الكابل تترتّب.
  
-@@ -24088,6 +24411,35 @@
+@@ -24088,6 +24415,35 @@
      return None
  
  
@@ -489,7 +500,7 @@
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24551,29 @@
+@@ -24199,11 +24555,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -519,7 +530,7 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24601,21 @@
+@@ -24231,6 +24605,21 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -541,7 +552,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24813,11 @@
+@@ -24428,8 +24817,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -554,7 +565,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24825,19 @@
+@@ -24437,6 +24829,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -574,7 +585,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24845,20 @@
+@@ -24444,6 +24849,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -595,7 +606,7 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -35863,6 +36278,10 @@
+@@ -35863,6 +36282,10 @@
      enforce_plan_rules(tendons, params, job, site)
      enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
                            walls=_walls, shapes=_shapes)
@@ -606,7 +617,7 @@
  
      m = measure_design(site, tendons, lines, None, params)
      m["model"] = os.path.basename(dxf_path)
-@@ -37157,6 +37576,10 @@
+@@ -37157,6 +37580,10 @@
      enforce_plan_rules(tendons, params, job, site=site)
      enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
                            shapes=_shapes)
@@ -617,7 +628,7 @@
      _LAST_DRAWN["tendons"] = tendons                   # 17.27
      _LAST_DRAWN["params"] = params
      Point2D = session.api["Point2D"]
-@@ -37183,7 +37606,8 @@
+@@ -37183,7 +37610,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -627,7 +638,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -37514,6 +37938,8 @@
+@@ -37514,6 +37942,8 @@
      add_jack exists on TendonLayer but its signature is not documented here, so
      the call is probed once and the working form reported.
      """
@@ -636,7 +647,7 @@
      Point2D = session.api["Point2D"]
      LineSegment2D = session.api["LineSegment2D"]
      cad = session.model.cad_manager
-@@ -39908,9 +40334,18 @@
+@@ -39908,9 +40338,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -657,7 +668,7 @@
      return False
  
  
-@@ -50315,6 +50750,24 @@
+@@ -50315,6 +50754,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -682,7 +693,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53424,652 @@
+@@ -52971,6 +53428,652 @@
      return rejected
  
  
@@ -1335,7 +1346,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57663,86 @@
+@@ -56564,6 +57667,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1422,7 +1433,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64797,8 @@
+@@ -63618,7 +64801,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1432,7 +1443,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +70043,9 @@
+@@ -68863,6 +70047,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1442,7 +1453,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +71086,14 @@
+@@ -69903,6 +71090,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1457,7 +1468,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +71141,14 @@
+@@ -69950,6 +71145,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1472,7 +1483,7 @@
  
          return outer
  
-@@ -70014,6 +71213,11 @@
+@@ -70014,6 +71217,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1484,7 +1495,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76197,340 @@
+@@ -74993,6 +76201,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  

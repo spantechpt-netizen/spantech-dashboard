@@ -97,6 +97,11 @@ def build_zone(dxf, data, job, out_dir, session_cls=None):
     if not layers:
         job.error("The file has no entities."); return None
     roles = {l["name"]: l["role"] for l in layers}
+    # ليّر الأحمال مش شكل إنشائي: مضلعاتها لو اتقرت "auto" بتبقى بلاطات، ونص المنسوب (LEVEL SE=) بيروح لأصغر
+    # مضلع حواليه = مضلع الحمل مش منطقة المنسوب. الأحمال بتتقري لوحدها (preflight.inspect_zone -> write_load_areas).
+    for n in roles:
+        if n.upper() == "PT-CLEAN-LOADS":
+            roles[n] = "ignore"
     site = C.parse_dxf(dxf, roles, list(C.UNIT_CHOICES)[0], job)
     if not site.get("boundary"):
         job.error("No valid slab boundary."); return None
