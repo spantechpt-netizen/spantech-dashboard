@@ -614,7 +614,155 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -29787,6 +30207,165 @@
+@@ -29703,6 +30123,125 @@
+             "lines": lines}
+ 
+ 
++def split_site_by_level(site, params=None):
++    """
++    **كل منطقة منسوب = سقف مستقل في رسم الشرايح** (Span Tech).
++
++    الإطارات بتتجمّع صفوف على مستوى القطعة كلها، فالخط اللي بيعدّي خط
++    فرق المنسوب بيتقطع عنده، والحتت اللي أقصر من أقل بحر بتتشال - وفيه
++    مناطق بتطلع من غير ولا شريحة. هنا كل منطقة بمنسوب واحد بتاخد موقع
++    لوحدها: حدودها هي المنطقة، والمناطق التانية جواها فتحات، والركايز
++    والكمرات اللي على خط الفرق (≤ 35 سم) بتتحسب للناحيتين.
++    """
++    if params is not None and not bool(getattr(params, "strip_stop_at_level_step", True)):
++        return [site]
++    regions = _level_regions(site)
++    bnd = (site or {}).get("boundary") or []
++    if not regions or len(bnd) < 3:
++        return [site]
++    try:
++        from shapely.geometry import Polygon as _P, Point as _Pt, LineString as _L
++    except Exception:
++        return [site]
++    slab = _P(bnd).buffer(0)
++    #  أصغر منطقة بتغلب (زي RAM)، والباقي من البلاطة = المنسوب الأساسي (صفر)
++    parts, taken = [], _P()
++    for poly, se, _a in regions:              # _level_regions مترتّبة من الأصغر
++        g = _P(poly).buffer(0)
++        piece = g.difference(taken)
++        if not piece.is_empty:
++            parts.append((piece, se))
++        taken = taken.union(g)
++    parts.append((slab.difference(taken), 0.0))
++    by_se = {}
++    for g, se in parts:
++        by_se[se] = by_se.get(se, _P()).union(g)
++    regs = []
++    for se, g in by_se.items():
++        for q in getattr(g, "geoms", [g]):
++            if q.geom_type == "Polygon" and q.area >= 4.0:
++                regs.append((q, se))
++    if len(regs) <= 1:
++        return [site]
++    tol = 0.35
++    subs = []
++    for i, (R, se) in enumerate(regs):
++        Rb = R.buffer(tol, join_style=2)
++        sub = dict(site)
++        sub["boundary"] = [tuple(c) for c in list(R.exterior.coords)[:-1]]
++        sub["pieces"] = [sub["boundary"]]
++        sub["level_region"] = (i, se)
++        ops = [o for o in (site.get("openings") or []) if o and len(o) >= 3 and _P(o).buffer(0).intersects(R)]
++        ops += [[tuple(c) for c in list(h.coords)[:-1]] for h in R.interiors]
++        sub["openings"] = ops
++        sub["slabs"] = [x for x in (site.get("slabs") or []) if x.get("points") and len(x["points"]) >= 3
++                        and R.contains(_Pt(_poly_centre(x["points"])))]
++        sub["drops"] = [d for d in (site.get("drops") or []) if d and len(d) >= 3 and Rb.contains(_Pt(_poly_centre(d)))]
++        sub["columns"] = [c for c in (site.get("columns") or []) if Rb.contains(_Pt(c["center"]))]
++
++        def seg_in(it, Rb=Rb):
++            ln = _L([it["p1"], it["p2"]])
++            return ln.length > 0 and ln.intersection(Rb).length >= 0.5 * ln.length
++        sub["walls"] = [w for w in (site.get("walls") or []) if seg_in(w)]
++        sub["beams"] = [b for b in (site.get("beams") or []) if seg_in(b)]
++        subs.append(sub)
++    return subs
++
++
++def fill_empty_level_regions(lines, subs, params, job=None):
++    """
++    **مافيش منطقة منسوب من غير شرايح** (Span Tech). منطقة بين كمرتين على
++    خطين فرق منسوب (من غير أعمدة جواها) مابتطلعلهاش إطارات في الاتجاه
++    الموازي للكمرات. لو المنطقة مافيهاش ولا بحر في اتجاه، بيتحط خط في
++    نصها في الاتجاه ده، جوه المنطقة بس (مابيعدّيش خط الفرق).
++    """
++    if not subs:
++        return lines
++    try:
++        from shapely.geometry import Polygon as _P, LineString as _L
++    except Exception:
++        return lines
++    import math as _m
++    base = _m.radians(float(getattr(params, "strip_base_angle", 0.0) or 0.0))
++    min_span = max(float(getattr(params, "strip_min_span", 2.0) or 0.0), 0.5)
++    added = []
++    for sub in subs:
++        R = _P(sub["boundary"]).buffer(0)
++        for o in sub.get("openings") or []:
++            try:
++                R = R.difference(_P(o).buffer(0))
++            except Exception:
++                pass
++        if R.is_empty or R.area < 8.0:
++            continue
++        inner = R.buffer(-0.10, join_style=2)
++        for d, ang in (("X", base), ("Y", base + _m.pi / 2.0)):
++            have = sum(_L([sp["p1"], sp["p2"]]).intersection(inner).length
++                       for l in lines if l.get("dir") == d for sp in l.get("spans") or [])
++            if have >= 0.5:
++                continue
++            c = inner.representative_point() if not inner.is_empty else R.representative_point()
++            ux, uy = _m.cos(ang), _m.sin(ang)
++            big = 1e4
++            ln = _L([(c.x - ux * big, c.y - uy * big), (c.x + ux * big, c.y + uy * big)]).intersection(inner)
++            spans = []
++            for g in getattr(ln, "geoms", [ln]):
++                if g.geom_type != "LineString" or g.length < min_span:
++                    continue
++                a, b = g.coords[0], g.coords[-1]
++                spans.append({"p1": (a[0], a[1]), "p2": (b[0], b[1])})
++            if spans:
++                lines.append({"dir": d, "spans": spans, "level_fill": True})
++                added.append((d, sub.get("level_region", (0, 0))[1], sum(dist(s_["p1"], s_["p2"]) for s_ in spans)))
++    if job and added:
++        job.ok(f"{len(added)} support line(s) added through the middle of level "
++               f"regions that had none in that direction (a slab between two "
++               f"step beams, no column inside): "
++               + ", ".join(f"{d} at SE {se:+.0f} ({L:.1f} m)" for d, se, L in added[:6])
++               + ". Check them - they span between the edge beams.")
++    return lines
++
++
+ def write_design_strips_to_ram(session, site, params, job, cpt_path=None):
+     """
+     يرسم خطوط الركائز في الموديل كـ Span Segments.
+@@ -29749,7 +30288,12 @@
+ 
+     #  17.15: الرسم من الإطارات (الافتراضي) أو الكنس القديم.
+     lines = []
+-    for _sub in split_site_into_pieces(site):                   # 18.15
++    #  (Span Tech) القطعة كلها + كل منطقة منسوب كسقف لوحده. الخطوط اللي
++    #  بتعدّي خط الفرق بتتقطع عنده بعدين (stop_strips_at_level_steps)،
++    #  والمكرر بيتشال (prune_crowded_spans)
++    _pcs = split_site_into_pieces(site)
++    _lvl = [lv for pc in _pcs for lv in split_site_by_level(pc, params) if lv is not pc]
++    for _sub in _pcs + _lvl:                                     # 18.15
+         if str(getattr(params, "strip_layout", "frames")) == "frames":
+             job.log("Building the support lines from the supports themselves",
+                     "head")
+@@ -29776,6 +30320,7 @@
+         beam_splitters = []
+     else:
+         lines, beam_splitters = _tidy_support_lines(lines, site, params, job)
++        lines = fill_empty_level_regions(lines, _lvl, params, job)
+     if not lines:
+         job.error("Every span was pruned - check the minimum gap and minimum "
+                   "span length on the design strips page.")
+@@ -29787,6 +30332,165 @@
                                 site, params, job)
  
  
@@ -780,7 +928,7 @@
  def _tidy_support_lines(lines, site, params, job):
      """قواعد ترتيب خطوط الركائز - مفصولة عشان إعادة البناء تعدّيها."""
      #  17.13: الأول الخط يتحرّك على الركيزة اللي جنبه، وبعدين يلفّ على
-@@ -29852,6 +30431,12 @@
+@@ -29852,6 +30556,12 @@
          stop_lines_at_support_centre(lines, site, params, job)
      except Exception as e:
          job.warn(f"The strip ends were left where they were ({e}).")
@@ -793,7 +941,7 @@
      lines, _crowded, _short = prune_crowded_spans(lines, params, job)
      return lines, beam_splitters
  
-@@ -29892,8 +30477,8 @@
+@@ -29892,8 +30602,8 @@
          except Exception as e:
              job.warn(f"A splitter beside a beam was not drawn: {str(e)[:80]}")
      if drawn_sb:
@@ -804,7 +952,21 @@
      if drawn_spans:
          job.ok(f"{drawn_spans} span segments drawn on {drawn_lines} support "
                 f"lines.")
-@@ -35863,6 +36448,10 @@
+@@ -31781,7 +32491,12 @@
+     فالتخطيط اللي بيطلع من هنا هو اللي رام كان هياخده.
+     """
+     lines = []
+-    for _sub in split_site_into_pieces(site):                   # 18.15
++    #  (Span Tech) القطعة كلها + كل منطقة منسوب كسقف لوحده. الخطوط اللي
++    #  بتعدّي خط الفرق بتتقطع عنده بعدين (stop_strips_at_level_steps)،
++    #  والمكرر بيتشال (prune_crowded_spans)
++    _pcs = split_site_into_pieces(site)
++    _lvl = [lv for pc in _pcs for lv in split_site_by_level(pc, params) if lv is not pc]
++    for _sub in _pcs + _lvl:                                     # 18.15
+         if str(getattr(params, "strip_layout", "frames")) == "frames":
+             _l = build_lines_from_walls(_sub, params, job)
+             if not _l:
+@@ -35863,6 +36578,10 @@
      enforce_plan_rules(tendons, params, job, site)
      enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
                            walls=_walls, shapes=_shapes)
@@ -815,7 +977,7 @@
  
      m = measure_design(site, tendons, lines, None, params)
      m["model"] = os.path.basename(dxf_path)
-@@ -37157,6 +37746,10 @@
+@@ -37157,6 +37876,10 @@
      enforce_plan_rules(tendons, params, job, site=site)
      enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
                            shapes=_shapes)
@@ -826,7 +988,7 @@
      _LAST_DRAWN["tendons"] = tendons                   # 17.27
      _LAST_DRAWN["params"] = params
      Point2D = session.api["Point2D"]
-@@ -37183,7 +37776,8 @@
+@@ -37183,7 +37906,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -836,7 +998,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -37514,6 +38108,8 @@
+@@ -37514,6 +38238,8 @@
      add_jack exists on TendonLayer but its signature is not documented here, so
      the call is probed once and the working form reported.
      """
@@ -845,7 +1007,7 @@
      Point2D = session.api["Point2D"]
      LineSegment2D = session.api["LineSegment2D"]
      cad = session.model.cad_manager
-@@ -39908,9 +40504,18 @@
+@@ -39908,9 +40634,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -866,7 +1028,7 @@
      return False
  
  
-@@ -50315,6 +50920,24 @@
+@@ -50315,6 +51050,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -891,7 +1053,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53594,652 @@
+@@ -52971,6 +53724,652 @@
      return rejected
  
  
@@ -1544,7 +1706,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57833,86 @@
+@@ -56564,6 +57963,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1631,7 +1793,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64967,8 @@
+@@ -63618,7 +65097,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1641,7 +1803,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +70213,9 @@
+@@ -68863,6 +70343,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1651,7 +1813,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +71256,14 @@
+@@ -69903,6 +71386,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1666,7 +1828,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +71311,14 @@
+@@ -69950,6 +71441,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1681,7 +1843,7 @@
  
          return outer
  
-@@ -70014,6 +71383,11 @@
+@@ -70014,6 +71513,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1693,7 +1855,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76367,340 @@
+@@ -74993,6 +76497,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  

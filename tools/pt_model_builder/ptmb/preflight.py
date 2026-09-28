@@ -131,7 +131,7 @@ def summary(zones, data, stage2=True):
             if nz:
                 L.append(f"  ⚠ {len(nz)} zone(s) not covered by the loading plan -> defaults below")
             if stage2:
-                L.append("  Any part of a slab outside the loading-plan areas takes the defaults:")
+                L.append("  The defaults below go on the whole slab; each loading-plan area adds the difference (+ or -):")
     if stage2:
         if data.get("write_area_loads"):
             L.append(f"  SDL {float(data['sdl']):.2f} kN/m²  ·  Live load {float(data['live_load']):.2f} kN/m² (on the slab area)")

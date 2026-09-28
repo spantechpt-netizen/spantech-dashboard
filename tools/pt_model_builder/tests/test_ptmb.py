@@ -155,7 +155,7 @@ class FakeLoadSession(FakeSession):
 
 
 def test_stage2_loads_from_loading_plan(tmp_path, core, monkeypatch):
-    """منطقتين من مسقط الأحمال (محلات 5.5/5 وسكني 6.5/2) + الباقي بالافتراضي 2/2: كل منطقة بأحمالها في RAM."""
+    """منطقتين من مسقط الأحمال (محلات 5.5/5 وسكني 6.5/2): الافتراضي 2/2 على السقف كله + الفرق على كل منطقة."""
     import ezdxf
     doc = ezdxf.new("R2010"); doc.header["$INSUNITS"] = 4; m = doc.modelspace()
 
@@ -188,7 +188,8 @@ def test_stage2_loads_from_loading_plan(tmp_path, core, monkeypatch):
     S_ = FakeSession.last
     dead = sorted(round(-e.Fz0, 2) for e in S_.dead.area_loads)
     live = sorted(round(-e.Fz0, 2) for e in S_.live.area_loads)
-    assert dead == [2.0, 5.5, 6.5] and live == [2.0, 2.0, 5.0], (dead, live)
+    # الافتراضي 2/2 على السقف كله، والمناطق بالفرق: محلات +3.5/+3، سكني +4.5/0 (مابيتكتبش)
+    assert dead == [2.0, 3.5, 4.5] and live == [2.0, 3.0], (dead, live)
 
 
 def test_design_strips_stop_at_level_step(core):

@@ -40,19 +40,18 @@ def _pieces(g):
 
 def write_load_areas(C, session, site, params, job, areas):
     """
-    أحمال مسقط الأحمال: كل منطقة بـ SIDL وLL بتوعها على طبقة الحمل المناسبة في RAM (نفس اختيار
-    Auto PT Suite للطبقات والإشارة). الجزء من البلاطة اللي برّه كل المناطق بياخد الافتراضي (لو الأحمال متعلّمة).
+    أحمال مسقط الأحمال (اقتراح المستخدم، HDB): الحمل الافتراضي على السقف كله (حدود البلاطة، نفس
+    write_area_loads_to_ram)، وكل منطقة في المسقط بياخد **الفرق** بس: موجب لو حملها أكبر، سالب لو أصغر.
+    كده مافيش حتة في السقف من غير حمل، ومافيش تقطيع للباقي. لو الأحمال الافتراضية مش متعلّمة: كل منطقة
+    بحملها كامل والباقي من غير حمل (زي ما المهندس اختار).
     """
     from shapely.geometry import Polygon
-    from shapely.ops import unary_union
     P2, Poly2 = session.api["Point2D"], session.api["Polygon2D"]
     sign = C.down_sign(session, job)
+    base = (float(params.sdl), float(params.live_load)) if params.write_area_loads else (0.0, 0.0)
+    if params.write_area_loads:
+        C.write_area_loads_to_ram(session, site, params, job)
     todo = [(Polygon(a["poly"]).buffer(0), a["sdl"], a["ll"], a["usage"]) for a in areas]
-    covered = unary_union([g for g, *_ in todo])
-    if params.write_area_loads and site.get("boundary"):
-        rest = Polygon(site["boundary"]).buffer(0).difference(covered)
-        for g in _pieces(rest):
-            todo.append((g, float(params.sdl), float(params.live_load), "default (outside the loading plan)"))
     n = {"sdl": 0, "live": 0}
     for key, causes, what, idx in (("sdl", C.DEAD_CAUSE_NAMES, "Superimposed dead load", 0),
                                    ("live", C.LIVE_CAUSE_NAMES, "Live load", 1)):
@@ -60,25 +59,32 @@ def write_load_areas(C, session, site, params, job, areas):
         if layer is None:
             continue
         for g, sd, ll, use in todo:
-            v = (sd, ll)[idx]
-            if v <= 0:
-                continue
+            v = (sd, ll)[idx] - base[idx]
+            if abs(v) < 0.005:
+                continue                          # نفس الافتراضي: الحمل اللي على السقف كفاية
             for piece in _pieces(g):
                 try:
                     elem = layer.add_area_load(Poly2([P2(x, y) for x, y in list(piece.exterior.coords)[:-1]]))
                 except Exception as e:
                     job.error(f"{what} ({use}): could not add the area load: {e}"); continue
                 first = [None]
-                if elem is not None and C._set_area_load(elem, v, job, first, sign):
+                # _set_area_load بتاخد القيمة المطلقة: الفرق السالب = الإشارة معكوسة
+                if elem is not None and C._set_area_load(elem, abs(v), job, first, sign if v > 0 else -sign):
                     n[key] += 1
                 else:
-                    job.error(f"{what} ({use}): the value {v:g} was rejected ({first[0] or 'no reason given'}).")
+                    job.error(f"{what} ({use}): the value {v:+g} was rejected ({first[0] or 'no reason given'}).")
     by = {}
     for g, sd, ll, use in todo:
         k = (use, sd, ll); by[k] = by.get(k, 0.0) + g.area
-    job.ok(f"Loads from the loading plan: {n['sdl']} SIDL and {n['live']} LL area load(s):")
+    if params.write_area_loads:
+        job.ok(f"Loads: SIDL {base[0]:g} + LL {base[1]:g} kN/m² on the whole slab, and the loading-plan "
+               f"areas carry the difference ({n['sdl']} SIDL and {n['live']} LL area load(s), + or -):")
+    else:
+        job.ok(f"Loads from the loading plan: {n['sdl']} SIDL and {n['live']} LL area load(s) "
+               f"(default area loads are off - the rest of the slab has none):")
     for (use, sd, ll), ar in by.items():
-        job.info(f"    {use}: SIDL {sd:g} + LL {ll:g} kN/m² over {ar:.0f} m²")
+        job.info(f"    {use}: SIDL {sd:g} + LL {ll:g} kN/m² over {ar:.0f} m²"
+                 + (f"  (written as {sd - base[0]:+g} / {ll - base[1]:+g} on top of the slab load)" if params.write_area_loads else ""))
     return n
 
 
