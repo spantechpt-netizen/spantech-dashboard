@@ -275,7 +275,15 @@
  
      site = {
          "boundary": boundary,
-@@ -13762,6 +13935,11 @@
+@@ -7334,6 +7507,7 @@
+         self.beam_section_clear = float(kw.get("beam_section_clear", 0.20))
+         #  والطرف مايعديش جوّه ركيزة - بيقف على السنتر لاين بتاعها
+         self.strip_stop_at_centre = bool(kw.get("strip_stop_at_centre", True))
++        self.strip_stop_at_level_step = bool(kw.get("strip_stop_at_level_step", True))
+         #  **18.73: سقف نسبي على الحديد اللي الحلقة تزوّده.**
+         #  `budget_kg_m2` سقف مطلق بيتكتب بالكيلو على المتر، وده رقم
+         #  المهندس مابيفكّرش بيه وهو واقف على موديل: هو بيقول «زوّد لحد
+@@ -13762,6 +13936,11 @@
          low = name.lower()
          if "elevation" in low and "thick" not in low:
              return name
@@ -287,7 +295,7 @@
      return None
  
  
-@@ -13857,6 +14035,12 @@
+@@ -13857,6 +14036,12 @@
                      _by_pri[pr] = _by_pri.get(pr, 0.0) + abs(polygon_area(pts))
              _base_pri = (max(_by_pri, key=lambda k: _by_pri[k])
                           if _by_pri else None)
@@ -300,7 +308,7 @@
          for i, (th, pts) in enumerate(areas):
              pr = _pri[i] if i < len(_pri) else None
              #  الأولوية هي اللي بتقول "دي فوق دي" - والسُمك تأكيد
-@@ -13866,12 +14050,16 @@
+@@ -13866,12 +14051,16 @@
              #  في رام أصلاً فمش دروب مهما كان سُمكه.
              _thicker = th > base + 1.0
              _not_thinner = th >= base - 1.0
@@ -318,7 +326,7 @@
              site["slabs"].append({"points": pts, "is_drop": is_drop,
                                    "priority": pr, "thickness": th,
                                    "elevation": elev,
-@@ -15458,6 +15646,145 @@
+@@ -15458,6 +15647,145 @@
      return out
  
  
@@ -464,7 +472,7 @@
  def order_along_route(tendons, p, job=None):
      """شبكة أمان: أي بروفايل عقده مش مرتّبة مع سير الكابل تترتّب.
  
-@@ -24088,6 +24415,35 @@
+@@ -24088,6 +24416,35 @@
      return None
  
  
@@ -500,7 +508,7 @@
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24555,29 @@
+@@ -24199,11 +24556,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -530,7 +538,7 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24605,21 @@
+@@ -24231,6 +24606,21 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -552,7 +560,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24817,11 @@
+@@ -24428,8 +24818,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -565,7 +573,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24829,19 @@
+@@ -24437,6 +24830,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -585,7 +593,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24849,20 @@
+@@ -24444,6 +24850,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -606,7 +614,197 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -35863,6 +36282,10 @@
+@@ -29787,6 +30207,165 @@
+                                site, params, job)
+ 
+ 
++def _level_regions(site):
++    """مناطق المنسوب: (المضلع, SE بالمم, المساحة) - البلاطات/المناطق اللي مش دروب وليها SE غير صفر."""
++    out = []
++    for s in (site or {}).get("slabs") or []:
++        if s.get("is_drop") or not s.get("points") or len(s["points"]) < 3:
++            continue
++        se = s.get("surface_elevation_mm")
++        if se is None or abs(float(se)) < 1.0:
++            continue
++        out.append((s["points"], float(se), float(s.get("area") or 0.0)))
++    out.sort(key=lambda r: r[2])
++    return out
++
++
++def _se_at(pt, regions):
++    """منسوب النقطة: أصغر منطقة منسوب حواليها، وإلا البلاطة الأساسية (صفر)."""
++    for poly, se, _a in regions:
++        if point_in_polygon(pt[0], pt[1], poly):
++            return se
++    return 0.0
++
++
++def stop_strips_at_level_steps(lines, site, params, job=None):
++    """
++    **الشريحة بتقف عند خط اختلاف المنسوب** (Span Tech).
++
++    رام مابيقبلش شريحة تصميم معدّية من منسوب لمنسوب تاني: القطاع بيتاخد
++    على خرسانة مش في مستوى واحد. فهنا حاجتين:
++      1) كل بحر بيعدّي خط فرق المنسوب بيتقطع عنده، والخط بيتقسم لخطين -
++         كل واحد بيقف على خط الفرق ومصمّم لوحده على منسوبه؛
++      2) سبليتر (SpanBoundary) على طول خط الفرق للشرايح الموازية له،
++         عشان عرض الشريحة اللي رام بيولّده مايعدّيش الخط من الجنب.
++    المنسوب من البلاطات اللي ليها SE (منطقة LEVEL في ملف الكاد)؛ الدروب
++    بياخد منسوب المنطقة اللي هو فيها فمش بيعمل خط فرق.
++    بترجّع (الخطوط, [(p1, p2, الاتجاه)] للسبليترز).
++    """
++    if not bool(getattr(params, "strip_stop_at_level_step", True)):
++        return lines, []
++    regions = _level_regions(site)
++    if not regions:
++        return lines, []
++    import math as _m
++    polys = [r[0] for r in regions]
++    bnd = (site or {}).get("boundary") or []
++
++    def cuts_on(p1, p2):
++        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
++        ts = {0.0, 1.0}
++        for poly in polys:
++            n = len(poly)
++            for i in range(n):
++                a, b = poly[i], poly[(i + 1) % n]
++                ex, ey = b[0] - a[0], b[1] - a[1]
++                den = dx * ey - dy * ex
++                if abs(den) < 1e-12:
++                    continue
++                t = ((a[0] - p1[0]) * ey - (a[1] - p1[1]) * ex) / den
++                u = ((a[0] - p1[0]) * dy - (a[1] - p1[1]) * dx) / den
++                if 1e-6 < t < 1 - 1e-6 and -1e-9 <= u <= 1 + 1e-9:
++                    ts.add(round(t, 9))
++        ts = sorted(ts)
++        at = lambda t: (p1[0] + dx * t, p1[1] + dy * t)
++        levels = [_se_at(at((ts[i] + ts[i + 1]) / 2.0), regions) for i in range(len(ts) - 1)]
++        return [at(ts[i + 1]) for i in range(len(levels) - 1) if abs(levels[i] - levels[i + 1]) >= 1.0]
++
++    out, n_cut = [], 0
++    for line in lines:
++        cur = dict(line); cur["spans"] = []
++        for sp in line.get("spans") or []:
++            pts = cuts_on(sp["p1"], sp["p2"])
++            if not pts:
++                cur["spans"].append(sp)
++                continue
++            a = sp["p1"]
++            for q in pts:
++                if dist(a, q) > 1e-3:
++                    cur["spans"].append(dict(sp, p1=a, p2=q))
++                if cur["spans"]:
++                    out.append(cur)
++                cur = dict(line); cur["spans"] = []
++                a = q; n_cut += 1
++            if dist(a, sp["p2"]) > 1e-3:
++                cur["spans"].append(dict(sp, p1=a, p2=sp["p2"]))
++        if cur["spans"]:
++            out.append(cur)
++
++    #  السبليترز: أجزاء حدود مناطق المنسوب اللي على جنبيها منسوبين مختلفين
++    #  (وجنبيها الاتنين خرسانة، مش حرف البلاطة)
++    splitters = []
++    step = 0.5
++    for poly in polys:
++        n = len(poly)
++        for i in range(n):
++            a, b = poly[i], poly[(i + 1) % n]
++            L = dist(a, b)
++            if L < 0.3:
++                continue
++            ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
++            k = max(1, int(_m.ceil(L / step)))
++            run = None
++            for j in range(k):
++                t0, t1 = j * L / k, (j + 1) * L / k
++                m = (a[0] + ux * (t0 + t1) / 2, a[1] + uy * (t0 + t1) / 2)
++                l_ = (m[0] - uy * 0.1, m[1] + ux * 0.1); r_ = (m[0] + uy * 0.1, m[1] - ux * 0.1)
++                inb = (not bnd) or (point_in_polygon(l_[0], l_[1], bnd) and point_in_polygon(r_[0], r_[1], bnd))
++                is_step = inb and abs(_se_at(l_, regions) - _se_at(r_, regions)) >= 1.0
++                if is_step:
++                    run = (run[0] if run else t0, t1)
++                if (not is_step or j == k - 1) and run:
++                    p = (a[0] + ux * run[0], a[1] + uy * run[0]); q = (a[0] + ux * run[1], a[1] + uy * run[1])
++                    if dist(p, q) >= 0.3:
++                        ang = abs(_m.degrees(_m.atan2(q[1] - p[1], q[0] - p[0]))) % 180.0
++                        d = "X" if (ang <= 45.0 or ang >= 135.0) else "Y"
++                        key = tuple(round(c, 2) for c in (*sorted([p, q])[0], *sorted([p, q])[1]))
++                        if key not in {tuple(round(c, 2) for c in (*sorted([s_[0], s_[1]])[0], *sorted([s_[0], s_[1]])[1])) for s_ in splitters}:
++                            splitters.append((p, q, d))
++                    run = None
++    #  حدود المنطقة بتتقسم لأضلاع صغيرة كتير (والمنطقتين على جنبي الخط بيدّوا
++    #  نفس الخط مرتين): القطع اللي على خط واحد ولامسة بعض بتبقى سبليتر واحد
++    def _merge(a, b):
++        (p, q, d), (r, t, e) = a, b
++        if d != e:
++            return None
++        L = dist(p, q)
++        if L < 1e-9:
++            return None
++        ux, uy = (q[0] - p[0]) / L, (q[1] - p[1]) / L
++        off = lambda z: abs((z[0] - p[0]) * uy - (z[1] - p[1]) * ux)
++        if off(r) > 0.02 or off(t) > 0.02:
++            return None
++        pr = lambda z: (z[0] - p[0]) * ux + (z[1] - p[1]) * uy
++        s0, s1 = sorted((pr(r), pr(t)))
++        if s0 > L + 0.05 or s1 < -0.05:
++            return None
++        lo, hi = min(0.0, s0), max(L, s1)
++        return ((p[0] + ux * lo, p[1] + uy * lo), (p[0] + ux * hi, p[1] + uy * hi), d)
++    changed = True
++    while changed:
++        changed = False
++        for i in range(len(splitters)):
++            for j in range(i + 1, len(splitters)):
++                m = _merge(splitters[i], splitters[j])
++                if m:
++                    splitters[i] = m; del splitters[j]; changed = True
++                    break
++            if changed:
++                break
++    #  سنّة صغيرة في حد المنطقة (عمود/دروب على الخط) مش خط فرق: أقل من متر مابيحدّش شريحة
++    splitters = [sp_ for sp_ in splitters if dist(sp_[0], sp_[1]) >= 1.0]
++    if job and (n_cut or splitters):
++        job.ok(f"Level steps: {n_cut} design strip span(s) cut at the line "
++               f"where the slab level changes - each side is its own support "
++               f"line now, designed on its own level (RAM does not accept a "
++               f"strip that runs from one level into another). "
++               f"{len(splitters)} splitter(s) drawn along the step lines so "
++               f"the strip widths stop there too.")
++    return out, splitters
++
++
+ def _tidy_support_lines(lines, site, params, job):
+     """قواعد ترتيب خطوط الركائز - مفصولة عشان إعادة البناء تعدّيها."""
+     #  17.13: الأول الخط يتحرّك على الركيزة اللي جنبه، وبعدين يلفّ على
+@@ -29852,6 +30431,12 @@
+         stop_lines_at_support_centre(lines, site, params, job)
+     except Exception as e:
+         job.warn(f"The strip ends were left where they were ({e}).")
++    #  الشريحة بتقف عند خط اختلاف المنسوب (رام مابيقبلش شريحة من منسوب لمنسوب)
++    try:
++        lines, _lv_sp = stop_strips_at_level_steps(lines, site, params, job)
++        beam_splitters += _lv_sp
++    except Exception as e:
++        job.warn(f"The design strips were not cut at the level steps ({e}).")
+     lines, _crowded, _short = prune_crowded_spans(lines, params, job)
+     return lines, beam_splitters
+ 
+@@ -29892,8 +30477,8 @@
+         except Exception as e:
+             job.warn(f"A splitter beside a beam was not drawn: {str(e)[:80]}")
+     if drawn_sb:
+-        job.ok(f"{drawn_sb} splitter(s) drawn between a beam and the strip "
+-               f"beside it, parallel to both and running their length.")
++        job.ok(f"{drawn_sb} splitter(s) drawn: between a beam and the strip "
++               f"beside it, and along the level steps.")
+     if drawn_spans:
+         job.ok(f"{drawn_spans} span segments drawn on {drawn_lines} support "
+                f"lines.")
+@@ -35863,6 +36448,10 @@
      enforce_plan_rules(tendons, params, job, site)
      enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
                            walls=_walls, shapes=_shapes)
@@ -617,7 +815,7 @@
  
      m = measure_design(site, tendons, lines, None, params)
      m["model"] = os.path.basename(dxf_path)
-@@ -37157,6 +37580,10 @@
+@@ -37157,6 +37746,10 @@
      enforce_plan_rules(tendons, params, job, site=site)
      enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
                            shapes=_shapes)
@@ -628,7 +826,7 @@
      _LAST_DRAWN["tendons"] = tendons                   # 17.27
      _LAST_DRAWN["params"] = params
      Point2D = session.api["Point2D"]
-@@ -37183,7 +37610,8 @@
+@@ -37183,7 +37776,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -638,7 +836,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -37514,6 +37942,8 @@
+@@ -37514,6 +38108,8 @@
      add_jack exists on TendonLayer but its signature is not documented here, so
      the call is probed once and the working form reported.
      """
@@ -647,7 +845,7 @@
      Point2D = session.api["Point2D"]
      LineSegment2D = session.api["LineSegment2D"]
      cad = session.model.cad_manager
-@@ -39908,9 +40338,18 @@
+@@ -39908,9 +40504,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -668,7 +866,7 @@
      return False
  
  
-@@ -50315,6 +50754,24 @@
+@@ -50315,6 +50920,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -693,7 +891,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53428,652 @@
+@@ -52971,6 +53594,652 @@
      return rejected
  
  
@@ -1346,7 +1544,7 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57667,86 @@
+@@ -56564,6 +57833,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1433,7 +1631,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +64801,8 @@
+@@ -63618,7 +64967,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1443,7 +1641,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +70047,9 @@
+@@ -68863,6 +70213,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1453,7 +1651,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +71090,14 @@
+@@ -69903,6 +71256,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1468,7 +1666,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +71145,14 @@
+@@ -69950,6 +71311,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1483,7 +1681,7 @@
  
          return outer
  
-@@ -70014,6 +71217,11 @@
+@@ -70014,6 +71383,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1495,7 +1693,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76201,340 @@
+@@ -74993,6 +76367,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  

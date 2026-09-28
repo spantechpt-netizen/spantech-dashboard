@@ -189,3 +189,21 @@ def test_stage2_loads_from_loading_plan(tmp_path, core, monkeypatch):
     dead = sorted(round(-e.Fz0, 2) for e in S_.dead.area_loads)
     live = sorted(round(-e.Fz0, 2) for e in S_.live.area_loads)
     assert dead == [2.0, 5.5, 6.5] and live == [2.0, 2.0, 5.0], (dead, live)
+
+
+def test_design_strips_stop_at_level_step(core):
+    """شريحة معدّية من منسوب لمنسوب: بتتقطع عند خط الفرق، وسبليتر على طول الخط."""
+    C = core
+    site = {"boundary": [(0, 0), (20, 0), (20, 10), (0, 10)],
+            "slabs": [{"points": [(0, 0), (20, 0), (20, 10), (0, 10)], "area": 200.0, "is_drop": False},
+                      {"points": [(10, 0), (20, 0), (20, 10), (10, 10)], "area": 100.0, "is_drop": False,
+                       "surface_elevation_mm": 300.0}]}
+    lines = [{"dir": "X", "spans": [{"p1": (1.0, 5.0), "p2": (8.0, 5.0)}, {"p1": (8.0, 5.0), "p2": (19.0, 5.0)}]}]
+    P = C.TendonDesignParams()
+    out, spl = C.stop_strips_at_level_steps(lines, site, P, None)
+    assert len(out) == 2
+    assert out[0]["spans"][-1]["p2"] == pytest.approx((10.0, 5.0)) and out[1]["spans"][0]["p1"] == pytest.approx((10.0, 5.0))
+    assert len(spl) == 1 and spl[0][2] == "Y"
+    assert {round(spl[0][0][1], 2), round(spl[0][1][1], 2)} == {0.0, 10.0}
+    P.strip_stop_at_level_step = False
+    assert C.stop_strips_at_level_steps(lines, site, P, None) == (lines, [])

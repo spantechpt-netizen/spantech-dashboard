@@ -57,15 +57,17 @@ for tag in TAGS:
     drops = [(Polygon(d["poly"]), d) for d in res.get("drops", [])]
     # دروب في "سنّة" على حد منطقة المنسوب (المنطقة اتقفلت من خطوط الرسمة حوالين الدروب - HDB Z10) = جوه المنطقة:
     # المنسوب المكتوب بيشمل الدروب اللي في منطقته، فالمنطقة بتتقفل عليه وياخد منسوبها.
-    # السنّة: الدروب ≥ 90% جوه قفل المنطقة (3 م) وماشي على حدها ≥ 40% من محيطه (مش دروب جنبها من برّه).
+    # السنّة: الدروب ≥ 90% جوه قفل المنطقة (3 م) أو المستطيل المحيط بيها وماشي على حدها ≥ 40% من محيطه (مش دروب جنبها من برّه).
     for i, (zp, z) in enumerate(zones):
-        zp = zp.buffer(0); cl = zp.buffer(3.0, join_style=2).buffer(-3.0, join_style=2)
+        # (وفي ركن المنطقة: الدروب عند عمود الركن مقصوص من المنطقة على جنبين - القفل مابيملاش ركن،
+        #  فالمستطيل المحيط بالمنطقة بيتاخد كمان. HDB Z1: الأربع أركان)
+        zp = zp.buffer(0); cl = zp.buffer(3.0, join_style=2).buffer(-3.0, join_style=2).union(zp.minimum_rotated_rectangle)
         add = [dp.buffer(0) for dp, _ in drops if dp.area > 0 and dp.intersection(zp).area < 0.9 * dp.area and
                dp.intersection(cl).area >= 0.9 * dp.area and dp.boundary.intersection(zp.buffer(0.01)).length >= 0.4 * dp.length]
         if add:
-            u = unary_union([zp] + [a.buffer(0.001, join_style=2) for a in add]).buffer(-0.001, join_style=2).intersection(slab)
-            u = max(getattr(u, "geoms", [u]), key=lambda q: q.area)
-            if u.geom_type == "Polygon" and not u.interiors:
+            # (من غير تصغير بعد الدمج: منطقة فيها رقبة رفيعة بتتقطع لو اتصغّرت 1 مم - HDB Z3)
+            u = unary_union([zp] + [a.buffer(0.001, join_style=2) for a in add])
+            if u.geom_type == "Polygon" and not u.interiors and u.area >= zp.area:
                 zones[i] = (u, dict(z, poly=[tuple(c) for c in u.exterior.coords][:-1]))
     # منطقة سُمك بنفس سُمك البلاطة (السُمك النهائي اتحدد بعد ما اتعملت) مالهاش معنى
     tz = [(Polygon(z["poly"]).buffer(0), z) for z in res.get("thick_zones", []) if z.get("thickness_mm") != t_slab]
