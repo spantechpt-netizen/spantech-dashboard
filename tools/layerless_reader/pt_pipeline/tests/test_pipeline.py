@@ -76,7 +76,7 @@ def test_end_to_end(tmp_path, case):
     # الكمرة على كل محور بتتلم وبعدين بتتقطع عند آكس كل عمود: حتة لكل بحر، ورا بعض بالظبط
     assert lay["PT-Clean-Beams"] == truth["spans"]
     assert lay["PT-Clean-Openings"] == truth["openings"]
-    assert f"t={truth['thickness']}" in texts
+    assert f"SLAB t={truth['thickness']} SE=+0 P=1" in texts            # البلاطة الأساسية: سُمك + منسوب صفر + أولوية
     # الحد على الوش الخارجي للكمرات الطرفية وبيغطي الأعمدة: بين الاتنين
     assert 18.3 * 12.3 - 0.5 <= area <= 18.4 * 12.4 + 0.01
     beams = [x for x in rows if x and x[1] == "beam"]

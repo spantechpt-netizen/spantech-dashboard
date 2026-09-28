@@ -1,7 +1,7 @@
 """DXF نضيف لـ Auto PT Suite (مم، $INSUNITS=4) - موحّد لكل المشاريع.
 
 طبقات:
-  PT-Clean-Boundary      حد البلاطة + نص "t=240" و "T.O.S +0.30" جوه البلاطة
+  PT-Clean-Boundary      حد البلاطة + نص "SLAB t=240 SE=+0 P=1" و "T.O.S +0.30" جوه البلاطة
   PT-Clean-Openings      فتحات (سلالم/أسانسير/شفتات/منحدر)
   PT-Clean-Drops         كل منطقة بسُمك أو منسوب غير البلاطة:
                            drop:           "DROP t=400"            (+ " SE=..." لو جوه منطقة منسوب)
@@ -147,7 +147,10 @@ for tag in TAGS:
     msp.add_lwpolyline([T(p) for p in res["slabs"][0]["outline"]], close=True, dxfattribs={"layer": "PT-Clean-Boundary"})
     ip = interior_point(slab, unary_union([p for p, _ in zones] + [p for p, _ in drops] + [p for p, _ in tz] + ops))
     if t_slab:
-        msp.add_text(f"t={t_slab}", dxfattribs={"layer": "PT-Clean-Boundary", "height": 400, "insert": T((ip.x, ip.y))})
+        # البلاطة الأساسية بكل تفاصيلها زي باقي المناطق: السُمك، المنسوب (صفر = المنسوب الغالب) والأولوية
+        msp.add_text(f"SLAB t={t_slab} SE=+0 P=1", dxfattribs={"layer": "PT-Clean-Boundary", "height": 400, "insert": T((ip.x, ip.y))})
+    else:
+        msp.add_text("SLAB SE=+0 P=1", dxfattribs={"layer": "PT-Clean-Boundary", "height": 400, "insert": T((ip.x, ip.y))})
     if main is not None:
         msp.add_text("T.O.S", dxfattribs={"layer": "PT-Clean-Boundary", "height": 300, "insert": T((ip.x, ip.y - 0.7))})
         msp.add_text(f"{main:+.2f}", dxfattribs={"layer": "PT-Clean-Boundary", "height": 300, "insert": T((ip.x + 1.6, ip.y - 0.7))})
@@ -162,6 +165,27 @@ for tag in TAGS:
         msp.add_lwpolyline([T(p) for p in a["poly"]], close=True, dxfattribs={"layer": "PT-Clean-Loads"})
         c = interior_point(ap, Polygon())
         msp.add_text(f"LOAD SDL={a['sdl']:g} LL={a['ll']:g} {a['usage']}", dxfattribs={"layer": "PT-Clean-Loads", "height": 250, "insert": T((c.x, c.y))})
+    # باقي البلاطة (برّه مسقط الأحمال، أو البلاطة كلها لو مافيش مسقط): مضلع "LOAD DEFAULT" - البرنامج
+    # بيحط عليه SDL/LL الافتراضي من صفحة Loads (القيمة مش مكتوبة هنا عشان بتتغير من البرنامج)
+    _rest = slab.buffer(0).difference(unary_union([Polygon(a["poly"]).buffer(0) for a in la] +
+                                                  [Polygon(o["poly"]).buffer(0) for o in res["openings"]]))
+    def _holeless(g):
+        """مضلع بخروم -> قطع من غير خروم (المضلع الخارجي لو اتكتب لوحده بيحوي نصوص المناطق اللي جواه)."""
+        if g.geom_type != "Polygon" or g.area < 1.0:
+            return []
+        if not g.interiors:
+            return [g]
+        from shapely.ops import split
+        cx = g.interiors[0].centroid.x
+        out = []
+        for q in split(g, LineString([(cx, g.bounds[1] - 1), (cx, g.bounds[3] + 1)])).geoms:
+            out += _holeless(q)
+        return out
+    for g in [q for g0 in getattr(_rest, "geoms", [_rest]) for q in _holeless(g0)]:
+        g = g.simplify(0.002)
+        msp.add_lwpolyline([T(p) for p in list(g.exterior.coords)[:-1]], close=True, dxfattribs={"layer": "PT-Clean-Loads"})
+        c = interior_point(g, Polygon())
+        msp.add_text("LOAD DEFAULT (program SDL/LL)", dxfattribs={"layer": "PT-Clean-Loads", "height": 250, "insert": T((c.x, c.y))})
     if la:
         by = {}
         for a in la:

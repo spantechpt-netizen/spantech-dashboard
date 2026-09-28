@@ -68,11 +68,14 @@ def inspect_zone(path):
     # كل مضلع حمل بياخد النص اللي جواه (مسقط الأحمال)
     if lpolys:
         from shapely.geometry import Polygon, Point
-        for pts in lpolys:
-            g = Polygon(pts).buffer(0)
-            t = next((q for q in ltexts if g.buffer(0.01).contains(Point(q[0]))), None)
-            if t is not None and g.area > 0:
-                z["load_areas"].append({"poly": pts, "sdl": t[1], "ll": t[2], "usage": t[3], "area": g.area})
+        # النص لأصغر مضلع حواليه (زي RAM): مضلع كبير فيه مناطق تانية مابياخدش نصوصها
+        G = [(pts, Polygon(pts).buffer(0)) for pts in lpolys]
+        for t in ltexts:
+            own = [(g.area, pts, g) for pts, g in G if g.area > 0 and g.buffer(0.01).contains(Point(t[0]))]
+            if own:
+                a, pts, g = min(own, key=lambda q: q[0])
+                if not any(x["poly"] is pts for x in z["load_areas"]):
+                    z["load_areas"].append({"poly": pts, "sdl": t[1], "ll": t[2], "usage": t[3], "area": a})
     return z
 
 
