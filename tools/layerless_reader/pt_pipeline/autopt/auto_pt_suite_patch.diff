@@ -295,7 +295,46 @@
      return None
  
  
-@@ -13857,6 +14036,12 @@
+@@ -13823,10 +14002,20 @@
+         #  = المنسوب - السُمك، صح في الحالتين (السطح بس نازل، أو الاتنين
+         #  سوا) لأنه بيتحسب من رقمين حقيقيين مقروءين مش مفترضين.
+         _elev_col = _cpt_elevation_column(con, "SlabArea")
++        #  (Span Tech) شريحة الصب في رام = منطقة بلاطة Custom بـ KFr = KFs = 0.001
++        #  (عرضها 0.8 - 1.2 م). من غير العمودين دول كانت بتتقري بلاطة عادية -
++        #  أو دروب لأن أولويتها أعلى - والكابل بيعدّي منها.
++        try:
++            _acols = [c[1] for c in con.execute("pragma table_info('SlabArea')")]
++        except Exception:
++            _acols = []
++        _kf = [c for c in ("SlabKFr", "SlabKFs") if c in _acols]
+         _sel_areas = ("SELECT SlabThickness,MultiPoint,Priority"
+-                     + (f",{_elev_col}" if _elev_col else "")
++                     + (f",{_elev_col}" if _elev_col else ",NULL")
++                     + "".join(f",{c}" for c in _kf)
+                      + " FROM SlabArea")
+         _elevs = []
++        _pour = []
+         for _row in q(_sel_areas):
+             th, mp, pr = _row[0], _row[1], _row[2]
+             pts = poly(mp)
+@@ -13835,8 +14024,15 @@
+                 #  18.102: الخلية الفاضية تفضل None - كانت بتبقى صفر
+                 #  وبتتكتب في رام كأولوية.
+                 _pri.append(int(pr) if pr is not None else None)
+-                _ev = _row[3] if (_elev_col and len(_row) > 3) else None
++                _ev = _row[3] if _elev_col else None
+                 _elevs.append(float(_ev) * 0.1 if _ev is not None else 0.0)
++                _kv = []
++                for _x in _row[4:4 + len(_kf)]:
++                    try:
++                        _kv.append(float(_x))
++                    except (TypeError, ValueError):
++                        _kv.append(1.0)
++                _pour.append(len(_kv) == 2 and max(_kv) <= 0.01)
+         #  **البلاطة هي السُمك اللي مغطّي أكبر مساحة (17.52)،** مش أرفع
+         #  منطقة. كان أي حاجة أتخن من أرفع شريحة بتبقى دروب: شريحة 200
+         #  صغيرة على دور 250 خلّت البلاطة كلها "دروب" - على UNB
+@@ -13857,6 +14053,12 @@
                      _by_pri[pr] = _by_pri.get(pr, 0.0) + abs(polygon_area(pts))
              _base_pri = (max(_by_pri, key=lambda k: _by_pri[k])
                           if _by_pri else None)
@@ -308,7 +347,7 @@
          for i, (th, pts) in enumerate(areas):
              pr = _pri[i] if i < len(_pri) else None
              #  الأولوية هي اللي بتقول "دي فوق دي" - والسُمك تأكيد
-@@ -13866,12 +14051,16 @@
+@@ -13866,18 +14068,46 @@
              #  في رام أصلاً فمش دروب مهما كان سُمكه.
              _thicker = th > base + 1.0
              _not_thinner = th >= base - 1.0
@@ -323,10 +362,40 @@
 +            #  منسوب (بلاطة مهبّطة/مرفوعة)، مش دروب - حتى لو أولويتها أعلى.
 +            if is_drop and not _thicker and abs(elev - _base_elev) > 1.0:
 +                is_drop = False
++            _is_pour = i < len(_pour) and _pour[i]
++            if _is_pour:
++                is_drop = False               # شريحة صب مش دروب حتى لو أولويتها أعلى
              site["slabs"].append({"points": pts, "is_drop": is_drop,
                                    "priority": pr, "thickness": th,
                                    "elevation": elev,
-@@ -15458,6 +15647,145 @@
+                                   "soffit": elev - th})
++            if _is_pour:
++                site["slabs"][-1].update(pour_strip=True, release_fx=True, release_fy=True)
+             if is_drop:
+                 site["drops"].append(pts)
++        _ps = [sl for sl in site["slabs"] if sl.get("pour_strip")]
++        if _ps and job:
++            def _w(pts):
++                try:
++                    from shapely.geometry import Polygon as _P
++                    r = _P(pts).minimum_rotated_rectangle
++                    xy = list(r.exterior.coords)
++                    return min(dist(xy[0], xy[1]), dist(xy[1], xy[2]))
++                except Exception:
++                    return 0.0
++            _ws = [_w(sl["points"]) for sl in _ps]
++            job.ok(f"{len(_ps)} pour strip(s) read from the model (slab areas with "
++                   f"KFr = KFs = 0.001, width {min(_ws):.2f}-{max(_ws):.2f} m): the "
++                   f"tendons stop at them.")
++            _odd = [w for w in _ws if not (0.6 <= w <= 1.5)]
++            if _odd:
++                job.warn(f"{len(_odd)} of them is not 0.8-1.2 m wide "
++                         f"({', '.join(f'{w:.2f}' for w in _odd[:5])} m) - check "
++                         f"it is really a pour strip and not a released slab area.")
+         if any(abs(s["elevation"]) > 1.0 for s in site["slabs"]) and job:
+             job.info(f"{sum(1 for s in site['slabs'] if abs(s['elevation']) > 1.0)} "
+                      f"slab area(s) have their own Surface Elevation in the "
+@@ -15458,6 +15688,145 @@
      return out
  
  
@@ -472,7 +541,44 @@
  def order_along_route(tendons, p, job=None):
      """شبكة أمان: أي بروفايل عقده مش مرتّبة مع سير الكابل تترتّب.
  
-@@ -24088,6 +24416,35 @@
+@@ -18882,12 +19251,26 @@
+     return False
+ 
+ 
++def _tendon_barriers(site):
++    """
++    **كل اللي الكابل بيقف عنده** (Span Tech): شرايح الصب من ليّرها، + أي
++    منطقة بلاطة متعلّمة شريحة صب (نص "POUR STRIP … RELEASE" في الـ DXF، أو
++    منطقة في موديل رام KFr/KFs ≈ 0.001). كانت الأولى بس، فالشريحة المقروءة
++    من موديل جاهز أو من ملاحظة كانت بتتفك في رام والكابل بيعدّي منها.
++    """
++    out = list((site or {}).get("pour_strips") or [])
++    for sl in (site or {}).get("slabs") or []:
++        if sl.get("pour_strip") and sl.get("points") and len(sl["points"]) >= 3:
++            out.append(sl["points"])
++    return out
++
++
+ def _guided_piece(engine, route, axis, lo_c, hi_c, p):
+     """The stretch of a blended route that lies in concrete and in the bay."""
+     floor = max(p.min_tendon_length * 0.25, 1.0)
+     pieces = route.clip_to_concrete(engine.boundary, engine.openings,
+                                     region=engine.region, min_length=floor,
+-                                    barriers=engine.site.get("pour_strips"))
++                                    barriers=_tendon_barriers(engine.site))
+     best = None
+     for pc in pieces:
+         a = path_station_at_axis(pc, axis, lo_c)
+@@ -22350,7 +22733,7 @@
+                     self.eng.boundary, self.eng.openings,
+                     region=self.eng.region,
+                     min_length=p.min_tendon_length,
+-                    barriers=self.eng.site.get("pour_strips")):
++                    barriers=_tendon_barriers(self.eng.site)):
+                 pieces = (split_curved_path(run0, p, self.f, self.job)
+                           if self.guided else [run0])
+                 for run in pieces:
+@@ -24088,6 +24471,35 @@
      return None
  
  
@@ -508,7 +614,7 @@
  POUR_STRIP_BEHAVIOUR = {
      # From the RAM dialog: a pour strip carries moment across but almost no
      # in-plane force, which is what lets the two pours shrink independently.
-@@ -24199,11 +24556,29 @@
+@@ -24199,11 +24611,29 @@
      LineSegment2D = session.api["LineSegment2D"]
  
      structure = session.model.cad_manager.structure_layer
@@ -538,11 +644,18 @@
      job.step(0.55, "Drawing slab areas")
      for i, slab in enumerate(site["slabs"]):
          job.check()
-@@ -24231,6 +24606,21 @@
+@@ -24231,6 +24661,28 @@
                      _prio["slabs"] += 1
                  except Exception:
                      _prio["failed"] += 1
-+            if slab.get("release_fx") or slab.get("release_fy"):
++            if slab.get("pour_strip"):
++                #  (Span Tech) شريحة الصب = Custom و KFr = KFs = 0.001 (تعريف المكتب)
++                _d, _f = apply_pour_strip_behaviour(elem, job, None)
++                _ok = "kFr" in _d and "kFs" in _d
++                _se_count["released" if _ok else "rel_failed"] = _se_count.get("released" if _ok else "rel_failed", 0) + 1
++                if not _ok and _se_count["members"] is None:
++                    _se_count["members"] = describe_element(elem)
++            elif slab.get("release_fx") or slab.get("release_fy"):
 +                _ok = True
 +                if slab.get("release_fx"):
 +                    _ok = bool(_set_first_attr(elem, RELEASE_FX_ATTRS, True)) and _ok
@@ -560,7 +673,7 @@
              counts["slabs"] += 1
          except Exception as e:
              skipped["slabs"] += 1
-@@ -24428,8 +24818,11 @@
+@@ -24428,8 +24880,11 @@
              set_b = _set_first_attr(elem, ("b", "width"), float(b["width"]))
              #  عمق الكمرة من المصدر لو جه معاها (ملف أدابت بيدي عمق لكل
              #  كمرة)، وإلا القيمة العامة من الإعدادات.
@@ -573,7 +686,7 @@
              _pr = b.get("priority")
              if _pr is not None:
                  try:
-@@ -24437,6 +24830,19 @@
+@@ -24437,6 +24892,19 @@
                      _prio["beams"] += 1
                  except Exception:
                      _prio["failed"] += 1
@@ -593,7 +706,7 @@
              if beam_report[0] is None:
                  beam_report[0] = (set_b, set_d, describe_element(elem))
              counts["beams"] += 1
-@@ -24444,6 +24850,20 @@
+@@ -24444,6 +24912,20 @@
              skipped["beams"] += 1
              job.warn(f"Beam: {e}")
  
@@ -614,7 +727,7 @@
      if job and (_prio["slabs"] or _prio["beams"] or _prio["failed"]):
          job.info(f"    Priority carried across from the source: "
                   f"{_prio['slabs']} slab area(s) and {_prio['beams']} "
-@@ -29703,6 +30123,125 @@
+@@ -29703,6 +30185,125 @@
              "lines": lines}
  
  
@@ -740,7 +853,7 @@
  def write_design_strips_to_ram(session, site, params, job, cpt_path=None):
      """
      يرسم خطوط الركائز في الموديل كـ Span Segments.
-@@ -29749,7 +30288,12 @@
+@@ -29749,7 +30350,12 @@
  
      #  17.15: الرسم من الإطارات (الافتراضي) أو الكنس القديم.
      lines = []
@@ -754,7 +867,7 @@
          if str(getattr(params, "strip_layout", "frames")) == "frames":
              job.log("Building the support lines from the supports themselves",
                      "head")
-@@ -29776,6 +30320,7 @@
+@@ -29776,6 +30382,7 @@
          beam_splitters = []
      else:
          lines, beam_splitters = _tidy_support_lines(lines, site, params, job)
@@ -762,7 +875,7 @@
      if not lines:
          job.error("Every span was pruned - check the minimum gap and minimum "
                    "span length on the design strips page.")
-@@ -29787,6 +30332,165 @@
+@@ -29787,6 +30394,165 @@
                                 site, params, job)
  
  
@@ -928,7 +1041,7 @@
  def _tidy_support_lines(lines, site, params, job):
      """قواعد ترتيب خطوط الركائز - مفصولة عشان إعادة البناء تعدّيها."""
      #  17.13: الأول الخط يتحرّك على الركيزة اللي جنبه، وبعدين يلفّ على
-@@ -29852,6 +30556,12 @@
+@@ -29852,6 +30618,12 @@
          stop_lines_at_support_centre(lines, site, params, job)
      except Exception as e:
          job.warn(f"The strip ends were left where they were ({e}).")
@@ -941,7 +1054,7 @@
      lines, _crowded, _short = prune_crowded_spans(lines, params, job)
      return lines, beam_splitters
  
-@@ -29892,8 +30602,8 @@
+@@ -29892,8 +30664,8 @@
          except Exception as e:
              job.warn(f"A splitter beside a beam was not drawn: {str(e)[:80]}")
      if drawn_sb:
@@ -952,7 +1065,7 @@
      if drawn_spans:
          job.ok(f"{drawn_spans} span segments drawn on {drawn_lines} support "
                 f"lines.")
-@@ -31781,7 +32491,12 @@
+@@ -31781,7 +32553,12 @@
      فالتخطيط اللي بيطلع من هنا هو اللي رام كان هياخده.
      """
      lines = []
@@ -966,7 +1079,7 @@
          if str(getattr(params, "strip_layout", "frames")) == "frames":
              _l = build_lines_from_walls(_sub, params, job)
              if not _l:
-@@ -35863,6 +36578,10 @@
+@@ -35863,6 +36640,10 @@
      enforce_plan_rules(tendons, params, job, site)
      enforce_profile_rules(tendons, params, job, drops=site.get("drops"),
                            walls=_walls, shapes=_shapes)
@@ -977,7 +1090,7 @@
  
      m = measure_design(site, tendons, lines, None, params)
      m["model"] = os.path.basename(dxf_path)
-@@ -37157,6 +37876,10 @@
+@@ -37157,6 +37938,10 @@
      enforce_plan_rules(tendons, params, job, site=site)
      enforce_profile_rules(tendons, params, job, drops=drops, walls=_sup,
                            shapes=_shapes)
@@ -988,7 +1101,7 @@
      _LAST_DRAWN["tendons"] = tendons                   # 17.27
      _LAST_DRAWN["params"] = params
      Point2D = session.api["Point2D"]
-@@ -37183,7 +37906,8 @@
+@@ -37183,7 +37968,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -998,7 +1111,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -37514,6 +38238,8 @@
+@@ -37514,6 +38300,8 @@
      add_jack exists on TendonLayer but its signature is not documented here, so
      the call is probed once and the working form reported.
      """
@@ -1007,7 +1120,7 @@
      Point2D = session.api["Point2D"]
      LineSegment2D = session.api["LineSegment2D"]
      cad = session.model.cad_manager
-@@ -39908,9 +40634,18 @@
+@@ -39908,9 +40696,18 @@
                                    f"{str(e)[:90]}")
              for err in errors:
                  job.warn(f"    {err}")
@@ -1028,7 +1141,7 @@
      return False
  
  
-@@ -50315,6 +51050,24 @@
+@@ -50315,6 +51112,24 @@
  def run_model_analysis(session: RamSession, job: Job, mesh_size=None):
      """
      تشغيل التحليل في RAM Concept بعد الرسم.
@@ -1053,7 +1166,7 @@
      أسماء الدالة اختلفت بين الإصدارات، فبنجرّب المتاح ونسجّل اللي اشتغل.
      """
      # The mesh must exist first - this is what "There is no structure to
-@@ -52971,6 +53724,652 @@
+@@ -52971,6 +53786,652 @@
      return rejected
  
  
@@ -1706,7 +1819,16 @@
  def _pa_from_tendons(tendons, params, direction, area_m2):
      """P/A بالميجاباسكال من عدد الاستراندات اللي في إيدنا دلوقتي."""
      force = 0.0
-@@ -56564,6 +57963,86 @@
+@@ -55389,7 +56850,7 @@
+         # Pour strips go under the tendons: they are what the tendons stop
+         # at, so seeing both together is the point.
+         if self.show.get("pour_strip"):
+-            for strip in (self.site.get("pour_strips") or []):
++            for strip in _tendon_barriers(self.site):
+                 pts = self._flat(strip)
+                 if len(pts) >= 6:
+                     self.create_polygon(*pts, fill="", outline=PALETTE["pour_strip"],
+@@ -56564,6 +58025,86 @@
              self.create_text(sx, sy, text=label, fill=color, font=F(10, "bold"))
  
  
@@ -1793,7 +1915,7 @@
  class ZoneReviewDialog(ModalDialog):
      """
      شاشة مراجعة الزونات بعد التقسيم: تبويب "Plan" بيوّري البلان الأصلي
-@@ -63618,7 +65097,8 @@
+@@ -63618,7 +65159,8 @@
              _pts = _s.get("points") or []
              _th = float(_s.get("thickness") or 0.0)
              if len(_pts) >= 3 and _th > 0:
@@ -1803,7 +1925,7 @@
                  _site_slabs.append((_pts, _th, _drop))
          except Exception:
              continue
-@@ -68863,6 +70343,9 @@
+@@ -68863,6 +70405,9 @@
              "cleanup_col_min": V(value="150"),
              "cleanup_col_max": V(value="1500"),
              "cleanup_split_zones": B(value=False),
@@ -1813,7 +1935,7 @@
              "xfer_src": V(),
              "xfer_factor": V(value="1"),
              "xfer_analyse": B(value=True),
-@@ -69903,6 +71386,14 @@
+@@ -69903,6 +71448,14 @@
                  "each against the same .cpt template below if only one is "
                  "set, or matched file-for-model if the .cpt box also has "
                  "several, separated by ';'.")
@@ -1828,7 +1950,7 @@
          c.field("RAM Concept file (.cpt)", self._file_row(c.body, self.v["cpt"], "cpt",
                                                            multi=True),
                  "Opened as a template; a new copy is saved. The original is "
-@@ -69950,6 +71441,14 @@
+@@ -69950,6 +71503,14 @@
                  self._file_row(c.body, self.v["api_path"], "dir"),
                  "Leave empty to auto-detect. Set it if RAM is installed somewhere "
                  "unusual - either the python folder or the version folder.")
@@ -1843,7 +1965,7 @@
  
          return outer
  
-@@ -70014,6 +71513,11 @@
+@@ -70014,6 +71575,11 @@
                      title="Select a RAM Concept file", parent=top,
                      initialdir=self._last_dir(var),
                      filetypes=[("RAM Concept", "*.cpt"), ("All files", "*.*")])
@@ -1855,7 +1977,7 @@
              elif kind == "json":
                  #  18.83: كان أي نوع مش معروف بيفتح شاشة **مجلد**، فخانة
                  #  ملف التخطيط كانت هتاخد مسار مجلد وتفشل بعدين.
-@@ -74993,6 +76497,340 @@
+@@ -74993,6 +76559,340 @@
                 "It offers to fill the DXF box there with it.")
          return outer
  
