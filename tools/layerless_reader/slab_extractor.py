@@ -659,8 +659,12 @@ def extract_slab(doc, view: PlanView, gap=0.10, log=print) -> SlabResult:
     # ممكن تكبر بمساحات مقفولة بخطوط المحاور (أرضي HDB) فتخلّي الأبراج التانية "صغيرة" وتضيع.
     colc = [h.centroid for h in hatches if 0.04 <= h.area <= 3.0 and _rect_dims(h)[1] >= 0.12]
     # (سلم خارجي متهاشر 14×4 م: هاتش درجاته بيتحسب أعمدة - فطريق الأعمدة محتاج ≥ 100 م²)
-    parts = [p.bounds for p in opened
-             if p.area >= 50.0 and (p.area >= 0.25 * big or (p.area >= 100.0 and sum(1 for c in colc if p.contains(c)) >= 4))]
+    parts_p = [p for p in opened
+               if p.area >= 50.0 and (p.area >= 0.25 * big or (p.area >= 100.0 and sum(1 for c in colc if p.contains(c)) >= 4))]
+    # حتتين بينهم أقل من نص متر = بلاطة واحدة فيها فاصل تمدد (BHN PO1: 10 سم)، مش مبنيين: الزونات
+    # بتيجي من الفاصل (joints.py)
+    grp = unary_union([p.buffer(0.25, join_style=2) for p in parts_p]) if parts_p else None
+    parts = [p.bounds for p in parts_p] if grp is not None and len(getattr(grp, "geoms", [grp])) >= 2 else []
     slab = max(filled, key=lambda p: p.area).buffer(-gap, join_style=2).buffer(0)
     # حاجة لازقة في الحد برقبة أرفع من 40 سم (دايرة رمز، خط مستوى...) مش بلاطة
     slab = slab.buffer(-0.2, join_style=2).buffer(0.2, join_style=2).intersection(slab)

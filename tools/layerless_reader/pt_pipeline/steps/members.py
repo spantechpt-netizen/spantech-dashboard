@@ -113,7 +113,7 @@ def _split_masses(segs,beams,cols,walls,ops):
         pts=[c for g in getattr(Rr,"geoms",[Rr]) if g.geom_type=="Polygon" for c in g.exterior.coords]
         xs=snap([p[0] for p in pts]); ys=snap([p[1] for p in pts])
         if len(xs)>24 or len(ys)>24: continue
-        depth=max(b["d"] for b,_ in inside); names=" + ".join(sorted({b["label"] for b,_ in inside}))
+        depth=max((b["d"] for b,_ in inside if b.get("d") is not None),default=None); names=" + ".join(sorted({str(b["label"]) for b,_ in inside}))  # تسميات من غير عمق (EB1, B12 - الجدول في رسمة تانية): None
         def nsup(rc):
             x0,y0,x1,y1=rc.bounds
             ends=[LineString([(x0,y0),(x0,y1)]),LineString([(x1,y0),(x1,y1)])] if x1-x0>=y1-y0 else \

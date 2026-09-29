@@ -55,10 +55,30 @@ def load_json(path):
 def convert(data, out_path, log=print):
     objs = data["OBJECTS"]
     H = {}
+    HALL = {}
     for o in objs:
         h = o.get("handle")
         if h:
+            HALL.setdefault(h[-1], []).append(o)
+            # نفس الـ handle ممكن يطلع لأكتر من object في JSON بتاع LibreDWG (INSERT وكائن
+            # ACDB_MTEXTATTRIBUTEOBJECTCONTEXTDATA أو APPID أو LINE في بلوك تاني - BHN PO1): الكيان
+            # هو اللي بيكسب، غير كده الـ INSERT بيضيع ومعاه xref كامل (حد البلاطة والكمرات والدروبات)
+            old = H.get(h[-1])
+            if old is not None and old.get("entity") and not o.get("entity"):
+                continue
             H[h[-1]] = o
+
+    def pick(ref, owner):
+        """الكيان اللي الـ handle ده بيشاور عليه جوه owner (الموديل أو بلوك): لو فيه أكتر من واحد بنفس
+        الـ handle، اللي صاحبه owner، وبعده اللي مالوش صاحب، وبعده أي كيان."""
+        c = [o for o in HALL.get(ref, ()) if o.get("entity")]
+        if len(c) <= 1:
+            return c[0] if c else H.get(ref)
+        mine = [o for o in c if _ref(o.get("ownerhandle")) == owner]
+        if mine:
+            return mine[0]
+        free = [o for o in c if not o.get("ownerhandle")]
+        return (free or c)[0]
 
     doc = ezdxf.new("R2010", setup=False)
     ins = data.get("HEADER", {}).get("INSUNITS")
@@ -121,7 +141,7 @@ def convert(data, out_path, log=print):
     for h in list(block_names):
         kids = set()
         for r in bh[h].get("entities", []) or []:
-            o = H.get(_ref(r))
+            o = pick(_ref(r), h)
             if o and o.get("entity") in ("INSERT", "MINSERT"):
                 kids.add(_ref(o.get("block_header")))
         children[h] = kids
@@ -294,7 +314,7 @@ def convert(data, out_path, log=print):
             stats["duplicates"] = stats.get("duplicates", 0) + 1
             continue
         seen.add(_ref(r))
-        o = H.get(_ref(r))
+        o = pick(_ref(r), msp_h)
         if o and o.get("entity"):
             add(msp, o)
     for h, n in block_names.items():
@@ -304,7 +324,7 @@ def convert(data, out_path, log=print):
             if _ref(r) in seen_b:
                 continue
             seen_b.add(_ref(r))
-            o = H.get(_ref(r))
+            o = pick(_ref(r), h)
             if o and o.get("entity"):
                 add(blk, o, owner=h)
     doc.saveas(out_path)

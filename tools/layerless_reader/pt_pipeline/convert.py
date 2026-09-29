@@ -514,7 +514,7 @@ def run(src, out, sheets_json=None, keep_work=False, drop_t=None):
     return finish(work, out, st)
 
 
-FINISH_STEPS = ["stairs_members", "core", "beam_steps", "edge_fit", "beam_merge", "beam_split", "edge_fit2",
+FINISH_STEPS = ["pattern_beams", "stairs_members", "core", "beam_steps", "edge_fit", "beam_merge", "beam_split", "edge_fit2",
                 "slab_snap", "region_snap", "loads", "column_gate", "zone_check", "export"]
 
 
@@ -551,6 +551,8 @@ def finish(work, out, st, start=None):
         return True
     _, H = pickle.load(open(os.path.join(work, "hatch.pkl"), "rb"))
     # 9) السلم والكور والكمرة بعرضين وحد البلاطة والفحص
+    # كمرات اتقرت من نمط متكرر (ألواح دربزين جنب تسمية كمرة - BHN PO1) بتتشال الأول
+    if run_("pattern_beams"): step("pattern_beams.py", *zones, cwd=work)
     if run_("stairs_members"): step("stairs_members.py", *zones, env={"PYTHONPATH": ROOT}, cwd=work, check=False)
     if run_("core"): step("core.py", *zones, env={"EXCL": "STEEL", "RES_SUFFIX": "_c"}, cwd=work)
     if run_("beam_steps"): step("beam_steps.py", *zones, cwd=work)
