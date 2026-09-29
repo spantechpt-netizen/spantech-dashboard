@@ -1,4 +1,4 @@
-"""كمرات اتقرت من نمط متكرر (دربزين/لوفر/جريلات) - مش كمرات.
+"""كمرات اتقرت من نمط متكرر (دربزين/لوفر/جريلات) - مش كمرات. وشرايط البلكونات برّه حد البلاطة المرسوم.
 
 BHN PO1: ألواح الدربزين في البلكونات (A-ELSC-PN02 جوه xref البلاطة) مستطيلات 0.25 × 1.9 م ورا بعض كل
 30-40 سم، وتسمية ELB1/EB1 جنبها خلّت القارئ ياخدها كمرات قصيرة لازقة في بعض (توأم) - 16 ELB1 و37 EB1.
@@ -107,11 +107,81 @@ def pour_strip_beams(tag, M):
     return len(gone)
 
 
+def trim_to_drawn_outline(tag, doc, win, M):
+    """حد البلاطة المرسوم بيكسب على شرايط البلكونات (BHN PO1: المستخدم - "حدود البلاطة موجودة").
+
+    القارئ بياخد الحد الخارجي لكل الخطوط، فشريط البلكونة اللي عليه الدربزين (برّه حد البلاطة الإنشائي)
+    بيدخل في البلاطة. لو فيه مضلعات مقفولة اتحادها بيغطّي ≥ 95% من البلاطة وكل الأعمدة، الحتت اللي برّاها
+    وهي شرايط رفيعة (< 3 م) مافيهاش عمود ولا حيطة بتتشال من البلاطة + REVIEW."""
+    R = json.load(open(f"{tag}_res_c.json"))
+    S = Polygon(R["slabs"][0]["outline"]).buffer(0)
+    if S.is_empty or S.area < 50:
+        return
+    polys = []
+    for e in SX._explode(list(doc.modelspace())):
+        if e.dxftype() != "LWPOLYLINE":
+            continue
+        try:
+            p = [tuple(map(float, q[:2])) for q in e.get_points()]
+        except Exception:
+            continue
+        if len(p) < 4 or not (e.closed or math.dist(p[0], p[-1]) < 1e-3):
+            continue
+        g = Polygon(p).buffer(0)
+        if g.is_empty or g.area < 0.3 * S.area or not g.intersects(S):
+            continue
+        # حد بلاطة = مضلع معظمه جوه البلاطة؛ حد الأرض (PLOT LIMIT) أكبر منها بكتير فمش بيتحسب
+        if g.difference(S.buffer(0.5)).area > 0.1 * g.area:
+            continue
+        polys.append(g)
+    if not polys:
+        return
+    U = unary_union(polys)
+    cov = S.intersection(U).area
+    if cov < 0.95 * S.area or cov > S.area - 1.0:
+        return
+    cols = [Polygon(c["rect"]["corners"]).centroid for c in M.get("cols", [])]
+    if any(not U.buffer(0.1).contains(c) for c in cols if S.contains(c)):
+        return
+    walls = [LR._wall_poly(w) for w in M.get("walls", [])]
+    out = S.difference(U)
+    cut = []
+    for g in getattr(out, "geoms", [out]):
+        if g.geom_type != "Polygon" or g.area < 0.5:
+            continue
+        if not g.buffer(-1.5).is_empty:                 # أعرض من 3 م: مش شريط بلكونة
+            continue
+        if any(g.buffer(0.05).contains(c) for c in cols) or any(w.intersection(g).area > 0.3 * max(w.area, 1e-9) for w in walls):
+            continue
+        cut.append(g)
+    if not cut:
+        return
+    new = S.difference(unary_union([g.buffer(0.01) for g in cut]))
+    new = max(getattr(new, "geoms", [new]), key=lambda q: q.area)
+    if new.geom_type != "Polygon" or new.area < 0.9 * S.area:
+        return
+    R["slabs"][0]["outline"] = [list(c) for c in list(new.exterior.coords)[:-1]]
+    R.setdefault("review", []).append(["slab edge", f"{len(cut)} strip(s) {sum(g.area for g in cut):.0f} m² outside the drawn slab outline "
+                                                    f"(balcony / railing, no column or wall) removed - the drawn edge is the slab"])
+    json.dump(R, open(f"{tag}_res_c.json", "w"))
+    # الكمرات اللي بقت برّه البلاطة كلها (على شريط البلكونة) بتتشال
+    keep = [b for b in M.get("beams", []) if LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]}).intersection(new).area > 0.2 *
+            max(LR._wall_poly({"p1": b["p1"], "p2": b["p2"], "t": b["w"]}).area, 1e-9)]
+    if len(keep) != len(M.get("beams", [])):
+        M.setdefault("dropped_beams", []).extend([dict(b, why="on a balcony strip outside the drawn slab outline") for b in M["beams"] if b not in keep])
+        M["beams"] = keep
+    print(tag, f"slab edge: {len(cut)} strip(s) {sum(g.area for g in cut):.0f} m² outside the drawn outline removed")
+
+
 def main(tags):
     W = json.load(open("wins.json"))
     doc = ezdxf.readfile("m.dxf")
     for tag in tags:
         M = json.load(open(f"{tag}_members_c.json"))
+        win0 = W.get(tag) or W.get(tag.rsplit("-Z", 1)[0])
+        if win0:
+            trim_to_drawn_outline(tag, doc, win0, M)
+            json.dump(M, open(f"{tag}_members_c.json", "w"))
         if pour_strip_beams(tag, M):
             json.dump(M, open(f"{tag}_members_c.json", "w"))
         win = W.get(tag) or W.get(tag.rsplit("-Z", 1)[0])
