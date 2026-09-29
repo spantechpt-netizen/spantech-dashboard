@@ -26,6 +26,8 @@ The pipeline code is in `scripts/` (Python, see "Running the pipeline"). The ful
   - After a program change: send **only the programs**: `Auto_PT_Suite_…_patched.py`, `PT_Model_Builder.zip`, and `drawing_reader_tools.zip` if the reader changed.
   - Project output files (zone DXF zips) only when the user asks for them or for a new drawing.
   - For a new drawing: the zip of the zone DXFs + images + `report.json`/`members.csv`, plus a short Arabic summary: zones, CHECK OK/FAILED, what is REVIEW, questions.
+- **Don't send a result you know is wrong.** If CHECK FAILED or the output clearly misreads the drawing (e.g. the plot limit taken as the slab), say so, show an image, fix the reader or ask — never ship it as done.
+- Short user replies ("حدود البلاطة موجودة", "دي كانت مكتوبة غلط") answer your last question: act on them, and if two readings are possible, pick the one that matches the drawing and say which one you took.
 - End every answer with what you need from the user (if anything).
 
 ---
@@ -40,6 +42,11 @@ The pipeline code is in `scripts/` (Python, see "Running the pipeline"). The ful
 - An "X" void must be real diagonals of a rectangle (or have drawn sides); a "+" is not a void.
 - **Drops**: the drop is the closed rectangle around its `T=` note, drawn at its **full rectangular size**, even if a beam runs over it. A drop without a column/wall under it → REVIEW.
 - **`T=250` inside/next to a stair = the stair slab** → part of the stair opening, not a slab zone.
+- **The drawn slab outline wins.** The reader takes the outer edge of all lines; when closed outlines (mostly inside the slab — the PLOT LIMIT / property line is never a slab edge) cover ≥ 95% of the slab and all columns, thin strips outside them (< 3 m, no column/wall: balconies with railings) are cut off + REVIEW.
+- **Repeated patterns are not beams**: rows of identical rectangles side by side (railing / louvre / grating panels) next to a beam mark → removed + REVIEW. A "beam" lying on a pour strip with its width is the pour strip.
+- **Expansion joint ≠ separate buildings**: two pieces < 0.5 m apart are one slab, zoned at the joint.
+- **Drawings split in parts** (e.g. `…_T1.dwg`, `…_T2.dwg` of one floor): each file may carry the notes (thickness `230mm THK.`, drops, pour strips) of one part only — take each part from the file that annotates it and say so.
+- Beams with a mark only (`EB1`, `B12`; sizes in a schedule in another drawing) → default depth + ask for the schedule.
 
 ### Levels
 - The **dominant level of the roof = 0** (main slab). Only areas with a different level are drawn, as `LEVEL t=… SE=±… P=2`.
@@ -71,7 +78,11 @@ The pipeline code is in `scripts/` (Python, see "Running the pipeline"). The ful
 
 ## 3. Running the pipeline (drawing → zone DXFs)
 
-Needs Python 3.10+, `pip install ezdxf shapely matplotlib numpy`. DWG needs `dwgread` (LibreDWG; the Windows build is in `drawing_reader_tools.zip`). If you cannot read DWG here, ask the user for a DXF (AutoCAD: SAVEAS → DXF).
+Needs Python 3.10+, `pip install ezdxf shapely matplotlib numpy`. DWG needs `dwgread` (LibreDWG, `LIBREDWG_DWGREAD=/path/dwgread`; the Windows build is in `drawing_reader_tools.zip`). If you cannot read DWG here, ask the user for a DXF (AutoCAD: SAVEAS → DXF).
+
+**Drawings built from XREFs:** the slab edge, beams and drops are often inside a bound xref block (`XR-… SLAB`). If the result has no slab edge / few beams, first check the xref blocks: is the INSERT of the slab xref in the model space of the converted DXF? (LibreDWG can give two objects the same handle; the converter keeps the entity owned by that block/model.) Unbound xrefs (`NAME|layer`) are not in the file → ask the user to Bind / eTransmit.
+
+**No plan title** (sheet found from grid bubbles gives tiny sheets / "slab 1 m²"): pass the window yourself with `--sheets` around the drawn slab outline.
 
 ```bash
 cd scripts
@@ -91,9 +102,9 @@ Regression over the old projects: `python -m pt_pipeline.regress projects.json -
 
 ## 4. Checking a result (do this before sending anything)
 
-1. `report.json` → `ok: true` (CHECK OK). Read every REVIEW row; each one is either explained to the user or fixed.
+1. `report.json` → `ok: true` (CHECK OK). Read every REVIEW row; each one is either explained to the user or fixed. Twin beams / uncovered beams usually mean something non-structural was read as a beam — crop the drawing there before changing any tolerance.
 2. Look at the zone images (`images/`) and draw your own check images (matplotlib) of the zone: boundary, openings, columns, beams, drops, level zones, loads. Compare with the original drawing around the same window.
-3. Count: columns, beams per label, drops (all `T=` found?), level zones and their SE, load areas and their areas.
+3. Count: columns (continuous / stopped — all "stopped" is suspicious, check the legend), beams per label, drops (all `T=` / `mm THK.` found?), level zones and their SE, load areas and their areas. Compare the zone area with the drawn slab outline (extra / missing m²).
 4. For RAM questions: parse the zone DXF the way the program does (text goes to the **smallest** polygon around it) and check every element gets the right thickness / SE / priority.
 5. Say in the summary what you checked and what you could not.
 
