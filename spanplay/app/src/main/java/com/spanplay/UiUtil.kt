@@ -32,6 +32,7 @@ fun Context.label(text: String, mono: Boolean = false, size: Float = 14f): TextV
 fun Context.btn(text: String, onClick: () -> Unit): Button = Button(this).apply {
     this.text = text
     isAllCaps = false
+    setTextColor(android.graphics.Color.BLACK)
     setOnClickListener { onClick() }
     layoutParams = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT

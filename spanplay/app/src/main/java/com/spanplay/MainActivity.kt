@@ -50,6 +50,7 @@ class MainActivity : Activity() {
         ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
 
         EventLog.add(this, "App opened (SpanPlay A1)")
+        if (Prefs(this).serviceWanted && !GuardianService.running) GuardianService.start(this, "app-open")
     }
 
     private fun show(i: Int) {
