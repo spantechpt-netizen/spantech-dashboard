@@ -47,8 +47,8 @@ xcertplay is GPLv3. Options:
 Recommendation: C first (zero code, very informative), then B if it nearly works, A only if licensing is a problem.
 
 ## 4. Phase 2 design sketch (not started)
-1. **Wi-Fi:** `WifiManager.startLocalOnlyHotspot` (SDK 26+). Caveat: a normal app cannot choose band/channel, the OS picks;
-   we will log what it picked. Whether DiLink 5.0 allows it for a third-party app is unknown until tested. Fallback: the
+1. **Wi-Fi:** `WifiManager.startLocalOnlyHotspot` (SDK 26+). Caveat: a normal app cannot choose band/channel, the OS picks, and the public API does not even report them (confirmed while building the test);
+   we must find out the band another way (e.g. the iPhone Wi-Fi details). Whether DiLink 5.0 allows it for a third-party app is unknown until tested. Fallback: the
    car's own hotspot switched on by hand (what happens today), or privileged paths we do not have.
 2. **Bluetooth:** pair with the iPhone, open the iAP2-style RFCOMM link, authenticate through the real chip (Phase 1 access),
    then send the Wi-Fi credentials to the phone. Android 12 needs runtime permissions (BLUETOOTH_CONNECT/SCAN/ADVERTISE).

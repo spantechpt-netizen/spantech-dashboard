@@ -25,6 +25,9 @@ class ProbeTab(private val act: MainActivity) {
         box.addView(act.btn("3b) Export report via file picker") {
             act.exportViaPicker(reportName(), fullReport())
         })
+        val hs = HotspotTest(act) { line -> append(line + "\n") }
+        box.addView(act.btn("4) Test hotspot START (Phase 2 step 1)") { hs.start() })
+        box.addView(act.btn("5) Test hotspot STOP") { hs.stop() })
         box.addView(out)
         root = ScrollView(act).apply { addView(box) }
         append("Ready. Press 1, then 2, then 3.\n")
