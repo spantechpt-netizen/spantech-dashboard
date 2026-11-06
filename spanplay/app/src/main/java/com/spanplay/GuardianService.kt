@@ -7,7 +7,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -35,6 +37,15 @@ class GuardianService : Service() {
     private var lastLoggedState = ""
     private var lastNotifText = ""
     private var accessWarned = false
+    private var lastTickAt = 0L
+
+    /** Logs power / screen / USB events so we can see what the head unit does when the car is switched off and on. */
+    private val powerRx = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val up = android.os.SystemClock.elapsedRealtime() / 1000
+            EventLog.add(c, "System event: ${i.action?.substringAfterLast('.')} (device uptime ${up}s)")
+        }
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -54,6 +65,14 @@ class GuardianService : Service() {
         } else {
             startForeground(NOTIF_ID, n)
         }
+        val f = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT); addAction(Intent.ACTION_SHUTDOWN)
+            addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction("android.hardware.usb.action.USB_DEVICE_ATTACHED")
+            addAction("android.hardware.usb.action.USB_DEVICE_DETACHED")
+        }
+        try { registerReceiver(powerRx, f) } catch (t: Throwable) { EventLog.add(this, "powerRx register failed: $t") }
         EventLog.add(this, "Guardian service created")
     }
 
@@ -73,6 +92,7 @@ class GuardianService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(tick)
+        try { unregisterReceiver(powerRx) } catch (_: Throwable) {}
         running = false
         EventLog.add(this, "Guardian service destroyed")
         super.onDestroy()
@@ -108,6 +128,11 @@ class GuardianService : Service() {
     }
 
     private fun check() {
+        val t0 = System.currentTimeMillis()
+        if (lastTickAt != 0L && t0 - lastTickAt > 15_000) {
+            EventLog.add(this, "Watchdog was frozen for ${(t0 - lastTickAt) / 1000}s (device suspended / process frozen?)")
+        }
+        lastTickAt = t0
         val target = prefs.targetPkg
         if (target == null) { setNotif("No target app selected - open SpanPlay > Guardian"); return }
         if (!prefs.watchdogEnabled) { setNotif("Watchdog paused"); return }
