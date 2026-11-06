@@ -1,0 +1,42 @@
+name: Build SpanPlay APK
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  PHASE: A1   # Phase A (Guardian) + Phase 1 (Dongle Probe)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spanplay
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Name the APK
+        id: name
+        run: |
+          SHA=$(git rev-parse --short=7 HEAD)
+          NAME="SpanPlay-${PHASE}-${SHA}.apk"
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/${NAME}"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: spanplay/out/${{ steps.name.outputs.name }}
+          if-no-files-found: error

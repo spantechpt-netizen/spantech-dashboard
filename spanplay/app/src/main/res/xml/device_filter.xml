@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- WCH CH341 (EPP/I2C mode) = the CarPlay dongle, vendor 0x1a86 = 6790, product 0x5512 = 21778 -->
+    <usb-device vendor-id="6790" product-id="21778" />
+</resources>
