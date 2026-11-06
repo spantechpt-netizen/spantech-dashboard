@@ -9,8 +9,11 @@ import android.os.Bundle
 /** Starts the guardian on BOOT_COMPLETED (and common vendor quick-boot broadcasts). */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        EventLog.add(context, "Boot broadcast received: ${intent.action}")
-        if (Prefs(context).serviceWanted) GuardianService.start(context, "boot")
+        val up = android.os.SystemClock.elapsedRealtime() / 1000
+        EventLog.add(context, "Broadcast received: ${intent.action} (device uptime ${up}s)")
+        val prefs = Prefs(context)
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) prefs.lastBootBroadcast = System.currentTimeMillis()
+        if (prefs.serviceWanted) GuardianService.start(context, intent.action ?: "boot")
     }
 }
 

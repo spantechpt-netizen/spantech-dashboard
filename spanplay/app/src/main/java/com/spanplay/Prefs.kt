@@ -26,4 +26,9 @@ class Prefs(ctx: Context) {
     var serviceWanted: Boolean
         get() = sp.getBoolean("service_wanted", true)
         set(v) { sp.edit().putBoolean("service_wanted", v).apply() }
+
+    /** Wall-clock time of the last boot-type broadcast we received (0 = never). */
+    var lastBootBroadcast: Long
+        get() = sp.getLong("last_boot_bc", 0L)
+        set(v) { sp.edit().putLong("last_boot_bc", v).apply() }
 }

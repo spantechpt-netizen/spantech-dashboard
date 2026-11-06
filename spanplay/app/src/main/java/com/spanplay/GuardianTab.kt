@@ -99,6 +99,9 @@ class GuardianTab(private val act: MainActivity) {
         sb.append("Usage Access         : ${if (hasUsage()) "GRANTED" else "NOT granted  <-- do step 1"}\n")
         sb.append("Display over apps    : ${if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(act)) "granted" else "not granted (step 2)"}\n")
         sb.append("SpanPlay battery-exempt: ${if (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(act.packageName)) "yes" else "no (step 3)"}\n")
+        val lb = prefs.lastBootBroadcast
+        sb.append("Last boot broadcast : ${if (lb == 0L) "NEVER received" else SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(lb))}\n")
+        sb.append("Device uptime        : ${android.os.SystemClock.elapsedRealtime() / 1000}s\n")
         sb.append("Android ${Build.VERSION.RELEASE} / SDK ${Build.VERSION.SDK_INT}")
         status.text = sb.toString()
         targetText.text = if (tgt == null) "(none selected)" else "${labelOf(tgt)}\n$tgt" +
