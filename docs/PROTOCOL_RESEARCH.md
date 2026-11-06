@@ -14,6 +14,12 @@ checked against the primary source before we rely on it.
   Open item: the certificate-length register (0x30) read back `FF FF`; needs a second look.
 * The vendor app "Phone Screen" is `com.autochips.carplayapp`. We do not decompile or copy it.
 
+* **Measured 2026-11-06 (Phase 2 step 1):** `startLocalOnlyHotspot` works from a normal app on this unit
+  (started twice, no error, security type 2 = WPA2/WPA3 transition, 15-char passphrase), and the iPhone SEES the network.
+  Not yet measured: whether the iPhone can join and stay joined, the band (5 GHz needed? unverified), conflicts with "Phone Screen".
+* **Measured:** head unit uptime kept counting across a car off/on attempt (9323 s), and no boot broadcast was ever received,
+  so the unit likely suspends instead of rebooting (needs confirmation from the new event log).
+
 ## 1. What is publicly documented, and what is not
 | Area | Status |
 |---|---|

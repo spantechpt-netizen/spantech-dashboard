@@ -73,6 +73,8 @@ class HotspotTest(private val act: Activity, private val log: (String) -> Unit) 
             if (Build.VERSION.SDK_INT >= 30) {
                 val c: SoftApConfiguration? = r.softApConfiguration
                 if (c == null) { log("  (no SoftApConfiguration)"); return }
+                val ssid = if (Build.VERSION.SDK_INT >= 33) c.wifiSsid?.toString() else @Suppress("DEPRECATION") c.ssid
+                log("  SSID      : $ssid")
                 // Band / channel getters are @SystemApi, i.e. NOT readable by a normal app.
                 log("  Band/channel: not exposed to normal apps (check from the iPhone's Wi-Fi details or a scan)")
                 log("  Security  : ${c.securityType}")
