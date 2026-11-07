@@ -84,7 +84,21 @@ class GuardianService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        val why = intent?.getStringExtra(EXTRA_REASON) ?: "restart"
+        when (intent?.action) {
+            ACTION_PAUSE -> {
+                val m = intent.getIntExtra(EXTRA_MINUTES, 30)
+                prefs.pausedUntil = System.currentTimeMillis() + m * 60_000L
+                EventLog.add(this, "Watchdog PAUSED for $m min (from notification)")
+                lastNotifText = ""
+            }
+            ACTION_RESUME -> {
+                prefs.pausedUntil = 0L
+                retries = 0; gaveUp = false
+                EventLog.add(this, "Watchdog RESUMED (from notification)")
+                lastNotifText = ""
+            }
+        }
+        val why = intent?.getStringExtra(EXTRA_REASON) ?: intent?.action ?: "restart"
         EventLog.add(this, "Guardian service started (reason: $why)")
         handler.removeCallbacks(tick)
         handler.post(tick)
@@ -107,6 +121,7 @@ class GuardianService : Service() {
     private fun scheduleRestart(why: String) {
         val t = prefs.targetPkg ?: return
         val now = System.currentTimeMillis()
+        if (prefs.pausedUntil > now) { EventLog.add(this, "Restart-on-wake skipped (watchdog paused), trigger: $why"); return }
         if (now - lastRestartAt < 60_000) { EventLog.add(this, "Restart-on-wake skipped (debounce), trigger: $why"); return }
         lastRestartAt = now
         EventLog.add(this, "Restart-on-wake: will restart $t in ${RESTART_DELAY_S}s (trigger: $why)")
@@ -154,7 +169,18 @@ class GuardianService : Service() {
         lastTickAt = t0
         val target = prefs.targetPkg
         if (target == null) { setNotif("No target app selected - open SpanPlay > Guardian"); return }
-        if (!prefs.watchdogEnabled) { setNotif("Watchdog paused"); return }
+        if (!prefs.watchdogEnabled) { setNotif("Watchdog switched off"); return }
+        val pu = prefs.pausedUntil
+        if (pu > 0L) {
+            if (System.currentTimeMillis() < pu) {
+                missingSince = 0L; fgSince = 0L
+                setNotif("Paused until " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(pu)))
+                return
+            }
+            prefs.pausedUntil = 0L
+            retries = 0; gaveUp = false
+            EventLog.add(this, "Pause ended - watchdog active again")
+        }
         if (!hasUsageAccess()) {
             if (!accessWarned) {
                 EventLog.add(this, "Usage Access NOT granted - watchdog cannot see foreground app")
@@ -241,6 +267,19 @@ class GuardianService : Service() {
         )
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
         else @Suppress("DEPRECATION") Notification.Builder(this)
+        val paused = prefs.pausedUntil > System.currentTimeMillis()
+        val actionIntent = Intent(this, GuardianService::class.java)
+            .setAction(if (paused) ACTION_RESUME else ACTION_PAUSE).putExtra(EXTRA_MINUTES, 30)
+        val actionPi = android.app.PendingIntent.getService(
+            this, 1, actionIntent,
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        b.addAction(
+            Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_notif),
+                if (paused) "Resume watchdog" else "Pause 30 min", actionPi
+            ).build()
+        )
         return b.setSmallIcon(R.drawable.ic_notif)
             .setContentTitle("SpanPlay Guardian")
             .setContentText(text)
@@ -257,6 +296,9 @@ class GuardianService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.spanplay.STOP"
+        const val ACTION_PAUSE = "com.spanplay.PAUSE"
+        const val ACTION_RESUME = "com.spanplay.RESUME"
+        private const val EXTRA_MINUTES = "minutes"
         private const val EXTRA_REASON = "reason"
         private const val CHANNEL = "guardian"
         private const val NOTIF_ID = 1

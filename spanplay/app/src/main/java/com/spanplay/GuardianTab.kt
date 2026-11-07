@@ -73,6 +73,13 @@ class GuardianTab(private val act: MainActivity) {
         box.addView(delayEdit)
         box.addView(TextView(act).apply { text = "Max retries in a row (default 5):" })
         box.addView(retryEdit)
+        box.addView(act.header("Pause (for navigation / videos)"))
+        box.addView(act.row(
+            act.btn("Pause 15 min") { pauseFor(15) },
+            act.btn("Pause 30 min") { pauseFor(30) },
+            act.btn("Pause 60 min") { pauseFor(60) },
+        ))
+        box.addView(act.btn("Resume watchdog now") { resume() })
         box.addView(act.btn("Save settings") { save() })
         box.addView(act.row(
             act.btn("Start service") { save(); prefs.serviceWanted = true; GuardianService.start(act, "button"); refreshSoon() },
@@ -96,6 +103,20 @@ class GuardianTab(private val act: MainActivity) {
         refresh()
     }
 
+    private fun pauseFor(min: Int) {
+        prefs.pausedUntil = System.currentTimeMillis() + min * 60_000L
+        EventLog.add(act, "Watchdog PAUSED for $min min")
+        Toast.makeText(act, "Watchdog paused for $min min", Toast.LENGTH_SHORT).show()
+        refresh()
+    }
+
+    private fun resume() {
+        prefs.pausedUntil = 0L
+        EventLog.add(act, "Watchdog RESUMED")
+        Toast.makeText(act, "Watchdog resumed", Toast.LENGTH_SHORT).show()
+        refresh()
+    }
+
     private fun logName() = "SpanPlay-log-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt"
 
     private fun hasUsage(): Boolean {
@@ -109,6 +130,8 @@ class GuardianTab(private val act: MainActivity) {
         val tgt = prefs.targetPkg
         val sb = StringBuilder()
         sb.append("Service running      : ${GuardianService.running}\n")
+        val pu = prefs.pausedUntil
+        sb.append("Watchdog             : ${if (pu > System.currentTimeMillis()) "PAUSED until " + SimpleDateFormat("HH:mm", Locale.US).format(Date(pu)) else if (prefs.watchdogEnabled) "active" else "switched off"}\n")
         sb.append("Usage Access         : ${if (hasUsage()) "GRANTED" else "NOT granted  <-- do step 1"}\n")
         sb.append("Display over apps    : ${if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(act)) "granted" else "not granted (step 2)"}\n")
         sb.append("SpanPlay battery-exempt: ${if (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(act.packageName)) "yes" else "no (step 3)"}\n")

@@ -36,4 +36,9 @@ class Prefs(ctx: Context) {
     var restartOnWake: Boolean
         get() = sp.getBoolean("restart_on_wake", false)
         set(v) { sp.edit().putBoolean("restart_on_wake", v).apply() }
+
+    /** Watchdog is paused until this wall-clock time (0 = not paused). */
+    var pausedUntil: Long
+        get() = sp.getLong("paused_until", 0L)
+        set(v) { sp.edit().putLong("paused_until", v).apply() }
 }

@@ -27,3 +27,9 @@ Project lives in `spanplay/`. Build locally: `cd spanplay && ./gradlew assembleD
 * Opt-in "Restart on wake" fired: usb-attach at 02:27:11 -> kill requested 02:27:31 -> relaunch 02:27:33.
   Not proven that killBackgroundProcesses really killed the target, and not proven the vendor app would not have started by itself.
 * The BOOT_COMPLETED that follows the USB attach is debounced (60 s).
+
+## Result (owner, 2026-11-07)
+* Usage Access granted over adb (`appops set com.spanplay GET_USAGE_STATS allow`) via an on-unit "Remote ADB Shell" at 127.0.0.1:5555.
+* Watchdog verified in the car: target force-stopped -> detected -> relaunched after ~5 s -> back in foreground (~8 s total).
+* Phone Screen reached the real CarPlay screen after the restart-on-wake relaunch.
+* Decision: stop at Phase A for now (no Phase 2/3). Added pause (15/30/60 min, also from the service notification) for navigation / video use.
