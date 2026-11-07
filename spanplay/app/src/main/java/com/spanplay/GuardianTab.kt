@@ -115,6 +115,13 @@ class GuardianTab(private val act: MainActivity) {
         val lb = prefs.lastBootBroadcast
         sb.append("Last boot broadcast : ${if (lb == 0L) "NEVER received" else SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(lb))}\n")
         sb.append("Device uptime        : ${android.os.SystemClock.elapsedRealtime() / 1000}s\n")
+        val ips = try {
+            java.net.NetworkInterface.getNetworkInterfaces().toList().flatMap { ni ->
+                ni.inetAddresses.toList().filter { !it.isLoopbackAddress && it is java.net.Inet4Address }
+                    .map { "${ni.name}=${it.hostAddress}" }
+            }.joinToString("  ").ifBlank { "none" }
+        } catch (_: Throwable) { "?" }
+        sb.append("IP addresses         : $ips\n")
         sb.append("Android ${Build.VERSION.RELEASE} / SDK ${Build.VERSION.SDK_INT}")
         status.text = sb.toString()
         targetText.text = if (tgt == null) "(none selected)" else "${labelOf(tgt)}\n$tgt" +
