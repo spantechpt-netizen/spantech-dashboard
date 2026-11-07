@@ -31,4 +31,9 @@ class Prefs(ctx: Context) {
     var lastBootBroadcast: Long
         get() = sp.getLong("last_boot_bc", 0L)
         set(v) { sp.edit().putLong("last_boot_bc", v).apply() }
+
+    /** Opt-in: restart the target app when the unit wakes / the dongle is attached (no Usage Access needed). */
+    var restartOnWake: Boolean
+        get() = sp.getBoolean("restart_on_wake", false)
+        set(v) { sp.edit().putBoolean("restart_on_wake", v).apply() }
 }

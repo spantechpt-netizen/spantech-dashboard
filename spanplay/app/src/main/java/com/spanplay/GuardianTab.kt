@@ -29,7 +29,8 @@ class GuardianTab(private val act: MainActivity) {
     private val status = act.label("", size = 13f)
     private val targetText = act.label("", size = 15f)
     private val logView = act.label("", mono = true, size = 11f)
-    private val sw = Switch(act).apply { text = "Watchdog enabled" }
+    private val sw = Switch(act).apply { text = "Watchdog enabled (needs Usage Access)" }
+    private val swWake = Switch(act).apply { text = "Restart target when unit wakes / dongle attached (no Usage Access needed)" }
     private val delayEdit = EditText(act).apply { inputType = InputType.TYPE_CLASS_NUMBER; hint = "seconds" }
     private val retryEdit = EditText(act).apply { inputType = InputType.TYPE_CLASS_NUMBER; hint = "count" }
     val root: ScrollView
@@ -67,6 +68,7 @@ class GuardianTab(private val act: MainActivity) {
 
         box.addView(act.header("Watchdog"))
         box.addView(sw)
+        box.addView(swWake)
         box.addView(TextView(act).apply { text = "Relaunch delay (seconds, default 5):" })
         box.addView(delayEdit)
         box.addView(TextView(act).apply { text = "Max retries in a row (default 5):" })
@@ -88,6 +90,7 @@ class GuardianTab(private val act: MainActivity) {
 
         root = ScrollView(act).apply { addView(box) }
         sw.isChecked = prefs.watchdogEnabled
+        swWake.isChecked = prefs.restartOnWake
         delayEdit.setText(prefs.delaySec.toString())
         retryEdit.setText(prefs.maxRetries.toString())
         refresh()
@@ -129,6 +132,7 @@ class GuardianTab(private val act: MainActivity) {
 
     private fun save() {
         prefs.watchdogEnabled = sw.isChecked
+        prefs.restartOnWake = swWake.isChecked
         prefs.delaySec = delayEdit.text.toString().toIntOrNull() ?: 5
         prefs.maxRetries = retryEdit.text.toString().toIntOrNull() ?: 5
         delayEdit.setText(prefs.delaySec.toString())

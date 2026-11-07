@@ -38,6 +38,7 @@ class GuardianService : Service() {
     private var lastNotifText = ""
     private var accessWarned = false
     private var lastTickAt = 0L
+    private var lastRestartAt = 0L
 
     /** Logs power / screen / USB events so we can see what the head unit does when the car is switched off and on. */
     private val powerRx = object : BroadcastReceiver() {
@@ -87,6 +88,7 @@ class GuardianService : Service() {
         EventLog.add(this, "Guardian service started (reason: $why)")
         handler.removeCallbacks(tick)
         handler.post(tick)
+        if (prefs.restartOnWake && why in WAKE_REASONS) scheduleRestart(why)
         return START_STICKY
     }
 
@@ -99,6 +101,23 @@ class GuardianService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // ------------------------------------------------------------------ restart on wake (no Usage Access)
+
+    private fun scheduleRestart(why: String) {
+        val t = prefs.targetPkg ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastRestartAt < 60_000) { EventLog.add(this, "Restart-on-wake skipped (debounce), trigger: $why"); return }
+        lastRestartAt = now
+        EventLog.add(this, "Restart-on-wake: will restart $t in ${RESTART_DELAY_S}s (trigger: $why)")
+        handler.postDelayed({
+            try {
+                (getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).killBackgroundProcesses(t)
+                EventLog.add(this, "killBackgroundProcesses($t) requested")
+            } catch (e: Throwable) { EventLog.add(this, "kill failed: $e") }
+            handler.postDelayed({ launchTarget(t) }, 2000)
+        }, RESTART_DELAY_S * 1000L)
+    }
 
     // ------------------------------------------------------------------ watchdog
 
@@ -243,6 +262,11 @@ class GuardianService : Service() {
         private const val NOTIF_ID = 1
         private const val POLL_MS = 2000L
         private const val STABLE_MS = 30_000L
+        private const val RESTART_DELAY_S = 20
+        private val WAKE_REASONS = setOf(
+            "android.intent.action.BOOT_COMPLETED", "android.intent.action.QUICKBOOT_POWERON",
+            "com.htc.intent.action.QUICKBOOT_POWERON", "usb-attach"
+        )
 
         @Volatile var running = false
 
