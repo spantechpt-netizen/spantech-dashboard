@@ -43,6 +43,15 @@ class GuardianTab(private val act: MainActivity) {
         box.addView(act.btn("1) Grant Usage Access (required for watchdog)") {
             open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), "Usage Access")
         })
+        box.addView(act.btn("1b) Usage Access - alternative: per-app page") {
+            open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:${act.packageName}")), "Usage Access (per-app)")
+        })
+        box.addView(act.btn("1c) Usage Access - alternative: direct settings screen") {
+            open(Intent().setComponent(ComponentName("com.android.settings", "com.android.settings.Settings\$UsageAccessSettingsActivity")), "Usage Access (direct)")
+        })
+        box.addView(act.btn("1d) Open the general Android Settings app") {
+            open(Intent(Settings.ACTION_SETTINGS), "Settings")
+        })
         box.addView(act.btn("2) Allow 'Display over other apps' (lets relaunch work on Android 10+)") {
             open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${act.packageName}")), "Overlay")
         })
@@ -54,6 +63,7 @@ class GuardianTab(private val act: MainActivity) {
         box.addView(targetText)
         box.addView(act.btn("Pick target app (shows package names)") { pickApp() })
         box.addView(act.btn("Open target app now (test)") { launchNow() })
+        box.addView(act.btn("Restart target app (experimental: kill background process, then relaunch)") { restartNow() })
 
         box.addView(act.header("Watchdog"))
         box.addView(sw)
@@ -170,6 +180,23 @@ class GuardianTab(private val act: MainActivity) {
         val i = act.packageManager.getLaunchIntentForPackage(t)
         if (i == null) Toast.makeText(act, "No launch intent for $t", Toast.LENGTH_LONG).show()
         else { EventLog.add(act, "Manual launch of $t"); act.startActivity(i) }
+    }
+
+    /** Works without Usage Access. Android only kills processes that are in the background, so this is a test. */
+    private fun restartNow() {
+        val t = prefs.targetPkg ?: return Toast.makeText(act, "Pick a target first", Toast.LENGTH_SHORT).show()
+        try {
+            val am = act.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            am.killBackgroundProcesses(t)
+            EventLog.add(act, "killBackgroundProcesses($t) requested, relaunching in 2s")
+        } catch (e: Throwable) {
+            EventLog.add(act, "killBackgroundProcesses failed: $e")
+        }
+        root.postDelayed({
+            val i = act.packageManager.getLaunchIntentForPackage(t)
+            if (i != null) { EventLog.add(act, "Relaunch after kill: $t"); act.startActivity(i) }
+        }, 2000)
+        refresh()
     }
 
     private fun open(i: Intent, what: String) {
