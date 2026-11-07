@@ -39,6 +39,17 @@ class GuardianTab(private val act: MainActivity) {
         box.addView(act.header("Status"))
         box.addView(status)
 
+        box.addView(act.header("Permissions & shortcuts"))
+        box.addView(act.btn("1) Grant Usage Access (required for watchdog)") {
+            open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), "Usage Access")
+        })
+        box.addView(act.btn("2) Allow 'Display over other apps' (lets relaunch work on Android 10+)") {
+            open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${act.packageName}")), "Overlay")
+        })
+        box.addView(act.btn("3) Battery optimization: exempt SpanPlay") { batterySelf() })
+        box.addView(act.btn("4) Battery optimization: target app (list / app info)") { batteryTarget() })
+        box.addView(act.btn("Open Wi-Fi hotspot settings") { hotspot() })
+
         box.addView(act.header("Target app"))
         box.addView(targetText)
         box.addView(act.btn("Pick target app (shows package names)") { pickApp() })
@@ -55,17 +66,6 @@ class GuardianTab(private val act: MainActivity) {
             act.btn("Start service") { save(); prefs.serviceWanted = true; GuardianService.start(act, "button"); refreshSoon() },
             act.btn("Stop service") { prefs.serviceWanted = false; GuardianService.stop(act); refreshSoon() },
         ))
-
-        box.addView(act.header("Permissions & shortcuts"))
-        box.addView(act.btn("1) Grant Usage Access (required for watchdog)") {
-            open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), "Usage Access")
-        })
-        box.addView(act.btn("2) Allow 'Display over other apps' (lets relaunch work on Android 10+)") {
-            open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${act.packageName}")), "Overlay")
-        })
-        box.addView(act.btn("3) Battery optimization: exempt SpanPlay") { batterySelf() })
-        box.addView(act.btn("4) Battery optimization: target app (list / app info)") { batteryTarget() })
-        box.addView(act.btn("Open Wi-Fi hotspot settings") { hotspot() })
 
         box.addView(act.header("Event log"))
         box.addView(act.row(

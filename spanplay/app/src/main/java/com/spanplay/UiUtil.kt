@@ -33,6 +33,8 @@ fun Context.btn(text: String, onClick: () -> Unit): Button = Button(this).apply 
     this.text = text
     isAllCaps = false
     setTextColor(android.graphics.Color.BLACK)
+    gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+    maxWidth = dp(760)
     setOnClickListener { onClick() }
     layoutParams = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
