@@ -1,0 +1,691 @@
+<title>كاميرا غرفة التصميم</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a live CCTV feed of the virtual design room (right) + the decisions inbox (left); stacks on phones. Single dark "monitor-room" look. */
+:root{
+  color-scheme:dark;
+  --bg:#0D1115; --panel:#141A20; --panel-2:#1A2129; --line:#27303A;
+  --fg:#ECE8E0; --muted:#8F99A4; --dim:#5E6873;
+  --amber:#D99A3E; --amber-ink:#1E1301; --cyan:#71C4D8; --green:#79CC8E; --red:#E5534B;
+  --font:"IBM Plex Sans Arabic",system-ui,sans-serif;
+  --display:"Readex Pro","IBM Plex Sans Arabic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.7;margin:0}
+*{box-sizing:border-box}
+button{font-family:var(--font);cursor:pointer;color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+
+.app{display:grid;grid-template-rows:auto 1fr;height:100%;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));padding-block:10px;gap:10px}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0}
+.brand{font-family:var(--display);font-weight:600;font-size:17px;white-space:nowrap;display:flex;align-items:baseline;gap:6px}
+.brand span{color:var(--amber)}
+.brand small{font-family:var(--font);font-weight:400;color:var(--muted);font-size:13px;margin-inline-start:6px}
+.bar-r{margin-inline-start:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chipbtn{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font-size:13.5px}
+.chipbtn.on{border-color:var(--amber);color:var(--amber)}
+.pend{display:inline-flex;align-items:center;gap:8px;background:var(--amber);color:var(--amber-ink);border:0;border-radius:6px;padding:6px 12px;font-weight:600;font-size:14px}
+.pend b{font-family:var(--mono);font-size:15px}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:10px;min-height:0}
+.stage{position:relative;background:#06080A;border:1px solid var(--line);border-radius:8px;overflow:hidden;min-height:0}
+#cam{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
+.fx{position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px),
+  radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%)}
+.hud{position:absolute;pointer-events:none;font-family:var(--mono);font-size:12.5px;color:#DDE3E8;text-shadow:0 1px 2px #000;direction:ltr}
+.hud.tl{top:12px;left:14px}
+.hud.tr{top:12px;right:14px;text-align:right}
+.rec{display:inline-flex;align-items:center;gap:6px}
+.rec i{width:9px;height:9px;border-radius:50%;background:var(--red);animation:blink 1.4s steps(2) infinite}
+@keyframes blink{50%{opacity:.15}}
+.cams{position:absolute;bottom:12px;left:12px;right:12px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-start;direction:rtl}
+.cams button{background:rgba(10,14,18,.78);border:1px solid #39434E;border-radius:5px;padding:5px 10px;font-size:13px;backdrop-filter:blur(4px)}
+.cams button.on{border-color:var(--cyan);color:var(--cyan)}
+.cams .sp{flex:1}
+.tip{position:absolute;top:40px;right:14px;max-width:260px;font-size:12.5px;color:var(--muted);background:rgba(10,14,18,.7);padding:6px 10px;border-radius:5px;pointer-events:none}
+
+.side{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0;min-width:0}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;background:none;border:0;padding:11px 6px;font-size:14px;color:var(--muted);border-bottom:2px solid transparent}
+.tabs button.on{color:var(--fg);border-bottom-color:var(--amber)}
+.tabs .n{font-family:var(--mono);font-size:12px;background:var(--amber);color:var(--amber-ink);border-radius:9px;padding:0 6px;margin-inline-start:5px}
+.body{overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0}
+.note{font-size:12.5px;color:var(--dim);border:1px dashed var(--line);border-radius:6px;padding:7px 10px}
+
+.card{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:12px;display:flex;flex-direction:column;gap:8px;animation:in .35s ease}
+@keyframes in{from{opacity:.2;transform:translateY(6px)}}
+.card.out{animation:out .35s ease forwards}
+@keyframes out{to{opacity:0;transform:translateX(-30px)}}
+.from{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.av{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:600;color:#0D1115;flex-shrink:0}
+.from b{color:var(--fg);font-weight:500}
+.kind{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;line-height:1.6}
+.kind.ai{color:var(--cyan)} .kind.human{color:var(--green)}
+.ago{margin-inline-start:auto;font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+.card h3{font-family:var(--display);font-weight:500;font-size:15.5px;line-height:1.5;text-wrap:balance;margin:0}
+.proj{font-size:12.5px;color:var(--amber)}
+.card p{margin:0;font-size:13.5px;color:#C5CBD1}
+.hos{font-size:13px;background:#10161C;border-inline-start:3px solid #E8E2D6;padding:6px 9px;border-radius:4px}
+.hos b{font-weight:500;color:#E8E2D6}
+.opts{display:flex;gap:6px;flex-wrap:wrap}
+.opts button{background:none;border:1px solid #3A4450;border-radius:5px;padding:6px 11px;font-size:13.5px}
+.opts button:hover{border-color:var(--fg)}
+.opts button.pri{background:var(--amber);border-color:var(--amber);color:var(--amber-ink);font-weight:600}
+.reply{display:flex;gap:6px}
+.reply input{flex:1;min-width:0;background:#0F1419;border:1px solid var(--line);border-radius:5px;color:var(--fg);padding:6px 9px;font-family:var(--font);font-size:13.5px}
+.empty{text-align:center;color:var(--muted);padding:30px 10px;font-size:14px}
+.empty b{display:block;font-family:var(--display);font-weight:500;color:var(--fg);font-size:16px}
+
+.person{display:flex;gap:10px;align-items:center;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);cursor:pointer;text-align:start;width:100%}
+.person:hover{border-color:#3A4450}
+.person .pb{flex:1;min-width:0}
+.person .pb b{font-weight:500;display:block}
+.person .pb span{font-size:12.5px;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st{font-size:11.5px;border-radius:4px;padding:1px 7px;white-space:nowrap}
+.st.working{background:#16303A;color:var(--cyan)}
+.st.waiting{background:#3A2A12;color:var(--amber)}
+.st.review{background:#2B2B2B;color:#E8E2D6}
+.st.away{background:#22272D;color:var(--dim)}
+.st.human{background:#17321F;color:var(--green)}
+.prog{height:4px;background:#232B33;border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--cyan)}
+.sec{font-size:12px;color:var(--dim);letter-spacing:.04em;margin-top:4px}
+
+.det h2{font-family:var(--display);font-weight:500;font-size:19px;margin:0}
+.det .role{color:var(--muted);font-size:13.5px}
+.back{background:none;border:0;color:var(--muted);font-size:13.5px;padding:0;align-self:flex-start}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:12.5px;color:var(--muted)}
+.fld input{background:#0F1419;border:1px solid var(--line);border-radius:5px;color:var(--fg);padding:7px 10px;font-family:var(--font);font-size:14px}
+.btn{background:var(--panel-2);border:1px solid #3A4450;border-radius:5px;padding:6px 12px;font-size:13.5px}
+.btn.pri{background:var(--amber);border-color:var(--amber);color:var(--amber-ink);font-weight:600}
+.toggle{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.toggle button{background:none;border:0;padding:6px 12px;font-size:13.5px;color:var(--muted)}
+.toggle button.on{background:#17321F;color:var(--green)}
+.toggle button.on.off{background:#22272D;color:var(--fg)}
+
+.log{display:flex;flex-direction:column;gap:2px}
+.log div{display:flex;gap:8px;font-size:13px;padding:5px 2px;border-bottom:1px solid #1E252C}
+.log time{font-family:var(--mono);font-size:11.5px;color:var(--dim);flex-shrink:0;direction:ltr;padding-top:2px}
+.log .dec{color:var(--amber)}
+
+.toast{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:#E8E2D6;color:#14181D;padding:8px 16px;border-radius:6px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20}
+.toast.on{opacity:1}
+
+@media (max-width:900px){
+  html,body{height:auto}
+  .app{height:auto}
+  .main{grid-template-columns:1fr}
+  .stage{height:min(66vh,92vw);min-height:320px}
+  .tip{display:none}
+  .hud{font-size:10.5px}
+  .side{max-height:none}
+  .body{overflow:visible}
+  .brand small{display:none}
+}
+@media (prefers-reduced-motion:reduce){.rec i{animation:none}.card,.card.out{animation:none}}
+</style>
+
+<div class="app" dir="rtl" lang="ar">
+  <div class="bar">
+    <div class="brand"><span style="color:var(--fg)">سبان</span><span>تك</span><small>غرفة التصميم — بث مباشر</small></div>
+    <div class="bar-r">
+      <button class="chipbtn" id="soundBtn" type="button">الصوت: مقفول</button>
+      <button class="chipbtn" id="fsBtn" type="button">ملء الشاشة</button>
+      <button class="pend" id="pendBtn" type="button">قرارات بانتظارك <b id="pendN">0</b></button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="stage" id="stage">
+      <canvas id="cam" aria-label="بث كاميرا غرفة التصميم: الموظفون على مكاتبهم ود. حسام يتابعهم"></canvas>
+      <div class="fx"></div>
+      <div class="hud tl"><span class="rec"><i></i>REC</span> &nbsp;CAM <span id="camNo">01</span> · DESIGN ROOM</div>
+      <div class="hud tr" id="clock">--</div>
+      <div class="tip" id="tip">اضغط على أي مكتب علشان تقرّب عليه وتشوف شغله</div>
+      <div class="cams">
+        <button type="button" id="c1" class="on">CAM 01 · الغرفة كلها</button>
+        <button type="button" id="c2">CAM 02 · تتبّع د. حسام</button>
+        <span class="sp"></span>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="tabs" role="tablist">
+        <button type="button" data-tab="inbox" class="on">القرارات<span class="n" id="tabN">0</span></button>
+        <button type="button" data-tab="team">الفريق</button>
+        <button type="button" data-tab="log">السجل</button>
+      </div>
+      <div class="body" id="side"></div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" dir="rtl"></div>
+
+<script>
+(()=>{
+/* ================= البيانات (أمثلة — تتربط لاحقاً بغرفة التحكم) ================= */
+const store={get(k,d){try{const v=localStorage.getItem('drc_'+k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem('drc_'+k,JSON.stringify(v))}catch(e){}}};
+
+const STAFF=[
+ {id:'reader',name:'قارئ الرسومات',kind:'ai',role:'يقرأ DWG الاستشاري ويقسّمه زونات',shirt:'#4E6C8C',hair:'#2B211A',screen:'dwg',desk:[1.4,2],
+  tasks:['قراءة R3 — برج الريان، الأدوار 5–9','تقسيم زونات — مول الياسمين، البدروم','استخراج الأعمدة والحوائط — مدرسة رؤية']},
+ {id:'ram',name:'باني موديل RAM',kind:'ai',role:'يبني ملفات ‎.cpt‎ لكل زون',shirt:'#5D7C60',hair:'#1C1C1C',screen:'plan',desk:[4.4,2],
+  tasks:['موديل زون B2 — برج الريان','ستربس التصميم — مول الياسمين زون A','تحديث الأحمال — مدرسة رؤية']},
+ {id:'pt',name:'مصمم الكابلات',kind:'ai',role:'لوب الكابلات لكل ستريب',shirt:'#8C5C3D',hair:'#3A2A1E',screen:'tendon',desk:[7.4,2],
+  tasks:['بروفايل الكابلات — برج الريان زون C','تحقق البانشينج — مول الياسمين','توزيع الكابلات Banded — مدرسة رؤية']},
+ {id:'eng1',name:'المهندس الأول',kind:'human',role:'مهندس تصميم — في المكتب',shirt:'#2F5568',hair:'#151515',screen:'plan',desk:[10.4,2],
+  tasks:['مراجعة الكمرات المزروعة — برج الريان']},
+ {id:'draw',name:'لوحات التسليح',kind:'ai',role:'شوب درونج وتفاصيل التسليح',shirt:'#6A5A86',hair:'#201A16',screen:'draw',desk:[1.4,6],
+  tasks:['لوحات الكابلات — مدرسة رؤية الدور 2','تفاصيل الـ U-bars — برج الريان','جدول تفريد BBS — مول الياسمين']},
+ {id:'qty',name:'الحصر والتسعير',kind:'ai',role:'حصر الكميات وطلبات التسعير',shirt:'#7C7A3E',hair:'#2A2A2A',screen:'table',desk:[4.4,6],
+  tasks:['حصر الكابلات والخوابير — مدرسة رؤية','طلب تسعير مورّدين — برج الريان','تحديث دراسة التكلفة — مول الياسمين']},
+ {id:'coord',name:'منسّق المشاريع',kind:'ai',role:'طابور السيرفر والتذكيرات والإيميلات',shirt:'#3E6E70',hair:'#1A1410',screen:'mail',desk:[7.4,6],
+  tasks:['ترتيب طابور السيرفر','متابعة ردود الاستشاريين','تذكيرات التسليم الأسبوعية']},
+ {id:'eng2',name:'المهندس الثاني',kind:'human',role:'مهندس تصميم — في المكتب',shirt:'#5A3F3F',hair:'#0F0F0F',screen:'dwg',desk:[10.4,6],
+  tasks:['تعديل الستربس في زون C — مول الياسمين']},
+];
+const HOSSAM={id:'hossam',name:'د. حسام',title:'مدير التصميمات',kind:'ai'};
+
+const POOL=[
+ {from:'pt',project:'برج الريان — الدور المتكرر',title:'كثافة الكابلات في زون C أعلى من المعتاد',detail:'اللوب طلع 6.1 kg/m² مقابل متوسط المكتب 4.5. السبب بحر 9.4 م بين المحورين C و D.',hos:'أقترح كمرة Banded على محور D بدل زيادة الكابلات.',opts:['اعمل كمرة Banded','كمّل بالتوزيع الحالي','هراجعه بنفسي']},
+ {from:'qty',project:'مدرسة رؤية',title:'طلب تسعير جاهز للإرسال لـ 3 مورّدين',detail:'توريد وتركيب كابلات لمساحة 1,850 م². الإيميل متصاغ ومنتظر موافقتك.',hos:'الكميات مطابقة للحصر. ممكن يتبعت.',opts:['ابعته','عدّل الصيغة','أجّله لبكرة']},
+ {from:'reader',project:'مول الياسمين',title:'ستة أعمدة في لوحة الاستشاري ملهاش مقاس',detail:'الأعمدة من C4 لحد C9 بدون أبعاد. أقرب قيمة في جدول الأعمدة 30×80 سم.',hos:'غالباً 30×80 زي باقي المحور، بس الأسلم نسأل الاستشاري.',opts:['استخدم 30×80','ابعت استفسار للاستشاري','وقّف الزون']},
+ {from:'ram',project:'برج الريان',title:'أحمال SDL مختلفة بين المعماري والإنشائي',detail:'الإنشائي كاتب 2.0 kN/m²، والمعماري فيه رخام ومونة يوصلوا لحوالي 2.8.',hos:'نصمم على 3.0 kN/m² احتياطاً.',opts:['3.0 kN/m²','2.8 kN/m²','2.0 زي الاستشاري']},
+ {from:'draw',project:'مدرسة رؤية',title:'تسليح U-bar عند الحافة الحرة',detail:'RAM طالع T12@200، والمكتب بيستخدم عادةً T16@200 عند الحواف اللي فيها فتحات.',hos:'T16@200 أسلم مع الفتحات.',opts:['T16@200','T12@200','اعرضها عليّ']},
+ {from:'coord',project:'طابور السيرفر',title:'مشروعين أولوية عالية والسيرفر بيشغّل واحد',detail:'مول الياسمين (زون B) وبرج الريان (الدور 7).',hos:'برج الريان تسليمه الأحد، أقدّمه.',opts:['برج الريان الأول','مول الياسمين الأول']},
+ {from:'eng1',project:'برج الريان',title:'موافقة على تعديل عمق الكمرة المزروعة',detail:'العمود المزروع على محور 5 حمله 1,420 kN. اقتراحي عمق 90 سم بدل 75 علشان الـ STM.',hos:'راجعت الحسابات: الاستراتس بتتحقق عند 90 سم. موافق.',opts:['موافق','نتكلم الأول']},
+ {from:'eng2',project:'مول الياسمين',title:'الاستشاري طالب تقليل الكابلات 10% في زون A',detail:'التقليل ده هيقرّب الإجهادات من الحد المسموح.',hos:'نقدر نقلل 6% بس من غير ما نتعدى الحد.',opts:['قلّل 6%','ارفض بالحسابات','اجتماع مع الاستشاري']},
+ {from:'pt',project:'مول الياسمين',title:'البانشينج عند العمود B3 مش متحقق',detail:'النسبة 1.12 بعد الكابلات. الحلول: Drop panel سُمك 25 سم أو Stud rails.',hos:'Stud rails أرخص ومش هتأثر على المعماري.',opts:['Stud rails','Drop panel']},
+ {from:'reader',project:'برج الريان',title:'الاستشاري بعت ريفيجن R3',detail:'فيه تغييرات في 3 أدوار. نعيد القراءة ولا نكمّل على R2؟',hos:'نعيد قراءة الأدوار المتغيرة بس.',opts:['أعد قراءة المتغير','كمّل على R2']},
+];
+
+/* ================= الحالة ================= */
+const names=store.get('names',{});
+const presence=store.get('presence',{eng1:true,eng2:true});
+STAFF.forEach((s,i)=>{
+  if(names[s.id]) s.name=names[s.id];
+  s.taskI=0; s.task=s.tasks[0];
+  s.progress=s.kind==='human'?0.35+Math.random()*0.3:Math.random()*0.7;
+  s.rate=s.kind==='human'?1/260:1/(55+Math.random()*50);
+  s.state='working'; s.present=s.kind==='human'?presence[s.id]!==false:true;
+  s.seed=i*1.7; s.bubble=null;
+});
+const byId=id=>STAFF.find(s=>s.id===id);
+let decisions=[]; let did=1; let poolI=0;
+const logs=[];
+function now(){return new Date()}
+function hhmm(d){return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
+function log(text,cls){logs.unshift({t:now(),text,cls});if(logs.length>80)logs.pop();if(tab==='log'&&!sel)renderSide()}
+
+function spawnDecision(fromId){
+  let d=null;
+  for(let k=0;k<POOL.length;k++){
+    const c=POOL[(poolI+k)%POOL.length];
+    if((!fromId||c.from===fromId)&&!decisions.some(x=>x.title===c.title)){d=c;poolI=(poolI+k+1)%POOL.length;break}
+  }
+  if(!d) return null;
+  const s=byId(d.from); if(!s||!s.present) return null;
+  const dec={...d,id:did++,at:now()};
+  decisions.push(dec);
+  s.state='waiting'; s.bubble={t:'محتاج قرارك',until:T+5};
+  log(`${s.name} محتاج قرار: ${d.title}`,'dec');
+  chime(); updateCounts(); if(!sel||sel===s.id) renderSide();
+  return dec;
+}
+function resolve(id,choice,note){
+  const i=decisions.findIndex(d=>d.id===id); if(i<0) return;
+  const d=decisions[i]; decisions.splice(i,1);
+  const s=byId(d.from);
+  if(s && !decisions.some(x=>x.from===s.id)){s.state=s.progress>=1?'submitted':'working';s.bubble={t:'تمام، هكمّل',until:T+4}}
+  log(`قرارك (${d.project}): ${choice}${note?' — '+note:''}`,'dec');
+  toast('اتبعت القرار لـ '+(s?s.name:''));
+  updateCounts();
+}
+
+/* ================= الرسم الأيزومتري ================= */
+const TW=64,TH=32,W=16,D=10,WALL=118;
+const iso=(x,y,z=0)=>({X:(x-y)*TW/2,Y:(x+y)*TH/2-z});
+const cv=document.getElementById('cam'),ctx=cv.getContext('2d');
+let cw=0,ch=0,dpr=1;
+const cam={cx:0,cy:0,s:1},camT={cx:0,cy:0,s:1};
+let mode='wide', sel=null, T=0;
+function fit(){
+  const minX=-D*32-6,maxX=W*32+6,minY=-WALL-30,maxY=(W+D)*16+8;
+  const s=Math.min(cw/(maxX-minX),ch/(maxY-minY));
+  return {cx:(minX+maxX)/2,cy:(minY+maxY)/2,s};
+}
+function resize(){
+  const r=cv.getBoundingClientRect(); dpr=Math.min(window.devicePixelRatio||1,2);
+  cw=r.width; ch=r.height; cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
+  const f=fit(); if(mode==='wide'){Object.assign(camT,f)} if(!cam.init){Object.assign(cam,f);cam.init=1}
+}
+window.addEventListener('resize',resize);
+
+function poly(pts,fill,stroke){ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.X,p.Y):ctx.moveTo(p.X,p.Y));ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=.6;ctx.stroke()}}
+function box(x,y,z,w,d,h,top,left,right){
+  poly([iso(x,y+d,z),iso(x+w,y+d,z),iso(x+w,y+d,z+h),iso(x,y+d,z+h)],left);
+  poly([iso(x+w,y,z),iso(x+w,y+d,z),iso(x+w,y+d,z+h),iso(x+w,y,z+h)],right);
+  poly([iso(x,y,z+h),iso(x+w,y,z+h),iso(x+w,y+d,z+h),iso(x,y+d,z+h)],top);
+}
+/* مستوى ثابت y يواجه +y — الإحداثيات المحلية: عُشر بلاطة × بكسل لأسفل */
+function faceY(x,y,z,h,fn){const o=iso(x,y,z+h);ctx.save();ctx.transform(TW/20,TH/20,0,1,o.X,o.Y);fn();ctx.restore()}
+function faceX(x,y,z,h,fn){const o=iso(x,y,z+h);ctx.save();ctx.transform(-TW/20,TH/20,0,1,o.X,o.Y);fn();ctx.restore()}
+function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h)}
+
+function drawRoom(){
+  // الأرضية
+  for(let i=0;i<W;i++)for(let j=0;j<D;j++){
+    const c=(i+j)%2?'#7E7C77':'#86847E';
+    poly([iso(i,j),iso(i+1,j),iso(i+1,j+1),iso(i,j+1)],c);
+  }
+  // سجادة منطقة د. حسام
+  poly([iso(12.4,0.6),iso(15.8,0.6),iso(15.8,4),iso(12.4,4)],'#5F5A52');
+  // الحائط الخلفي
+  faceY(0,0,0,WALL,()=>{
+    rect(0,0,W*10,WALL,'#3B424B'); rect(0,WALL-7,W*10,7,'#2A3037');
+    // اللافتة
+    ctx.fillStyle='#D99A3E'; ctx.font='600 11px "Readex Pro",sans-serif'; ctx.direction='ltr'; ctx.textAlign='left';
+    ctx.fillText('SPAN TECH',4,22); ctx.fillStyle='#9AA3AD'; ctx.font='6px "IBM Plex Mono",monospace'; ctx.fillText('PT DESIGN OFFICE',4,31);
+    // السبورة: مسقط بلاطة مع كابلات
+    rect(14,40,40,46,'#E9E6DE'); rect(14,86,40,2,'#9AA3AD');
+    ctx.strokeStyle='#4B5560';ctx.lineWidth=.6;ctx.strokeRect(17,44,34,38);
+    for(let k=0;k<4;k++){rect(17+k*11.3-1,44+ (k%2)*0,2,2,'#4B5560');rect(17+k*11.3-1,80,2,2,'#4B5560');rect(17+k*11.3-1,62,2,2,'#4B5560')}
+    ctx.strokeStyle='#B5761C';ctx.lineWidth=.8;
+    for(let k=0;k<5;k++){ctx.beginPath();const yy=47+k*7.5;ctx.moveTo(17,yy);ctx.quadraticCurveTo(34,yy+ (k%2?3:-3),51,yy);ctx.stroke()}
+    ctx.strokeStyle='#2E7D5B';ctx.beginPath();ctx.moveTo(28,44);ctx.lineTo(28,82);ctx.moveTo(40,44);ctx.lineTo(40,82);ctx.stroke();
+    // شاشة طابور السيرفر
+    rect(78,34,44,34,'#0B0F13'); rect(78,68,44,2,'#1E252C');
+    ctx.fillStyle='#71C4D8';ctx.font='5px "IBM Plex Mono",monospace';ctx.fillText('SERVER QUEUE',81,41);
+    const q=[.82,.46,.2,.66];
+    q.forEach((v,k)=>{rect(81,45+k*5.5,38,3,'#1C2730');rect(81,45+k*5.5,38*((v+T*0.01*(k+1))%1),3,k===0?'#D99A3E':'#3E8FA3')});
+    // ساعة
+    ctx.beginPath();ctx.arc(140,32,8,0,7);ctx.fillStyle='#E9E6DE';ctx.fill();
+    const d=now(),hA=(d.getHours()%12+d.getMinutes()/60)/12*6.283-1.571,mA=d.getMinutes()/60*6.283-1.571;
+    ctx.strokeStyle='#14181D';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(140,32);ctx.lineTo(140+Math.cos(hA)*4,32+Math.sin(hA)*4);ctx.moveTo(140,32);ctx.lineTo(140+Math.cos(mA)*6,32+Math.sin(mA)*6);ctx.stroke();
+  });
+  // الحائط الأيسر بالشبابيك
+  faceX(0,0,0,WALL,()=>{
+    rect(0,0,D*10,WALL,'#30363E'); rect(0,WALL-7,D*10,7,'#242930');
+    const hr=now().getHours(); const day=hr>=6&&hr<18;
+    [[8,26],[40,26],[72,22]].forEach(([x,w])=>{
+      const g=ctx.createLinearGradient(0,20,0,86);
+      g.addColorStop(0,day?'#9FC3D9':'#1B2A3E');g.addColorStop(1,day?'#D9E6EC':'#33465C');
+      ctx.fillStyle=g;ctx.fillRect(x,20,w,66);
+      ctx.fillStyle='rgba(20,24,29,.22)';for(let k=0;k<11;k++)ctx.fillRect(x,22+k*6,w,1.2);
+      rect(x-1,86,w+2,2,'#5E6873');
+    });
+  });
+  // حواف الحوائط
+  poly([iso(0,0,0),iso(0,0,WALL),iso(0,0,WALL+0)],null);
+}
+
+function screen(type,t,dim){
+  // محتوى شاشة المونيتور في إحداثيات محلية 82×22
+  rect(0,0,8.2,22,dim?'#1A1408':'#0B1A22');
+  ctx.save(); ctx.scale(0.1,1);
+  if(dim){ctx.fillStyle='#D99A3E';ctx.font='bold 15px sans-serif';ctx.textAlign='center';ctx.fillText('?',41,16);ctx.restore();return}
+  ctx.lineWidth=1;
+  if(type==='tendon'){ctx.strokeStyle='#D99A3E';for(let k=0;k<3;k++){ctx.beginPath();for(let x=4;x<=78;x+=2){const y=11+Math.sin((x/74)*Math.PI*2+t*.6+k)*5*(k?0.6:1);x===4?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke()}}
+  else if(type==='plan'){ctx.strokeStyle='#71C4D8';ctx.strokeRect(8,3,66,16);for(let k=1;k<4;k++){ctx.beginPath();ctx.moveTo(8+k*16.5,3);ctx.lineTo(8+k*16.5,19);ctx.stroke()}ctx.fillStyle='#79CC8E';const k=Math.floor(t*1.2)%4;ctx.fillRect(9+k*16.5,4,15,14)}
+  else if(type==='dwg'){ctx.strokeStyle='#C9D3DC';for(let k=0;k<6;k++){ctx.beginPath();ctx.moveTo(6+k*12,3);ctx.lineTo(6+k*12,19);ctx.stroke()}ctx.strokeStyle='#D99A3E';const sx=(t*14)%70;ctx.beginPath();ctx.moveTo(6+sx,2);ctx.lineTo(6+sx,20);ctx.stroke()}
+  else if(type==='draw'){ctx.strokeStyle='#C9D3DC';ctx.strokeRect(5,3,72,16);ctx.strokeStyle='#E5534B';for(let k=0;k<9;k++){ctx.beginPath();ctx.moveTo(8+k*7.6,5);ctx.lineTo(8+k*7.6,17);ctx.stroke()}ctx.strokeStyle='#79CC8E';ctx.beginPath();ctx.moveTo(6,11);ctx.lineTo(6+((t*20)%70),11);ctx.stroke()}
+  else if(type==='table'){for(let k=0;k<5;k++){ctx.fillStyle=k===Math.floor(t)%5?'#D99A3E':'#3E5563';ctx.fillRect(6,3+k*3.5,70,2)}}
+  else if(type==='mail'){for(let k=0;k<4;k++){ctx.fillStyle=k===0?'#71C4D8':'#3E5563';ctx.fillRect(6,3+k*4.5,12,3);ctx.fillRect(22,3+k*4.5,40+((k*13+Math.floor(t))%14),3)}}
+  ctx.restore();
+}
+
+function deskObj(dx,dy,s,hossam){
+  box(dx,dy,0,2,1,25,'#D3CBBB','#A39A8A','#8C8476');
+  // أوراق ولوحات
+  poly([iso(dx+0.15,dy+0.15,25.2),iso(dx+0.75,dy+0.12,25.2),iso(dx+0.78,dy+0.5,25.2),iso(dx+0.18,dy+0.52,25.2)],'#F2F0EA');
+  // كيبورد
+  box(dx+0.4,dy+0.6,25,0.6,0.2,1.4,'#2D3238','#22262B','#1D2125');
+  // مونيتور
+  box(dx+1.42,dy+0.35,25,0.1,0.08,9,'#2A2E33','#22262B','#1B1E22');
+  box(dx+1.0,dy+0.3,33,0.95,0.06,27,'#1B1F24','#15181C','#101215');
+  const waiting=s&&s.state==='waiting', off=s&&!s.present;
+  if(!off) faceY(dx+1.04,dy+0.36,35,23,()=>screen(s?s.screen:'plan',T+(s?s.seed:0),waiting));
+  else faceY(dx+1.04,dy+0.36,35,23,()=>rect(0,0,8.7,23,'#0A0C0E'));
+  if(hossam){ box(dx+0.1,dy+0.3,33,0.75,0.06,24,'#1B1F24','#15181C','#101215'); faceY(dx+0.14,dy+0.36,35,20,()=>screen('plan',T*.5,false)); }
+  // كوباية
+  box(dx+1.75,dy+0.7,25,0.12,0.12,6,'#E8E2D6','#C9C2B4','#B5AE9F');
+}
+
+function chair(px,py,c){box(px-0.25,py-0.15,0,0.5,0.5,15,c,'#1E2328','#191D21')}
+function chairBack(px,py,c){box(px-0.25,py+0.28,15,0.5,0.08,14,c,'#262B31','#1F2328')}
+
+function seated(s,px,py){
+  const b=iso(px,py,0), t=T+s.seed;
+  const sh=iso(px,py,36);
+  // ذراعين
+  const waiting=s.state==='waiting';
+  ctx.lineCap='round';ctx.lineWidth=4.2;ctx.strokeStyle=s.shirt;
+  const hands=[iso(px-0.05,py-0.62,27),iso(px+0.25,py-0.66,27)];
+  hands.forEach((h,i)=>{
+    let hx=h.X,hy=h.Y;
+    if(s.state==='working') hy+=Math.sin(t*14+i*2)*0.9;
+    if(waiting&&i===1){hx=sh.X+10+Math.sin(t*5)*3;hy=sh.Y-26}
+    ctx.beginPath();ctx.moveTo(sh.X+(i?7:-7),sh.Y+2);ctx.lineTo(hx,hy);ctx.stroke();
+    ctx.fillStyle='#C99B78';ctx.beginPath();ctx.arc(hx,hy,2.4,0,7);ctx.fill();
+  });
+  // الجسم
+  const top=iso(px,py,41);
+  ctx.fillStyle=s.shirt; roundRect(top.X-9,top.Y,18,b.Y-15-top.Y+2,6); ctx.fill();
+  // الرأس
+  const hd=iso(px,py,49);
+  ctx.fillStyle='#C99B78';ctx.beginPath();ctx.arc(hd.X,hd.Y,7.2,0,7);ctx.fill();
+  ctx.fillStyle=s.hair;ctx.beginPath();ctx.arc(hd.X-1.6,hd.Y+0.6,7.2,0,7);ctx.fill();
+  ctx.fillStyle='#C99B78';ctx.beginPath();ctx.ellipse(hd.X+4.6,hd.Y-0.5,2.4,3.4,0,0,7);ctx.fill();
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+
+/* ================= د. حسام ================= */
+const SEAT={x:13.8,y:2.95}, AISLE=4.7;
+const H={x:SEAT.x,y:SEAT.y,path:[],state:'seated',target:null,timer:0,queue:[],walkT:0,nextRound:18,bubble:null};
+function spotFor(s){return {x:s.desk[0]+2.48,y:s.desk[1]+1.25}}
+function goTo(p){H.path=[{x:H.x,y:AISLE},{x:p.x,y:AISLE},{x:p.x,y:p.y}];H.state='walking'}
+function hossamTick(dt){
+  if(H.state==='walking'){
+    const p=H.path[0]; if(!p){H.state=H.target?'reviewing':'seated';H.timer=H.target?(H.target.kind==='review'?6:3):0; if(H.target){const s=byId(H.target.id);H.bubble={t:H.target.kind==='review'?'بيراجع شغل '+s.name:'متابعة',until:T+H.timer}} return}
+    const dx=p.x-H.x,dy=p.y-H.y,dist=Math.hypot(dx,dy),sp=1.7*dt;
+    if(dist<=sp){H.x=p.x;H.y=p.y;H.path.shift()}else{H.x+=dx/dist*sp;H.y+=dy/dist*sp}
+    H.walkT+=dt; return;
+  }
+  if(H.state==='reviewing'){
+    H.timer-=dt; if(H.timer>0) return;
+    const tg=H.target; H.target=null; const s=byId(tg.id);
+    if(tg.kind==='review'&&s){
+      if(Math.random()<0.35&&spawnDecision(s.id)){
+        log(`د. حسام راجع "${s.task}" ورفع لك نقطة محتاجة قرار`);
+        H.bubble={t:'محتاج رأيك في دي',until:T+4};
+      }else{
+        log(`د. حسام اعتمد: ${s.task} (${s.name})`);
+        H.bubble={t:'تمام — معتمد',until:T+3};
+        nextTask(s);
+      }
+    }
+    if(H.queue.length) startNext(); else {H.target=null;goTo(SEAT);H.path.push({x:SEAT.x,y:SEAT.y})}
+    return;
+  }
+  if(H.state==='seated'){
+    if(H.queue.length){startNext();return}
+    H.nextRound-=dt;
+    if(H.nextRound<=0){H.nextRound=22+Math.random()*18;const opts=STAFF.filter(s=>s.present);const s=opts[Math.floor(Math.random()*opts.length)];H.target={id:s.id,kind:'round'};goTo(spotFor(s))}
+  }
+}
+function startNext(){const id=H.queue.shift();const s=byId(id);s.state='review';H.target={id,kind:'review'};goTo(spotFor(s))}
+function nextTask(s){
+  s.taskI=(s.taskI+1)%s.tasks.length;s.task=s.tasks[s.taskI];s.progress=0;
+  if(!decisions.some(d=>d.from===s.id)) s.state='working';
+  s.bubble={t:'بدأت: '+s.task.split(' — ')[0],until:T+4};
+  if(sel===s.id) renderSide();
+}
+function drawHossam(){
+  const walking=H.state==='walking';
+  if(H.state==='seated'&&Math.hypot(H.x-SEAT.x,H.y-SEAT.y)<0.05){
+    seated({shirt:'#2B3440',hair:'#A8A6A0',state:'idle',seed:9},SEAT.x,SEAT.y);return;
+  }
+  const b=iso(H.x,H.y,0), sw=walking?Math.sin(H.walkT*9)*4:0;
+  ctx.fillStyle='rgba(0,0,0,.18)';ctx.beginPath();ctx.ellipse(b.X,b.Y,10,4,0,0,7);ctx.fill();
+  ctx.lineCap='round';ctx.strokeStyle='#22272D';ctx.lineWidth=4.5;
+  ctx.beginPath();ctx.moveTo(b.X-3,b.Y-24);ctx.lineTo(b.X-3+sw,b.Y-1);ctx.moveTo(b.X+3,b.Y-24);ctx.lineTo(b.X+3-sw,b.Y-1);ctx.stroke();
+  ctx.fillStyle='#2B3440';roundRect(b.X-9.5,b.Y-50,19,28,6);ctx.fill();
+  ctx.fillStyle='#E8E2D6';ctx.fillRect(b.X-1.5,b.Y-49,3,12);
+  // تابلت في إيده
+  ctx.strokeStyle='#2B3440';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(b.X+7,b.Y-45);ctx.lineTo(b.X+11,b.Y-33);ctx.stroke();
+  ctx.fillStyle='#14181D';ctx.save();ctx.translate(b.X+12,b.Y-35);ctx.rotate(-.3);ctx.fillRect(-4,-6,8,11);ctx.fillStyle='#71C4D8';ctx.fillRect(-3,-5,6,9);ctx.restore();
+  ctx.fillStyle='#C99B78';ctx.beginPath();ctx.arc(b.X,b.Y-57,7.2,0,7);ctx.fill();
+  ctx.fillStyle='#A8A6A0';ctx.beginPath();ctx.arc(b.X-1,b.Y-60,7,Math.PI*0.95,Math.PI*2.05);ctx.fill();
+  ctx.strokeStyle='#14181D';ctx.lineWidth=1;ctx.strokeRect(b.X-1,b.Y-58.5,4,2.5);ctx.strokeRect(b.X+4,b.Y-58.5,3,2.5);
+}
+
+/* ================= أشياء ثابتة ================= */
+function plant(x,y,s=1){box(x,y,0,0.42,0.42,14,'#4A3F36','#6B5A4C','#5A4B3F');const c=iso(x+0.21,y+0.21,14);[['#3F6B45',0,-12,11],['#4E8053',-6,-6,8],['#5C9160',6,-7,8],['#477549',0,-20,8]].forEach(([col,ox,oy,r])=>{ctx.fillStyle=col;ctx.beginPath();ctx.arc(c.X+ox*s,c.Y+oy*s,r*s,0,7);ctx.fill()})}
+function plotter(){box(0.15,7.4,0,0.7,1.9,22,'#2D3238','#22262B','#1D2125');box(0.1,7.35,22,0.8,2.0,8,'#3B424B','#30363E','#272C33');
+  const ph=(T*0.15)%1; poly([iso(0.9,7.6,26),iso(0.9,9.1,26),iso(0.9+ph*0.8,9.1,26-ph*20),iso(0.9+ph*0.8,7.6,26-ph*20)],'#F2F0EA')}
+function shelf(){box(14.4,0.08,0,1.4,0.4,74,'#5C5146','#4A4139','#3E3630');for(let k=0;k<4;k++){faceY(14.45,0.48,8+k*17,13,()=>{['#B5761C','#3E6E70','#6A5A86','#C9C2B4','#5D7C60','#8C5C3D'].forEach((c,i)=>rect(i*2.2+0.4,0,1.8,13,c))})}}
+function meeting(){box(12.6,6.4,0,2.6,1.4,24,'#B9B1A2','#8F877A','#7A7366');poly([iso(13.0,6.7,24.2),iso(14.4,6.7,24.2),iso(14.4,7.6,24.2),iso(13.0,7.6,24.2)],'#ECEAE3');
+  ctx.strokeStyle='#B5761C';ctx.lineWidth=.8;ctx.beginPath();const a=iso(13.1,7.1,24.3),b=iso(14.3,7.1,24.3),m=iso(13.7,6.9,24.3);ctx.moveTo(a.X,a.Y);ctx.quadraticCurveTo(m.X,m.Y,b.X,b.Y);ctx.stroke()}
+
+/* ================= الإطار ================= */
+const hits=[];
+function W2S(p){return {x:(p.X-cam.cx)*cam.s+cw/2,y:(p.Y-cam.cy)*cam.s+ch/2}}
+function frame(){
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#06080A';ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.setTransform(dpr*cam.s,0,0,dpr*cam.s,dpr*(cw/2-cam.cx*cam.s),dpr*(ch/2-cam.cy*cam.s));
+  drawRoom();
+  const items=[];
+  items.push({d:0.5,f:shelf});
+  items.push({d:1.2,f:()=>plant(0.25,0.25)});
+  items.push({d:13,f:()=>plant(12.1,0.3,.9)});
+  items.push({d:9.5,f:plotter});
+  items.push({d:24.7,f:()=>plant(15.3,9.3,1.1)});
+  items.push({d:14.6,f:meeting});
+  items.push({d:13+1.6+1,f:()=>deskObj(13,1.6,null,true)});
+  items.push({d:SEAT.x+SEAT.y-0.4,f:()=>chair(SEAT.x,SEAT.y,'#2A2F35')});
+  items.push({d:SEAT.x+SEAT.y+0.5,f:()=>chairBack(SEAT.x,SEAT.y,'#2A2F35')});
+  STAFF.forEach(s=>{
+    const [dx,dy]=s.desk,px=dx+0.72,py=dy+1.35;
+    items.push({d:dx+dy+1.5,f:()=>deskObj(dx,dy,s)});
+    items.push({d:px+py-0.4,f:()=>chair(px,py,s.kind==='human'?'#2B3A30':'#2A2F35')});
+    if(s.present) items.push({d:px+py,f:()=>seated(s,px,py)});
+    items.push({d:px+py+0.5,f:()=>chairBack(px,py,s.kind==='human'?'#2B3A30':'#2A2F35')});
+  });
+  items.push({d:H.x+H.y+(H.state==='seated'?0.01:0.3),f:drawHossam});
+  items.sort((a,b)=>a.d-b.d).forEach(i=>i.f());
+
+  // طبقة الكشف (ثابتة الحجم)
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  hits.length=0;
+  const k=Math.max(0.9,Math.min(1.45,cam.s/(fit().s||1)*0.95))*Math.max(0.62,Math.min(1,cw/820));
+  STAFF.forEach(s=>{
+    const [dx,dy]=s.desk,px=dx+0.72,py=dy+1.35;
+    const a=W2S(iso(px,py,62)),b=W2S(iso(px,py,0));
+    const r1=W2S(iso(dx,dy+1.8,0)),r2=W2S(iso(dx+2,dy,0)),r3=W2S(iso(dx,dy,70));
+    hits.push({id:s.id,x0:Math.min(r1.x,a.x-20),x1:r2.x,y0:Math.min(r3.y,a.y-30),y1:Math.max(r1.y,b.y)});
+    const col=!s.present?'#5E6873':s.state==='waiting'?'#D99A3E':s.kind==='human'?'#79CC8E':'#71C4D8';
+    bracket(a.x-18*k,a.y-4*k,36*k,b.y-a.y+6*k,col,s.state==='waiting'||sel===s.id);
+    label(a.x,a.y-10*k,s,col,k);
+    if(s.bubble&&s.bubble.until>T) bubble(a.x+30*k,a.y-46*k,s.bubble.t,k);
+  });
+  // د. حسام
+  const seatedNow=H.state==='seated'&&Math.hypot(H.x-SEAT.x,H.y-SEAT.y)<0.05;
+  const ha=W2S(iso(H.x,H.y,seatedNow?62:72)),hb=W2S(iso(H.x,H.y,0));
+  hits.unshift({id:'hossam',x0:ha.x-24,x1:ha.x+24,y0:ha.y-30,y1:hb.y});
+  bracket(ha.x-18*k,ha.y-2*k,36*k,hb.y-ha.y+4*k,'#E8E2D6',sel==='hossam');
+  chip(ha.x,ha.y-10*k,'د. حسام · مدير التصميمات',H.state==='walking'?(H.target?(H.target.kind==='review'?'رايح يراجع':'جولة متابعة'):'راجع مكتبه'):H.state==='reviewing'?'بيراجع الآن':(H.queue.length?'عنده مراجعات':'على مكتبه'),'#E8E2D6',k,null);
+  if(H.bubble&&H.bubble.until>T) bubble(ha.x+30*k,ha.y-48*k,H.bubble.t,k);
+}
+function bracket(x,y,w,h,c,strong){
+  const L=Math.min(9,w/3);ctx.strokeStyle=c;ctx.globalAlpha=strong?1:.7;ctx.lineWidth=strong?2:1.3;ctx.beginPath();
+  [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([px,py,sx,sy])=>{ctx.moveTo(px+sx*L,py);ctx.lineTo(px,py);ctx.lineTo(px,py+sy*L)});
+  ctx.stroke();ctx.globalAlpha=1;
+}
+function chip(x,y,title,sub,col,k,prog){
+  ctx.direction='rtl';ctx.textAlign='center';
+  ctx.font=`500 ${11.5*k}px "IBM Plex Sans Arabic",sans-serif`;const w1=ctx.measureText(title).width;
+  ctx.font=`${10*k}px "IBM Plex Sans Arabic",sans-serif`;const w2=ctx.measureText(sub).width;
+  const w=Math.max(w1,w2)+16*k,h=34*k;
+  ctx.fillStyle='rgba(8,11,14,.82)';roundRect(x-w/2,y-h,w,h,4*k);ctx.fill();
+  ctx.fillStyle=col;ctx.fillRect(x-w/2,y-h,w,1.5*k);
+  ctx.fillStyle='#ECE8E0';ctx.font=`500 ${11.5*k}px "IBM Plex Sans Arabic",sans-serif`;ctx.fillText(title,x,y-h+14*k);
+  ctx.fillStyle=col;ctx.font=`${10*k}px "IBM Plex Sans Arabic",sans-serif`;ctx.fillText(sub,x,y-h+27*k);
+  if(prog!=null){ctx.fillStyle='#232B33';ctx.fillRect(x-w/2+5*k,y-4*k,w-10*k,2*k);ctx.fillStyle=col;ctx.fillRect(x+w/2-5*k-(w-10*k)*prog,y-4*k,(w-10*k)*prog,2*k)}
+  return {w,h};
+}
+function label(x,y,s,col,k){
+  const sub=!s.present?'خارج المكتب':s.state==='waiting'?'منتظر قرارك':s.state==='review'||s.state==='submitted'?'سلّم — في المراجعة':`${s.kind==='human'?'مهندس':'AI'} · ${Math.round(s.progress*100)}%`;
+  const r=chip(x,y,s.name,sub,col,k,s.present&&s.state==='working'?s.progress:null);
+  if(s.state==='waiting'){
+    const cy=y-r.h-12*k,p=(Math.sin(T*4)+1)/2;
+    ctx.strokeStyle='rgba(217,154,62,'+(0.6-p*0.5)+')';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,cy,(9+p*6)*k,0,7);ctx.stroke();
+    ctx.fillStyle='#D99A3E';ctx.beginPath();ctx.arc(x,cy,8.5*k,0,7);ctx.fill();
+    ctx.fillStyle='#1E1301';ctx.font=`700 ${12*k}px "Readex Pro",sans-serif`;ctx.textAlign='center';ctx.fillText('!',x,cy+4.3*k);
+  }
+}
+function bubble(x,y,t,k){
+  ctx.direction='rtl';ctx.textAlign='center';ctx.font=`${11*k}px "IBM Plex Sans Arabic",sans-serif`;
+  const w=ctx.measureText(t).width+14*k,h=20*k;
+  ctx.fillStyle='#E8E2D6';roundRect(x-w/2,y-h,w,h,8*k);ctx.fill();
+  ctx.beginPath();ctx.moveTo(x-w/2+8*k,y-1);ctx.lineTo(x-w/2+2*k,y+6*k);ctx.lineTo(x-w/2+16*k,y-1);ctx.fill();
+  ctx.fillStyle='#14181D';ctx.fillText(t,x,y-6*k);
+}
+
+/* ================= المحاكاة ================= */
+let last=performance.now(), spawnIn=12, uiTick=0;
+function loop(t){
+  const dt=Math.min(0.1,(t-last)/1000);last=t;T+=dt;
+  STAFF.forEach(s=>{
+    if(!s.present) return;
+    if(s.state==='working'){s.progress=Math.min(1,s.progress+s.rate*dt);if(s.progress>=1){s.state='submitted';H.queue.push(s.id);log(`${s.name} سلّم "${s.task}" لـ د. حسام`);s.bubble={t:'خلصت — للمراجعة',until:T+4}}}
+  });
+  hossamTick(dt);
+  spawnIn-=dt;if(spawnIn<=0){spawnIn=40+Math.random()*35;if(decisions.length<6)spawnDecision()}
+  if(mode==='follow'){const p=iso(H.x,H.y,30);camT.cx=p.X;camT.cy=p.Y;camT.s=fit().s*2.3}
+  const a=1-Math.exp(-dt*4);cam.cx+=(camT.cx-cam.cx)*a;cam.cy+=(camT.cy-cam.cy)*a;cam.s+=(camT.s-cam.s)*a;
+  frame();
+  uiTick+=dt;if(uiTick>1){uiTick=0;clock();if(sel&&sel!=='hossam')refreshProgress()}
+  requestAnimationFrame(loop);
+}
+
+/* ================= التفاعل ================= */
+function focusDesk(id){
+  sel=id;mode='desk';setCamBtns();
+  if(id==='hossam'){mode='follow';setCamBtns()}
+  else{const s=byId(id);const p=iso(s.desk[0]+1,s.desk[1]+1,40);camT.cx=p.X;camT.cy=p.Y;camT.s=fit().s*2.4}
+  document.getElementById('tip').hidden=true;renderSide();
+  if(window.matchMedia('(max-width:900px)').matches) document.querySelector('.side').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function wide(){mode='wide';sel=null;Object.assign(camT,fit());setCamBtns();renderSide()}
+function setCamBtns(){
+  document.getElementById('c1').classList.toggle('on',mode==='wide');
+  document.getElementById('c2').classList.toggle('on',mode==='follow');
+  document.getElementById('camNo').textContent=mode==='wide'?'01':mode==='follow'?'02':'0'+(3+STAFF.findIndex(s=>s.id===sel));
+}
+cv.addEventListener('click',e=>{
+  const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const h=hits.find(h=>x>=h.x0&&x<=h.x1&&y>=h.y0&&y<=h.y1);
+  if(h) focusDesk(h.id); else if(mode!=='wide') wide();
+  wakeLock();
+});
+document.getElementById('c1').onclick=wide;
+document.getElementById('c2').onclick=()=>focusDesk('hossam');
+document.getElementById('pendBtn').onclick=()=>{sel=null;tab='inbox';if(mode==='desk')wide();else renderSide();setTabs();if(window.matchMedia('(max-width:900px)').matches)document.querySelector('.side').scrollIntoView({behavior:'smooth'})};
+document.getElementById('fsBtn').onclick=()=>{const el=document.documentElement;try{(document.fullscreenElement?document.exitFullscreen():el.requestFullscreen()).catch(()=>toast('ملء الشاشة مش متاح هنا'))}catch(e){toast('ملء الشاشة مش متاح هنا')}};
+let audio=null,soundOn=false;
+document.getElementById('soundBtn').onclick=e=>{soundOn=!soundOn;e.currentTarget.textContent='الصوت: '+(soundOn?'شغّال':'مقفول');e.currentTarget.classList.toggle('on',soundOn);if(soundOn&&!audio){try{audio=new AudioContext()}catch(err){}}if(soundOn)chime()};
+function chime(){if(!soundOn||!audio)return;try{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;o.frequency.setValueAtTime(880,audio.currentTime);o.frequency.setValueAtTime(1175,audio.currentTime+0.12);g.gain.setValueAtTime(0.0001,audio.currentTime);g.gain.exponentialRampToValueAtTime(0.15,audio.currentTime+0.02);g.gain.exponentialRampToValueAtTime(0.0001,audio.currentTime+0.5);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+0.5)}catch(e){}}
+let lock=null;async function wakeLock(){if(lock)return;try{lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&lock===null)wakeLock()});
+
+/* ================= اللوحة الجانبية ================= */
+let tab='inbox';
+const side=document.getElementById('side');
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;sel=null;if(mode==='desk')wide();else renderSide();setTabs()});
+function setTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab&&!sel))}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const avCol=s=>s.kind==='human'?'#79CC8E':'#71C4D8';
+const initial=n=>esc(n.replace('د. ','').trim().charAt(0));
+function ago(d){const m=Math.floor((now()-d)/60000);return m<1?'الآن':m+' د'}
+function cardHTML(d){
+  const s=byId(d.from);
+  return `<div class="card" data-id="${d.id}">
+    <div class="from"><span class="av" style="background:${avCol(s)}">${initial(s.name)}</span><b>${esc(s.name)}</b><span class="kind ${s.kind}">${s.kind==='human'?'مهندس':'AI'}</span><span class="ago">${ago(d.at)}</span></div>
+    <div class="proj">${esc(d.project)}</div>
+    <h3>${esc(d.title)}</h3>
+    <p>${esc(d.detail)}</p>
+    <div class="hos"><b>رأي د. حسام:</b> ${esc(d.hos)}</div>
+    <div class="opts">${d.opts.map((o,i)=>`<button type="button" class="${i===0?'pri':''}" data-o="${i}">${esc(o)}</button>`).join('')}</div>
+    <div class="reply"><input id="note${d.id}" placeholder="ملاحظة مع القرار (اختياري)"></div>
+  </div>`;
+}
+function bindCards(){
+  side.querySelectorAll('.card').forEach(c=>c.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{
+    const id=+c.dataset.id,d=decisions.find(x=>x.id===id);if(!d)return;
+    const note=(c.querySelector('input')||{}).value||'';
+    c.classList.add('out');setTimeout(()=>{resolve(id,d.opts[+b.dataset.o],note.trim());renderSide()},300);
+  }));
+}
+function personRow(s){
+  const st=!s.present?['away','خارج المكتب']:s.state==='waiting'?['waiting','منتظر قرارك']:(s.state==='review'||s.state==='submitted')?['review','في المراجعة']:[s.kind==='human'?'human':'working',Math.round(s.progress*100)+'%'];
+  return `<button type="button" class="person" data-p="${s.id}"><span class="av" style="background:${avCol(s)}">${initial(s.name)}</span><span class="pb"><b>${esc(s.name)}</b><span>${esc(s.present?s.task:s.role)}</span></span><span class="st ${st[0]}">${st[1]}</span></button>`;
+}
+function renderSide(){
+  setTabs();
+  if(sel){renderDetail();return}
+  if(tab==='inbox'){
+    side.innerHTML=decisions.length?decisions.slice().reverse().map(cardHTML).join(''):`<div class="empty"><b>مفيش قرارات معلّقة</b>الفريق شغّال. أول ما حد يحتاج رأيك هيظهر هنا ويرفع إيده في الكاميرا.</div>`;
+    side.insertAdjacentHTML('beforeend','<div class="note">بيانات تجريبية للعرض. في النسخة الفعلية القرارات والتاسكات بتيجي من غرفة التحكم.</div>');
+    bindCards();
+  }else if(tab==='team'){
+    side.innerHTML=`<div class="sec">الإدارة</div>
+      <button type="button" class="person" data-p="hossam"><span class="av" style="background:#E8E2D6">ح</span><span class="pb"><b>د. حسام — مدير التصميمات</b><span>بيراجع تسليمات الفريق ويرفعلك اللي محتاج قرار</span></span><span class="st review">${H.queue.length} في الطابور</span></button>
+      <div class="sec">المهندسين في المكتب</div>${STAFF.filter(s=>s.kind==='human').map(personRow).join('')}
+      <div class="sec">الموظفين الافتراضيين</div>${STAFF.filter(s=>s.kind==='ai').map(personRow).join('')}`;
+    side.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>focusDesk(b.dataset.p));
+  }else{
+    side.innerHTML=`<div class="log">${logs.map(l=>`<div><time>${hhmm(l.t)}</time><span class="${l.cls||''}">${esc(l.text)}</span></div>`).join('')||'<div class="empty">لسه مفيش أحداث</div>'}</div>`;
+  }
+}
+function renderDetail(){
+  if(sel==='hossam'){
+    const mine=logs.filter(l=>l.text.includes('د. حسام'));
+    side.innerHTML=`<div class="det" style="display:flex;flex-direction:column;gap:10px">
+      <button type="button" class="back" id="back">→ رجوع للغرفة كلها</button>
+      <h2>د. حسام</h2><div class="role">مدير التصميمات · بيستلم كل تسليم، يراجعه، ويعتمده أو يرفعلك نقطة القرار مع رأيه.</div>
+      <div class="row"><span class="st review">${H.state==='reviewing'?'بيراجع الآن':H.state==='walking'?'بيتحرك':'على مكتبه'}</span><span class="st working">${H.queue.length} تسليم منتظر مراجعة</span></div>
+      <div class="sec">آخر مراجعاته</div>
+      <div class="log">${mine.slice(0,12).map(l=>`<div><time>${hhmm(l.t)}</time><span>${esc(l.text)}</span></div>`).join('')||'<div class="empty">لسه مراجعش حاجة في الجلسة دي</div>'}</div></div>`;
+    document.getElementById('back').onclick=wide;return;
+  }
+  const s=byId(sel), mine=decisions.filter(d=>d.from===s.id);
+  const human=s.kind==='human';
+  side.innerHTML=`<div class="det" style="display:flex;flex-direction:column;gap:10px">
+    <button type="button" class="back" id="back">→ رجوع للغرفة كلها</button>
+    <div class="row"><h2>${esc(s.name)}</h2><span class="kind ${s.kind}">${human?'مهندس فعلي':'موظف افتراضي'}</span></div>
+    <div class="role">${esc(s.role)}</div>
+    ${human?`<div class="row"><span class="toggle"><button type="button" id="pIn" class="${s.present?'on':''}">في المكتب</button><button type="button" id="pOut" class="${!s.present?'on off':''}">برّه</button></span></div>`:''}
+    <div class="sec">التاسك الحالي</div>
+    <div><b style="font-weight:500">${esc(s.task)}</b><div class="prog" style="margin-top:6px"><i id="pbar" style="width:${Math.round(s.progress*100)}%"></i></div><div class="role" id="ptxt">${stateText(s)}</div></div>
+    ${human?`<div class="fld"><label for="tk">تحديث التاسك</label><input id="tk" value="${esc(s.task)}"></div>
+      <div class="row"><button type="button" class="btn" id="tkSave">حفظ</button><button type="button" class="btn pri" id="submit">سلّم لـ د. حسام</button><button type="button" class="btn" id="ask">اطلب قرار</button></div>
+      <div class="fld"><label for="nm">الاسم اللي يظهر على المكتب</label><input id="nm" value="${esc(s.name)}"></div>`:''}
+    <div class="sec">قرارات منتظرة منك (${mine.length})</div>
+    ${mine.map(cardHTML).join('')||'<div class="role">مفيش.</div>'}
+  </div>`;
+  document.getElementById('back').onclick=wide;
+  bindCards();
+  if(human){
+    const setP=v=>{s.present=v;presence[s.id]=v;store.set('presence',presence);if(!v)decisions=decisions.filter(d=>d.from!==s.id),updateCounts();else if(s.state!=='waiting')s.state='working';log(`${s.name} ${v?'وصل المكتب':'خرج من المكتب'}`);renderSide()};
+    document.getElementById('pIn').onclick=()=>setP(true);document.getElementById('pOut').onclick=()=>setP(false);
+    document.getElementById('tkSave').onclick=()=>{const v=document.getElementById('tk').value.trim();if(v){s.task=v;log(`${s.name} حدّث التاسك: ${v}`);toast('اتحفظ');renderSide()}};
+    document.getElementById('submit').onclick=()=>{if(s.state==='submitted'||s.state==='review'){toast('التسليم في المراجعة بالفعل');return}s.progress=1;s.state='submitted';H.queue.push(s.id);log(`${s.name} سلّم "${s.task}" لـ د. حسام`);toast('اتسلّم — د. حسام هيعدّي عليه');renderSide()};
+    document.getElementById('ask').onclick=()=>{if(!spawnDecision(s.id))toast('مفيش أمثلة تانية للمهندس ده دلوقتي');};
+    document.getElementById('nm').onchange=e=>{const v=e.target.value.trim();if(v){s.name=v;names[s.id]=v;store.set('names',names);toast('اتغيّر الاسم')}};
+  }
+}
+function stateText(s){return !s.present?'خارج المكتب':s.state==='waiting'?'واقف — منتظر قرارك':s.state==='review'?'د. حسام بيراجعه':s.state==='submitted'?'في طابور مراجعة د. حسام':'شغّال · '+Math.round(s.progress*100)+'%'}
+function refreshProgress(){const s=byId(sel);const b=document.getElementById('pbar'),t=document.getElementById('ptxt');if(b)b.style.width=Math.round(s.progress*100)+'%';if(t)t.textContent=stateText(s)}
+function updateCounts(){document.getElementById('pendN').textContent=decisions.length;document.getElementById('tabN').textContent=decisions.length}
+let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2200)}
+function clock(){const d=now();document.getElementById('clock').textContent=d.toLocaleDateString('en-GB')+'  '+d.toLocaleTimeString('en-GB')}
+
+/* ================= البداية ================= */
+function start(){
+  resize();clock();
+  log('بداية البث — الفريق على مكاتبه');
+  spawnDecision('pt');spawnDecision('eng1');spawnDecision('qty');
+  STAFF.forEach(s=>{if(s.state!=='waiting')s.bubble=null});
+  renderSide();updateCounts();
+  requestAnimationFrame(t=>{last=t;loop(t)});
+}
+(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(start);
+})();
+</script>
